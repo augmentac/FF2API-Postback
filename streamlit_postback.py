@@ -16,14 +16,16 @@ from typing import Dict, Any, List
 import logging
 
 # Add current directory to path for imports
-sys.path.insert(0, os.path.dirname(__file__))
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
 
 # Import our postback and enrichment modules
 try:
     from enrichment.manager import EnrichmentManager
     from postback.router import PostbackRouter
 except ImportError as e:
-    st.error(f"Failed to import postback modules: {e}")
+    st.error(f"❌ Failed to import postback modules: {e}")
+    st.error("Please ensure the enrichment/ and postback/ directories are present in the deployment.")
     st.stop()
 
 # Configure logging for Streamlit Cloud
