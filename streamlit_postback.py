@@ -105,6 +105,10 @@ def create_output_files(enriched_rows: List[Dict[str, Any]], enabled_handlers: L
     """Create output files and return them as bytes for download."""
     output_files = {}
     
+    # If no file formats selected, return empty (email-only scenario)
+    if not enabled_handlers:
+        return output_files
+    
     # Create temporary directory for outputs
     with tempfile.TemporaryDirectory() as temp_dir:
         # Configure handlers based on selection
@@ -136,17 +140,19 @@ def create_output_files(enriched_rows: List[Dict[str, Any]], enabled_handlers: L
                 'row_element': 'shipment'
             })
         
-        # Create and run postback router
-        router = PostbackRouter(handler_configs)
-        results = router.post_all(enriched_rows)
-        
-        # Read generated files into memory
-        for config in handler_configs:
-            file_path = config['output_path']
-            if os.path.exists(file_path):
-                with open(file_path, 'rb') as f:
-                    filename = os.path.basename(file_path)
-                    output_files[filename] = f.read()
+        # Only create router if we have handlers
+        if handler_configs:
+            # Create and run postback router
+            router = PostbackRouter(handler_configs)
+            results = router.post_all(enriched_rows)
+            
+            # Read generated files into memory
+            for config in handler_configs:
+                file_path = config['output_path']
+                if os.path.exists(file_path):
+                    with open(file_path, 'rb') as f:
+                        filename = os.path.basename(file_path)
+                        output_files[filename] = f.read()
                     
     return output_files
 
@@ -183,6 +189,22 @@ def main():
         # Advanced settings
         st.subheader("Advanced Settings")
         log_level = st.selectbox("Log Level", ["INFO", "DEBUG", "WARNING", "ERROR"])
+        
+        # Email configuration (optional)
+        st.subheader("Email Settings (Optional)")
+        enable_email = st.checkbox("Send Results via Email")
+        if enable_email:
+            email_recipient = st.text_input(
+                "Recipient Email", 
+                placeholder="freight@company.com",
+                help="Email address to receive the results"
+            )
+            email_subject = st.text_input(
+                "Email Subject", 
+                value="Freight Data Results",
+                help="Subject line for the email"
+            )
+            st.info("📧 Results will be sent as CSV attachment via email")
         
         # Webhook configuration (optional)
         st.subheader("Webhook Settings (Optional)")
@@ -229,8 +251,12 @@ def main():
             # Process button
             if st.button("🚀 Process & Enrich Data", type="primary", use_container_width=True):
                 
-                if not output_formats:
-                    st.error("Please select at least one output format.")
+                if not output_formats and not enable_email:
+                    st.error("Please select at least one output format or enable email.")
+                    st.stop()
+                
+                if enable_email and not email_recipient:
+                    st.error("Please enter a recipient email address.")
                     st.stop()
                 
                 # Show progress
@@ -249,6 +275,27 @@ def main():
                         config['enrichment']['sources'][0]['max_events'] = max_events
                     else:
                         config['enrichment']['sources'] = []
+                    
+                    # Add email if enabled
+                    if enable_email and email_recipient:
+                        # Get email credentials from Streamlit secrets
+                        try:
+                            email_config = {
+                                'type': 'email',
+                                'recipient': email_recipient,
+                                'subject': email_subject,
+                                'smtp_user': st.secrets.get("email", {}).get("SMTP_USER"),
+                                'smtp_pass': st.secrets.get("email", {}).get("SMTP_PASS"),
+                            }
+                            
+                            # Check if credentials are available
+                            if email_config['smtp_user'] and email_config['smtp_pass']:
+                                config['postback']['handlers'].append(email_config)
+                            else:
+                                st.warning("⚠️ Email credentials not configured. Skipping email delivery.")
+                                st.info("Contact administrator to configure email settings.")
+                        except Exception:
+                            st.warning("⚠️ Email service not available in this deployment.")
                     
                     # Add webhook if enabled
                     if enable_webhook and webhook_url:
@@ -271,11 +318,18 @@ def main():
                     rows = df.to_dict('records')
                     enriched_rows = enrichment_manager.enrich_rows(rows)
                     
-                    # Step 4: Generate outputs
-                    status_text.text("Generating output files...")
+                    # Step 4: Generate outputs and send emails
+                    status_text.text("Generating output files and sending emails...")
                     progress_bar.progress(75)
                     
+                    # Create file outputs
                     output_files = create_output_files(enriched_rows, output_formats)
+                    
+                    # Handle all postback operations (including email)
+                    postback_results = {}
+                    if config['postback']['handlers']:
+                        router = PostbackRouter(config['postback']['handlers'])
+                        postback_results = router.post_all(enriched_rows)
                     
                     # Step 5: Complete
                     status_text.text("Processing complete!")
@@ -284,15 +338,26 @@ def main():
                     # Store results in session state
                     st.session_state.enriched_data = enriched_rows
                     st.session_state.output_files = output_files
+                    st.session_state.postback_results = postback_results
                     
-                    st.success(f"✅ Successfully processed {len(enriched_rows)} records!")
+                    # Show success message with details
+                    success_msg = f"✅ Successfully processed {len(enriched_rows)} records!"
+                    
+                    # Add email status to success message
+                    if enable_email and 'email' in postback_results:
+                        if postback_results['email']:
+                            success_msg += f"\n📧 Email sent successfully to {email_recipient}"
+                        else:
+                            success_msg += f"\n❌ Email delivery failed"
+                    
+                    st.success(success_msg)
                     
                 except Exception as e:
                     st.error(f"❌ Processing failed: {str(e)}")
                     logger.error(f"Processing error: {e}")
     
     # Results section
-    if 'enriched_data' in st.session_state and 'output_files' in st.session_state:
+    if 'enriched_data' in st.session_state:
         st.header("📊 Results")
         
         # Summary metrics
@@ -312,48 +377,70 @@ def main():
             tracking_count = sum(1 for row in st.session_state.enriched_data if row.get('tracking_events_count', 0) > 0)
             st.metric("With Tracking", tracking_count)
         
+        # Show postback results if available
+        if 'postback_results' in st.session_state and st.session_state.postback_results:
+            st.subheader("Postback Status")
+            postback_cols = st.columns(len(st.session_state.postback_results))
+            
+            for i, (handler_type, success) in enumerate(st.session_state.postback_results.items()):
+                with postback_cols[i]:
+                    if handler_type == 'email':
+                        icon = "📧"
+                    elif handler_type == 'webhook':
+                        icon = "🌐"
+                    else:
+                        icon = "📁"
+                    
+                    status_text = "✅ Success" if success else "❌ Failed"
+                    st.metric(f"{icon} {handler_type.title()}", status_text)
+        
         # Preview enriched data
         st.subheader("Enriched Data Preview")
         enriched_df = pd.DataFrame(st.session_state.enriched_data)
         st.dataframe(enriched_df.head(10))
         
-        # Download section
-        st.subheader("📥 Download Results")
-        
-        # Individual file downloads
-        cols = st.columns(len(st.session_state.output_files))
-        for i, (filename, file_data) in enumerate(st.session_state.output_files.items()):
-            with cols[i % len(cols)]:
-                st.download_button(
-                    label=f"Download {filename}",
-                    data=file_data,
-                    file_name=filename,
-                    mime="application/octet-stream"
-                )
-        
-        # Bulk download as ZIP
-        if len(st.session_state.output_files) > 1:
-            st.markdown("---")
+        # Download section (only show if files were generated)
+        if 'output_files' in st.session_state and st.session_state.output_files:
+            st.subheader("📥 Download Results")
             
-            # Create ZIP file
-            zip_buffer = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
-            try:
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    for filename, file_data in st.session_state.output_files.items():
-                        zip_file.writestr(filename, file_data)
+            # Individual file downloads
+            cols = st.columns(len(st.session_state.output_files))
+            for i, (filename, file_data) in enumerate(st.session_state.output_files.items()):
+                with cols[i % len(cols)]:
+                    st.download_button(
+                        label=f"Download {filename}",
+                        data=file_data,
+                        file_name=filename,
+                        mime="application/octet-stream"
+                    )
+            
+            # Bulk download as ZIP
+            if len(st.session_state.output_files) > 1:
+                st.markdown("---")
                 
-                zip_buffer.seek(0)
-                with open(zip_buffer.name, 'rb') as f:
-                    zip_data = f.read()
-                
-                st.download_button(
-                    label="📦 Download All Files (ZIP)",
-                    data=zip_data,
-                    file_name=f"postback_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                    mime="application/zip"
-                )
-            finally:
-                os.unlink(zip_buffer.name)
+                # Create ZIP file
+                zip_buffer = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+                try:
+                    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                        for filename, file_data in st.session_state.output_files.items():
+                            zip_file.writestr(filename, file_data)
+                    
+                    zip_buffer.seek(0)
+                    with open(zip_buffer.name, 'rb') as f:
+                        zip_data = f.read()
+                    
+                    st.download_button(
+                        label="📦 Download All Files (ZIP)",
+                        data=zip_data,
+                        file_name=f"postback_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                        mime="application/zip"
+                    )
+                finally:
+                    os.unlink(zip_buffer.name)
+        else:
+            # If no files were generated but email was sent
+            if 'postback_results' in st.session_state and st.session_state.postback_results.get('email'):
+                st.info("📧 Results were sent via email. No download files were generated.")
 
 if __name__ == "__main__":
     main()

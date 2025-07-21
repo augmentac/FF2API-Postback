@@ -12,6 +12,12 @@ postback:
     - type: json
       output_path: /tmp/postback.json
       append_mode: false
+    # Email handler (configured via Streamlit UI)
+    # - type: email
+    #   recipient: user@company.com
+    #   subject: Freight Data Results
+    #   smtp_user: app-email@gmail.com
+    #   smtp_pass: app-password
     # Webhook handler (commented out for security)
     # - type: webhook
     #   url: https://example.com/load_update

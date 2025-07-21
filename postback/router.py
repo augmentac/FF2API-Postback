@@ -8,6 +8,7 @@ from .xlsx_handler import XLSXPostbackHandler
 from .json_handler import JSONPostbackHandler
 from .xml_handler import XMLPostbackHandler
 from .webhook_handler import WebhookPostbackHandler
+from .email_handler import EmailPostbackHandler
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class PostbackRouter:
         'json': JSONPostbackHandler,
         'xml': XMLPostbackHandler,
         'webhook': WebhookPostbackHandler,
+        'email': EmailPostbackHandler,
     }
     
     def __init__(self, handler_configs: List[Dict[str, Any]]):

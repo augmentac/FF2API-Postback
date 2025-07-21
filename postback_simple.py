@@ -9,6 +9,13 @@ import json
 import os
 import tempfile
 import zipfile
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+import csv
+import io
 from datetime import datetime
 from typing import Dict, Any, List
 import logging
@@ -61,6 +68,69 @@ def create_excel_output(data: List[Dict[str, Any]]) -> bytes:
     finally:
         os.unlink(output.name)
 
+def send_email(data: List[Dict[str, Any]], recipient: str, subject: str) -> bool:
+    """Send email with data as CSV attachment."""
+    try:
+        # Get credentials from Streamlit secrets
+        smtp_user = st.secrets.get("email", {}).get("SMTP_USER")
+        smtp_pass = st.secrets.get("email", {}).get("SMTP_PASS")
+        
+        if not smtp_user or not smtp_pass:
+            st.warning("Email credentials not configured")
+            return False
+            
+        # Create email
+        msg = MIMEMultipart()
+        msg['From'] = f"FF2API System <{smtp_user}>"
+        msg['To'] = recipient
+        msg['Subject'] = f"{subject} - {len(data)} records"
+        
+        # Email body
+        body = f"""Hello,
+
+Your freight data processing is complete.
+
+Summary:
+• Records processed: {len(data)}
+• Processing time: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+Please find the data attached as a CSV file.
+
+Best regards,
+FF2API System
+"""
+        msg.attach(MIMEText(body, 'plain'))
+        
+        # Create CSV attachment
+        output = io.StringIO()
+        if data:
+            fieldnames = data[0].keys()
+            writer = csv.DictWriter(output, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(data)
+        
+        csv_content = output.getvalue()
+        filename = f"freight_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        
+        attachment = MIMEBase('application', 'octet-stream')
+        attachment.set_payload(csv_content.encode('utf-8'))
+        encoders.encode_base64(attachment)
+        attachment.add_header('Content-Disposition', f'attachment; filename= {filename}')
+        msg.attach(attachment)
+        
+        # Send email
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(smtp_user, recipient, msg.as_string())
+        server.quit()
+        
+        return True
+        
+    except Exception as e:
+        st.error(f"Email failed: {str(e)}")
+        return False
+
 def main():
     """Simple postback system main function."""
     
@@ -95,22 +165,34 @@ def main():
             
             # Configuration
             st.header("⚙️ Settings")
+            
+            # Enrichment settings
+            enable_enrichment = st.checkbox("Enable Mock Tracking Enrichment", value=True)
+            
+            # Output settings
             col1, col2 = st.columns(2)
             
             with col1:
-                enable_enrichment = st.checkbox("Enable Mock Tracking Enrichment", value=True)
-            
-            with col2:
                 output_formats = st.multiselect(
                     "Output Formats",
                     ["CSV", "JSON", "Excel"],
                     default=["CSV", "JSON"]
                 )
             
+            with col2:
+                enable_email = st.checkbox("Send Results via Email")
+                if enable_email:
+                    email_recipient = st.text_input("Recipient Email", placeholder="freight@company.com")
+                    email_subject = st.text_input("Email Subject", value="Freight Data Results")
+            
             # Process button
             if st.button("🚀 Process Data", type="primary"):
-                if not output_formats:
-                    st.error("Please select at least one output format.")
+                if not output_formats and not enable_email:
+                    st.error("Please select at least one output format or enable email.")
+                    return
+                
+                if enable_email and not email_recipient:
+                    st.error("Please enter a recipient email address.")
                     return
                 
                 # Convert to records
@@ -125,8 +207,10 @@ def main():
                 
                 # Create outputs
                 output_files = {}
+                email_sent = False
                 
-                with st.spinner("Generating output files..."):
+                with st.spinner("Generating output files and sending emails..."):
+                    # Create file outputs
                     if "CSV" in output_formats:
                         output_files["enriched_data.csv"] = create_csv_output(enriched_rows)
                     
@@ -135,8 +219,20 @@ def main():
                     
                     if "Excel" in output_formats:
                         output_files["enriched_data.xlsx"] = create_excel_output(enriched_rows)
+                    
+                    # Send email if enabled
+                    if enable_email and email_recipient:
+                        email_sent = send_email(enriched_rows, email_recipient, email_subject)
                 
-                st.success(f"✅ Successfully processed {len(enriched_rows)} records!")
+                # Success message
+                success_msg = f"✅ Successfully processed {len(enriched_rows)} records!"
+                if enable_email:
+                    if email_sent:
+                        success_msg += f"\n📧 Email sent successfully to {email_recipient}"
+                    else:
+                        success_msg += "\n❌ Email delivery failed"
+                
+                st.success(success_msg)
                 
                 # Results section
                 st.header("📊 Results")
@@ -158,40 +254,43 @@ def main():
                 enriched_df = pd.DataFrame(enriched_rows)
                 st.dataframe(enriched_df.head())
                 
-                # Downloads
-                st.subheader("📥 Download Files")
-                
-                # Individual downloads
-                cols = st.columns(len(output_files))
-                for i, (filename, file_data) in enumerate(output_files.items()):
-                    with cols[i % len(cols)]:
-                        st.download_button(
-                            label=f"Download {filename}",
-                            data=file_data,
-                            file_name=filename,
-                            mime="application/octet-stream"
-                        )
-                
-                # ZIP download if multiple files
-                if len(output_files) > 1:
-                    # Create ZIP
-                    zip_buffer = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
-                    try:
-                        with zipfile.ZipFile(zip_buffer.name, 'w') as zf:
-                            for filename, file_data in output_files.items():
-                                zf.writestr(filename, file_data)
-                        
-                        with open(zip_buffer.name, 'rb') as f:
-                            zip_data = f.read()
-                        
-                        st.download_button(
-                            label="📦 Download All Files (ZIP)",
-                            data=zip_data,
-                            file_name=f"enriched_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
-                            mime="application/zip"
-                        )
-                    finally:
-                        os.unlink(zip_buffer.name)
+                # Downloads (only show if files were generated)
+                if output_files:
+                    st.subheader("📥 Download Files")
+                    
+                    # Individual downloads
+                    cols = st.columns(len(output_files))
+                    for i, (filename, file_data) in enumerate(output_files.items()):
+                        with cols[i % len(cols)]:
+                            st.download_button(
+                                label=f"Download {filename}",
+                                data=file_data,
+                                file_name=filename,
+                                mime="application/octet-stream"
+                            )
+                    
+                    # ZIP download if multiple files
+                    if len(output_files) > 1:
+                        # Create ZIP
+                        zip_buffer = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+                        try:
+                            with zipfile.ZipFile(zip_buffer.name, 'w') as zf:
+                                for filename, file_data in output_files.items():
+                                    zf.writestr(filename, file_data)
+                            
+                            with open(zip_buffer.name, 'rb') as f:
+                                zip_data = f.read()
+                            
+                            st.download_button(
+                                label="📦 Download All Files (ZIP)",
+                                data=zip_data,
+                                file_name=f"enriched_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip",
+                                mime="application/zip"
+                            )
+                        finally:
+                            os.unlink(zip_buffer.name)
+                elif enable_email and email_sent:
+                    st.info("📧 Results were sent via email. No download files were generated.")
                         
         except Exception as e:
             st.error(f"❌ Error processing file: {str(e)}")
