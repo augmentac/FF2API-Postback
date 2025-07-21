@@ -1,0 +1,6 @@
+load_id,carrier,PRO,origin_city,origin_state,dest_city,dest_state,weight,pieces,shipper_name
+LOAD001,FEDEX,123456789,Chicago,IL,Atlanta,GA,15000,25,ABC Manufacturing
+LOAD002,UPS,987654321,Los Angeles,CA,Phoenix,AZ,8500,12,XYZ Logistics  
+LOAD003,YELLOWCORP,555666777,Dallas,TX,Houston,TX,22000,35,Heavy Industries Inc
+LOAD004,ODFL,111222333,New York,NY,Philadelphia,PA,5200,8,Quick Ship Co
+LOAD005,SAIA,444555666,Miami,FL,Jacksonville,FL,12800,18,Southern Freight LLC

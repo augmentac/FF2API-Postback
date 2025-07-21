@@ -1,0 +1,35 @@
+# Streamlit Cloud compatible configuration
+postback:
+  handlers:
+    - type: csv
+      output_path: /tmp/postback.csv
+    - type: xlsx
+      output_path: /tmp/postback.xlsx
+    - type: xml
+      output_path: /tmp/postback.xml
+      root_element: freight_data
+      row_element: shipment
+    - type: json
+      output_path: /tmp/postback.json
+      append_mode: false
+    # Webhook handler (commented out for security)
+    # - type: webhook
+    #   url: https://example.com/load_update
+    #   timeout: 30
+    #   batch_size: 50
+    #   retry_count: 3
+    #   headers:
+    #     Content-Type: application/json
+    #     Authorization: Bearer your_token_here
+
+enrichment:
+  sources:
+    - type: mock_tracking
+      generate_events: true
+      max_events: 5
+
+# Cloud deployment settings
+cloud:
+  temp_dir: /tmp
+  max_file_size_mb: 50
+  max_processing_rows: 10000

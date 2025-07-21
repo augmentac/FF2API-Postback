@@ -1,0 +1,2 @@
+# System packages required for Streamlit Cloud deployment
+# These will be installed via apt-get

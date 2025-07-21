@@ -1,8 +1,11 @@
-# FF2API Deployment Guide
+# FF2API Platform - Streamlit Cloud Deployment
 
 ## 📋 Overview
 
-This guide covers deploying the FF2API application to Streamlit Cloud for internal company use. The application provides a secure, team-accessible interface for CSV-to-API data processing.
+This guide covers deploying the FF2API Platform (including the new Postback & Enrichment system) to Streamlit Cloud for internal company use. The platform now provides two main applications:
+
+1. **FF2API - Load Processing**: Secure CSV-to-API data processing
+2. **Postback & Enrichment System**: Freight data enrichment and multi-format export
 
 ## 🔧 Prerequisites
 
