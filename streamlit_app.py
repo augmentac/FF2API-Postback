@@ -30,7 +30,6 @@ def main():
     # Sidebar navigation
     with st.sidebar:
         st.title("🚚 FF2API Platform")
-        
         # Navigation options
         page = st.selectbox(
             "Choose Application:",
@@ -42,7 +41,6 @@ def main():
             help="Select which part of the FF2API platform to use"
         )
         
-        st.markdown("---")
         st.markdown("---")
         st.markdown("### About")
         if page == "FF2API - Load Processing":
