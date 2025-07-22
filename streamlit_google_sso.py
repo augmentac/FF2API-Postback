@@ -201,55 +201,9 @@ client_secret = "your-universal-client-secret"
             key=f"email_hint_{brokerage_key}"
         )
         
-        # Use streamlit-oauth component for direct authentication
-        try:
-            # Import streamlit-oauth component
-            from streamlit_oauth import st_oauth
-            
-            # Configure OAuth parameters
-            oauth_config = {
-                'client_id': self._config['client_id'],
-                'client_secret': self._config['client_secret'],
-                'authorization_url': 'https://accounts.google.com/o/oauth2/v2/auth',
-                'token_url': 'https://oauth2.googleapis.com/token',
-                'scope': ' '.join(self.REQUIRED_SCOPES),
-                'redirect_uri': st.secrets.get('app_url', 'http://localhost:8501') + '/'
-            }
-            
-            # Additional parameters
-            oauth_params = {
-                'access_type': 'offline',
-                'prompt': 'consent',
-                'include_granted_scopes': 'true'
-            }
-            
-            if email_hint:
-                oauth_params['login_hint'] = email_hint
-            
-            # Render OAuth component
-            auth_result = st_oauth(
-                key=f"google_oauth_{brokerage_key}",
-                **oauth_config,
-                **oauth_params
-            )
-            
-            if auth_result:
-                # Store authentication data
-                self._store_auth_result(brokerage_key, auth_result)
-                st.success(f"✅ Successfully authenticated as: {auth_result.get('userinfo', {}).get('email', 'Unknown')}")
-                st.rerun()
-                
-                return {
-                    'success': True,
-                    'authenticated': True,
-                    'user_email': auth_result.get('userinfo', {}).get('email'),
-                    'brokerage_key': brokerage_key
-                }
-            
-        except ImportError:
-            # Fallback to manual OAuth flow if streamlit-oauth not available
-            st.warning("📦 **streamlit-oauth not available** - Using manual authentication flow")
-            return self._render_manual_auth_fallback(brokerage_key, email_hint)
+        # Use manual OAuth flow for better reliability
+        st.info("🔐 Using secure manual authentication flow")
+        return self._render_manual_auth_fallback(brokerage_key, email_hint)
         
         return {'success': False, 'authenticated': False, 'awaiting_auth': True}
     
