@@ -304,17 +304,10 @@ def main():
             cred_status = credential_manager.validate_credentials(brokerage_key)
             
             # Capability indicators
-            col1, col2 = st.columns(2)
-            with col1:
-                if cred_status.api_available:
-                    st.success("✅ API Access")
-                else:
-                    st.error("❌ No API Access")
-            with col2:
-                if cred_status.snowflake_available:
-                    st.success("✅ Warehouse")
-                else:
-                    st.error("❌ No Warehouse")
+            if cred_status.snowflake_available:
+                st.success("✅ Warehouse")
+            else:
+                st.error("❌ No Warehouse")
         
         # Essential options only
         add_tracking = st.checkbox("Add warehouse data", value=True)
