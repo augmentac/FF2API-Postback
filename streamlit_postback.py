@@ -73,6 +73,70 @@ def load_default_config() -> Dict[str, Any]:
         }
     }
 
+def auto_detect_column_mappings(csv_columns: List[str]) -> Dict[str, str]:
+    """
+    Smart auto-detection of column mappings based on common patterns.
+    Returns a dictionary of {system_field: csv_column} mappings.
+    """
+    mappings = {}
+    
+    # Define mapping patterns (case-insensitive)
+    mapping_patterns = {
+        'load_id': [
+            'bol #', 'bol_number', 'bol', 'bill_of_lading',
+            'load_id', 'load_number', 'shipment_id', 'reference'
+        ],
+        'pro_number': [
+            'carrier pro#', 'pro_number', 'pro #', 'pro', 'tracking_number',
+            'carrier_pro', 'pronumber', 'tracking', 'waybill'
+        ],
+        'carrier': [
+            'carrier name', 'carrier', 'carrier_name', 'scac', 'carrier_code',
+            'transportation_provider', 'shipper'
+        ],
+        'customer_code': [
+            'customer name', 'customer_code', 'customer', 'client_name',
+            'acct/customer#', 'account', 'customer_id', 'client'
+        ],
+        'origin_zip': [
+            'origin zip', 'origin_zip', 'pickup_zip', 'from_zip',
+            'origin_postal', 'ship_from_zip', 'pickup_postal'
+        ],
+        'dest_zip': [
+            'destination zip', 'dest_zip', 'delivery_zip', 'to_zip',
+            'destination_postal', 'ship_to_zip', 'delivery_postal'
+        ]
+    }
+    
+    # Convert CSV columns to lowercase for matching
+    csv_lower = {col.lower(): col for col in csv_columns}
+    
+    # Find best matches for each system field
+    for system_field, patterns in mapping_patterns.items():
+        best_match = None
+        
+        # Look for exact matches first
+        for pattern in patterns:
+            if pattern in csv_lower:
+                best_match = csv_lower[pattern]
+                break
+        
+        # If no exact match, look for partial matches
+        if not best_match:
+            for pattern in patterns:
+                for csv_col_lower, csv_col_original in csv_lower.items():
+                    if pattern in csv_col_lower or csv_col_lower in pattern:
+                        best_match = csv_col_original
+                        break
+                if best_match:
+                    break
+        
+        if best_match:
+            mappings[system_field] = best_match
+    
+    return mappings
+
+
 def validate_uploaded_file(uploaded_file) -> pd.DataFrame:
     """Validate and load uploaded file."""
     try:
@@ -265,78 +329,96 @@ def main():
                 st.subheader("Data Preview")
                 st.dataframe(df.head(10))
                 
-                # Column mapping interface for existing loads
-                st.subheader("🔗 Column Mapping")
-                st.info("Map your CSV columns to system fields for data enrichment")
+                # Smart column mapping with auto-detection
+                st.subheader("🔗 Smart Column Mapping")
                 
-                # Standard system field options
-                system_fields = {
-                    'load_id': 'Load ID (primary identifier)',
-                    'bol_number': 'BOL Number', 
-                    'pro_number': 'PRO Number',
-                    'carrier': 'Carrier Name/Code',
-                    'customer_code': 'Customer Code/ID',
-                    'origin_zip': 'Origin ZIP Code',
-                    'dest_zip': 'Destination ZIP Code'
-                }
+                # Auto-detect column mappings
+                auto_mappings = auto_detect_column_mappings(list(df.columns))
                 
-                # Available CSV columns
-                csv_columns = ['-- Not Mapped --'] + list(df.columns)
-                
-                # Create mapping interface
-                column_mapping = {}
-                col_map1, col_map2 = st.columns(2)
-                
-                with col_map1:
-                    st.write("**Primary Identifiers:**")
-                    column_mapping['load_id'] = st.selectbox(
-                        "Load ID Field:", 
-                        csv_columns,
-                        index=csv_columns.index('BOL #') if 'BOL #' in csv_columns else 0,
-                        help="Select the field that identifies each load"
-                    )
+                if auto_mappings:
+                    st.success(f"✅ Auto-detected {len(auto_mappings)} field mappings")
                     
-                    column_mapping['pro_number'] = st.selectbox(
-                        "PRO Number Field:", 
-                        csv_columns,
-                        index=csv_columns.index('Carrier Pro#') if 'Carrier Pro#' in csv_columns else 0
-                    )
+                    # Display mapping table
+                    mapping_df = pd.DataFrame([
+                        {"System Field": system_field.replace('_', ' ').title(), 
+                         "CSV Column": csv_col,
+                         "Field Type": "🔑 Primary" if system_field in ['load_id', 'pro_number'] else "📝 Optional"}
+                        for system_field, csv_col in auto_mappings.items()
+                    ])
+                    st.dataframe(mapping_df, hide_index=True, use_container_width=True)
                     
-                    column_mapping['carrier'] = st.selectbox(
-                        "Carrier Field:", 
-                        csv_columns,
-                        index=csv_columns.index('Carrier Name') if 'Carrier Name' in csv_columns else 0
-                    )
-                
-                with col_map2:
-                    st.write("**Optional Fields:**")
-                    column_mapping['customer_code'] = st.selectbox(
-                        "Customer Code:", 
-                        csv_columns,
-                        index=csv_columns.index('Customer Name') if 'Customer Name' in csv_columns else 0
-                    )
+                    # Store auto-mappings
+                    st.session_state.column_mapping = auto_mappings
                     
-                    column_mapping['origin_zip'] = st.selectbox(
-                        "Origin ZIP:", 
-                        csv_columns,
-                        index=csv_columns.index('Origin Zip') if 'Origin Zip' in csv_columns else 0
-                    )
-                    
-                    column_mapping['dest_zip'] = st.selectbox(
-                        "Destination ZIP:", 
-                        csv_columns,
-                        index=csv_columns.index('Destination Zip') if 'Destination Zip' in csv_columns else 0
-                    )
-                
-                # Show mapping summary
-                active_mappings = {k: v for k, v in column_mapping.items() if v != '-- Not Mapped --'}
-                if active_mappings:
-                    st.success(f"✅ Mapped {len(active_mappings)} fields: {', '.join(active_mappings.keys())}")
                 else:
-                    st.warning("⚠️ No fields mapped. Please map at least one identifier field.")
+                    st.warning("⚠️ Could not auto-detect field mappings")
+                    st.session_state.column_mapping = {}
                 
-                # Store mapping in session state
-                st.session_state.column_mapping = column_mapping
+                # Manual override option
+                with st.expander("🔧 Adjust Mappings (Optional)"):
+                    st.info("Only modify if auto-detection is incorrect")
+                    
+                    # Available CSV columns for manual override
+                    csv_columns = ['-- Not Mapped --'] + list(df.columns)
+                    
+                    # Manual mapping interface (more compact)
+                    manual_mapping = {}
+                    col1, col2, col3 = st.columns(3)
+                    
+                    with col1:
+                        manual_mapping['load_id'] = st.selectbox(
+                            "Load ID Field:", 
+                            csv_columns,
+                            index=csv_columns.index(auto_mappings.get('load_id', '-- Not Mapped --')) if auto_mappings.get('load_id') in csv_columns else 0
+                        )
+                        manual_mapping['pro_number'] = st.selectbox(
+                            "PRO Number Field:", 
+                            csv_columns,
+                            index=csv_columns.index(auto_mappings.get('pro_number', '-- Not Mapped --')) if auto_mappings.get('pro_number') in csv_columns else 0
+                        )
+                    
+                    with col2:
+                        manual_mapping['carrier'] = st.selectbox(
+                            "Carrier Field:", 
+                            csv_columns,
+                            index=csv_columns.index(auto_mappings.get('carrier', '-- Not Mapped --')) if auto_mappings.get('carrier') in csv_columns else 0
+                        )
+                        manual_mapping['customer_code'] = st.selectbox(
+                            "Customer Field:", 
+                            csv_columns,
+                            index=csv_columns.index(auto_mappings.get('customer_code', '-- Not Mapped --')) if auto_mappings.get('customer_code') in csv_columns else 0
+                        )
+                    
+                    with col3:
+                        manual_mapping['origin_zip'] = st.selectbox(
+                            "Origin ZIP:", 
+                            csv_columns,
+                            index=csv_columns.index(auto_mappings.get('origin_zip', '-- Not Mapped --')) if auto_mappings.get('origin_zip') in csv_columns else 0
+                        )
+                        manual_mapping['dest_zip'] = st.selectbox(
+                            "Destination ZIP:", 
+                            csv_columns,
+                            index=csv_columns.index(auto_mappings.get('dest_zip', '-- Not Mapped --')) if auto_mappings.get('dest_zip') in csv_columns else 0
+                        )
+                    
+                    # Apply manual overrides button
+                    if st.button("Apply Manual Mappings"):
+                        # Filter out unmapped fields
+                        filtered_mapping = {k: v for k, v in manual_mapping.items() if v != '-- Not Mapped --'}
+                        st.session_state.column_mapping = filtered_mapping
+                        st.success(f"✅ Applied {len(filtered_mapping)} manual mappings")
+                        st.rerun()
+                
+                # Final validation
+                current_mappings = getattr(st.session_state, 'column_mapping', {})
+                if not current_mappings:
+                    st.error("⚠️ No field mappings available. Please check your CSV columns.")
+                else:
+                    primary_fields = [f for f in ['load_id', 'pro_number', 'carrier'] if f in current_mappings]
+                    if primary_fields:
+                        st.info(f"🎯 Ready to enrich using: {', '.join([f.replace('_', ' ').title() for f in primary_fields])}")
+                    else:
+                        st.warning("⚠️ No primary identifier fields mapped. Enrichment may be limited.")
     
     with col2:
         st.header("🔄 Processing")
@@ -356,13 +438,15 @@ def main():
                     st.stop()
                 
                 # Check column mapping
-                if not hasattr(st.session_state, 'column_mapping'):
-                    st.error("Please complete column mapping before processing.")
+                current_mappings = getattr(st.session_state, 'column_mapping', {})
+                if not current_mappings:
+                    st.error("No column mappings detected. Please check your CSV format or use manual mapping.")
                     st.stop()
                     
-                active_mappings = {k: v for k, v in st.session_state.column_mapping.items() if v != '-- Not Mapped --'}
-                if not active_mappings:
-                    st.error("Please map at least one identifier field (Load ID, PRO Number, or Carrier).")
+                # Check for at least one primary identifier
+                primary_fields = [f for f in ['load_id', 'pro_number', 'carrier'] if f in current_mappings]
+                if not primary_fields:
+                    st.error("Please ensure at least one primary identifier field (Load ID, PRO Number, or Carrier) is mapped.")
                     st.stop()
                 
                 if not enable_tracking and not enable_snowflake:
@@ -459,14 +543,16 @@ def main():
                     
                     # Apply column mapping to standardize field names
                     rows = df.to_dict('records')
-                    if hasattr(st.session_state, 'column_mapping'):
+                    current_mappings = getattr(st.session_state, 'column_mapping', {})
+                    
+                    if current_mappings:
                         mapped_rows = []
                         for row in rows:
                             mapped_row = row.copy()  # Keep all original fields
                             
                             # Apply field mappings
-                            for system_field, csv_field in st.session_state.column_mapping.items():
-                                if csv_field != '-- Not Mapped --' and csv_field in row:
+                            for system_field, csv_field in current_mappings.items():
+                                if csv_field in row and row[csv_field] is not None:
                                     # Map CSV field to system field
                                     mapped_row[system_field] = row[csv_field]
                                     
@@ -477,7 +563,10 @@ def main():
                             mapped_rows.append(mapped_row)
                         rows = mapped_rows
                         
-                        st.info(f"✅ Applied column mapping to {len(rows)} rows")
+                        mapped_fields = list(current_mappings.keys())
+                        st.info(f"✅ Applied column mapping to {len(rows)} rows using: {', '.join(mapped_fields)}")
+                    else:
+                        st.warning("No column mapping applied - using original field names")
                     
                     status_text.text("Enriching data...")
                     progress_bar.progress(50)
