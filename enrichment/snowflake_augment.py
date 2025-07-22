@@ -25,6 +25,7 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
         self.database = config.get('database', 'AUGMENT_DW')
         self.schema = config.get('schema', 'MARTS')
         self.enabled_enrichments = config.get('enrichments', [])
+        self.use_load_ids = config.get('use_load_ids', False)  # NEW: Flag for load ID-based enrichment
         self._connection = None
         self._connection_error = None
         
@@ -83,8 +84,12 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
         """Check if Snowflake enrichment is applicable to the row."""
         if self._connection_error:
             return False
+        
+        # If using load IDs, check for internal_load_id
+        if self.use_load_ids:
+            return bool(row.get('internal_load_id'))
             
-        # Check if any required fields exist for enabled enrichments
+        # Otherwise check for traditional fields
         if 'tracking' in self.enabled_enrichments and row.get('PRO'):
             return True
         if 'customer' in self.enabled_enrichments and row.get('customer_code'):
@@ -115,25 +120,31 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             return enriched
         
         try:
-            # Add tracking data if PRO exists and tracking enrichment enabled
-            if 'tracking' in self.enabled_enrichments and row.get('PRO'):
-                tracking_data = self._get_tracking_data(connection, row['PRO'])
-                enriched.update(tracking_data)
-            
-            # Add customer data if customer_code exists and customer enrichment enabled
-            if 'customer' in self.enabled_enrichments and row.get('customer_code'):
-                customer_data = self._get_customer_data(connection, row['customer_code'])
-                enriched.update(customer_data)
+            # Use load ID-based enrichment if enabled and internal_load_id is available
+            if self.use_load_ids and row.get('internal_load_id'):
+                load_data = self._get_load_data_by_id(connection, row['internal_load_id'])
+                enriched.update(load_data)
+            else:
+                # Traditional field-based enrichment
+                # Add tracking data if PRO exists and tracking enrichment enabled
+                if 'tracking' in self.enabled_enrichments and row.get('PRO'):
+                    tracking_data = self._get_tracking_data(connection, row['PRO'])
+                    enriched.update(tracking_data)
                 
-            # Add carrier data if carrier exists and carrier enrichment enabled
-            if 'carrier' in self.enabled_enrichments and row.get('carrier'):
-                carrier_data = self._get_carrier_data(connection, row['carrier'])
-                enriched.update(carrier_data)
-                
-            # Add lane performance if origin/dest exist and lane enrichment enabled
-            if 'lane' in self.enabled_enrichments and row.get('origin_zip') and row.get('dest_zip'):
-                lane_data = self._get_lane_data(connection, row['origin_zip'], row['dest_zip'], row.get('carrier'))
-                enriched.update(lane_data)
+                # Add customer data if customer_code exists and customer enrichment enabled
+                if 'customer' in self.enabled_enrichments and row.get('customer_code'):
+                    customer_data = self._get_customer_data(connection, row['customer_code'])
+                    enriched.update(customer_data)
+                    
+                # Add carrier data if carrier exists and carrier enrichment enabled
+                if 'carrier' in self.enabled_enrichments and row.get('carrier'):
+                    carrier_data = self._get_carrier_data(connection, row['carrier'])
+                    enriched.update(carrier_data)
+                    
+                # Add lane performance if origin/dest exist and lane enrichment enabled
+                if 'lane' in self.enabled_enrichments and row.get('origin_zip') and row.get('dest_zip'):
+                    lane_data = self._get_lane_data(connection, row['origin_zip'], row['dest_zip'], row.get('carrier'))
+                    enriched.update(lane_data)
                 
         except Exception as e:
             logger.error(f"Snowflake enrichment error for row: {e}")
@@ -293,6 +304,68 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
         except Exception as e:
             logger.error(f"Error getting lane data for {origin_zip}-{dest_zip}: {e}")
             return {'sf_lane_error': str(e)}
+    
+    def _get_load_data_by_id(self, connection, internal_load_id: str) -> Dict[str, Any]:
+        """Get comprehensive load data using internal load ID."""
+        query = f"""
+        SELECT 
+            l.current_status as sf_load_status,
+            l.pickup_date as sf_pickup_date,
+            l.delivery_date as sf_delivery_date,
+            l.total_cost as sf_total_cost,
+            l.carrier_name as sf_carrier_name,
+            c.customer_name as sf_customer_name,
+            c.account_manager as sf_account_manager,
+            c.payment_terms as sf_payment_terms,
+            t.current_status as sf_tracking_status,
+            t.scan_location as sf_last_scan_location,
+            t.scan_datetime as sf_last_scan_time,
+            t.estimated_delivery_date as sf_estimated_delivery
+        FROM {self.database}.{self.schema}.dim_loads l
+        LEFT JOIN {self.database}.{self.schema}.dim_customers c ON l.customer_id = c.customer_id
+        LEFT JOIN {self.database}.{self.schema}.fct_tracking_events t ON l.pro_number = t.pro_number
+        WHERE l.internal_load_id = %s
+        ORDER BY t.scan_datetime DESC
+        LIMIT 1
+        """
+        
+        try:
+            results = self._execute_query(connection, query, [internal_load_id])
+            
+            if results:
+                result = results[0]
+                return {
+                    'sf_load_status': result[0] if result[0] else 'Unknown',
+                    'sf_pickup_date': result[1].isoformat() if result[1] else None,
+                    'sf_delivery_date': result[2].isoformat() if result[2] else None,
+                    'sf_total_cost': float(result[3]) if result[3] else 0.0,
+                    'sf_carrier_name': result[4] if result[4] else 'Unknown',
+                    'sf_customer_name': result[5] if result[5] else 'Unknown',
+                    'sf_account_manager': result[6] if result[6] else 'Unassigned',
+                    'sf_payment_terms': result[7] if result[7] else 'Unknown',
+                    'sf_tracking_status': result[8] if result[8] else 'No Data',
+                    'sf_last_scan_location': result[9] if result[9] else 'Unknown',
+                    'sf_last_scan_time': result[10].isoformat() if result[10] else None,
+                    'sf_estimated_delivery': result[11].isoformat() if result[11] else None
+                }
+            else:
+                return {
+                    'sf_load_status': 'Not Found',
+                    'sf_pickup_date': None,
+                    'sf_delivery_date': None,
+                    'sf_total_cost': 0.0,
+                    'sf_carrier_name': 'Unknown',
+                    'sf_customer_name': 'Unknown',
+                    'sf_account_manager': 'Unknown',
+                    'sf_payment_terms': 'Unknown',
+                    'sf_tracking_status': 'No Data',
+                    'sf_last_scan_location': 'Unknown',
+                    'sf_last_scan_time': None,
+                    'sf_estimated_delivery': None
+                }
+        except Exception as e:
+            logger.error(f"Error getting load data for ID {internal_load_id}: {e}")
+            return {'sf_load_error': str(e)}
     
     def __del__(self):
         """Clean up connection on object destruction."""

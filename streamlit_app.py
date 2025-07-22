@@ -34,7 +34,11 @@ def main():
         # Navigation options
         page = st.selectbox(
             "Choose Application:",
-            ["Postback & Enrichment System", "FF2API - Load Processing"],
+            [
+                "End-to-End Load Processing", 
+                "Postback & Enrichment System", 
+                "FF2API - Load Processing"
+            ],
             help="Select which part of the FF2API platform to use"
         )
         
@@ -42,11 +46,25 @@ def main():
         st.markdown("### About")
         if page == "FF2API - Load Processing":
             st.info("📊 Process and upload freight loads to various APIs with smart mapping capabilities.")
-        else:
+        elif page == "Postback & Enrichment System":
             st.info("🔄 Enrich freight data with tracking information and export to multiple formats.")
+        else:  # End-to-End Load Processing
+            st.info("🚀 Complete workflow: CSV → FF2API → Load IDs → Snowflake → Postback")
     
     # Route to appropriate application
-    if page == "FF2API - Load Processing":
+    if page == "End-to-End Load Processing":
+        # Load end-to-end workflow system
+        try:
+            from streamlit_endtoend import main as endtoend_main
+            endtoend_main()
+        except ImportError as e:
+            st.error(f"❌ End-to-end system unavailable: {str(e)}")
+            st.info("This feature requires all workflow components to be available.")
+        except Exception as e:
+            st.error(f"❌ Error in End-to-End system: {str(e)}")
+            st.info("Please check the configuration and try again.")
+    
+    elif page == "FF2API - Load Processing":
         try:
             # Try multiple import paths for the original app
             try:
@@ -63,7 +81,8 @@ def main():
         except Exception as e:
             st.error(f"❌ Error loading FF2API application: {str(e)}")
             st.info("Please contact support if this error persists.")
-    else:
+    
+    else:  # Postback & Enrichment System
         # Load postback system
         try:
             # Try to import the full postback system

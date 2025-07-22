@@ -38,6 +38,14 @@ enrichment:
       schema: "MARTS"
       enrichments: ["tracking", "customer", "carrier"]
 
+# End-to-End Workflow Settings
+endtoend:
+  brokerage_key: "augment-brokerage"
+  load_api_url: "https://load.prod.goaugment.com/unstable/loads"
+  api_timeout: 30
+  retry_count: 3
+  retry_delay: 1
+
 # Cloud deployment settings
 cloud:
   temp_dir: /tmp
