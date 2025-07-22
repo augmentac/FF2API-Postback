@@ -231,11 +231,21 @@ client_secret = "your-universal-client-secret"
             ">🔗 Open Google Authentication</a>
             """, unsafe_allow_html=True)
             
-            st.markdown("**Step 2:** After authentication, enter the code here:")
+            st.markdown("**Step 2:** After authentication, check the URL for a 'code' parameter or enter it manually:")
+            
+            # Check if we got redirected back with a code
+            try:
+                url_params = st.query_params
+                auto_code = url_params.get('code', '')
+                if auto_code:
+                    st.success("✅ Authorization code detected from redirect!")
+            except:
+                auto_code = ''
             
             auth_code = st.text_input(
                 "Authorization code:",
-                placeholder="Paste the code from Google here",
+                value=auto_code,
+                placeholder="Code should auto-fill from redirect, or paste manually",
                 key=f"manual_auth_code_{brokerage_key}"
             )
             
@@ -265,9 +275,13 @@ client_secret = "your-universal-client-secret"
             }
             state = base64.urlsafe_b64encode(json.dumps(state_data).encode()).decode()
             
+            # Use the app URL for redirect, but we'll handle it manually
+            app_url = st.secrets.get('app_url', 'http://localhost:8501')
+            redirect_uri = f"{app_url}/"
+            
             params = {
                 'client_id': self._config['client_id'],
-                'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob',  # For manual code flow
+                'redirect_uri': redirect_uri,
                 'scope': ' '.join(self.REQUIRED_SCOPES),
                 'response_type': 'code',
                 'access_type': 'offline',
@@ -289,14 +303,17 @@ client_secret = "your-universal-client-secret"
         try:
             import requests
             
-            # Exchange code for tokens
+            # Exchange code for tokens  
             token_url = "https://oauth2.googleapis.com/token"
+            app_url = st.secrets.get('app_url', 'http://localhost:8501')
+            redirect_uri = f"{app_url}/"
+            
             data = {
                 'client_id': self._config['client_id'],
                 'client_secret': self._config['client_secret'],
                 'code': auth_code,
                 'grant_type': 'authorization_code',
-                'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob'
+                'redirect_uri': redirect_uri
             }
             
             response = requests.post(token_url, data=data)
