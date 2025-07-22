@@ -278,19 +278,6 @@ def main():
         # Show credential status
         if brokerage_key:
             cred_status = credential_manager.validate_credentials(brokerage_key)
-            
-            # Capability indicators
-            col1, col2 = st.columns(2)
-            with col1:
-                if cred_status.snowflake_available:
-                    st.success("✅ Warehouse")
-                else:
-                    st.error("❌ No Warehouse")
-            with col2:
-                if cred_status.email_available:
-                    st.success("✅ Email")
-                else:
-                    st.info("ℹ️ Email Optional")
         
         # Essential options only  
         add_tracking = st.checkbox("Add tracking data", value=True)
