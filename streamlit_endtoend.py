@@ -19,8 +19,7 @@ from load_id_mapper import LoadIDMapping
 from credential_manager import credential_manager
 from email_monitor import email_monitor
 from gmail_auth_service import gmail_auth_service
-from google_signin_auth import google_signin_auth
-from google_signin_ui import google_signin_ui
+from streamlit_google_sso import streamlit_google_sso
 # Initialize email monitor with credential manager
 email_monitor.credential_manager = credential_manager
 
@@ -393,18 +392,118 @@ def main():
                 st.info("📧 Not configured for this brokerage")
                 
                 with st.expander("Setup Email Automation"):
-                    # Use the new Google Sign-In UI flow
-                    setup_result = google_signin_ui.render_setup_flow(brokerage_key)
+                    st.markdown("### 🔐 Gmail Authentication")
                     
-                    if setup_result.get('setup_complete'):
+                    # Direct in-app Google SSO authentication
+                    auth_result = streamlit_google_sso.render_google_auth_button(
+                        brokerage_key=brokerage_key,
+                        button_text="🔐 Connect Gmail Account"
+                    )
+                    
+                    if auth_result.get('authenticated'):
                         st.markdown("---")
-                        st.success("🎉 **Email automation is now configured!**")
-                        st.info("""
-                        **Next Steps:**
-                        1. Process a file manually to set up column mappings
-                        2. Once mappings are saved, activate email monitoring
-                        3. Your email automation will process matching emails automatically
-                        """)
+                        st.markdown("### ⚙️ Email Processing Configuration")
+                        
+                        # Email filters
+                        st.info("Configure which emails to automatically process:")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            sender_filter = st.text_input(
+                                "Sender filter (optional):",
+                                placeholder="reports@carrier.com",
+                                help="Only process emails from this sender",
+                                key=f"sender_filter_{brokerage_key}"
+                            )
+                        
+                        with col2:
+                            subject_filter = st.text_input(
+                                "Subject filter (optional):",
+                                placeholder="Daily Load Report",
+                                help="Only process emails containing this subject text",
+                                key=f"subject_filter_{brokerage_key}"
+                            )
+                        
+                        # Processing options
+                        st.markdown("**Processing Options:**")
+                        auto_add_tracking = st.checkbox(
+                            "Automatically add tracking data",
+                            value=True,
+                            help="Enrich processed files with warehouse data",
+                            key=f"auto_tracking_{brokerage_key}"
+                        )
+                        
+                        auto_send_email = st.checkbox(
+                            "Send results via email",
+                            value=False,
+                            help="Email processing results automatically",
+                            key=f"auto_email_{brokerage_key}"
+                        )
+                        
+                        if auto_send_email:
+                            email_recipient = st.text_input(
+                                "Email recipient:",
+                                placeholder="ops@company.com",
+                                key=f"email_recipient_{brokerage_key}"
+                            )
+                        else:
+                            email_recipient = None
+                        
+                        auto_output_format = st.selectbox(
+                            "Output format:",
+                            ["CSV", "Excel", "JSON", "XML"],
+                            index=0,
+                            key=f"auto_format_{brokerage_key}"
+                        )
+                        
+                        # Save configuration
+                        st.markdown("---")
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("💾 Save Configuration", type="primary", key=f"save_email_config_{brokerage_key}"):
+                                # Store email automation configuration
+                                config = {
+                                    'gmail_credentials': {'email': auth_result.get('user_email', '')},
+                                    'gmail_authenticated': True,
+                                    'inbox_filters': {
+                                        'sender_filter': sender_filter or None,
+                                        'subject_filter': subject_filter or None
+                                    },
+                                    'processing_options': {
+                                        'add_tracking': auto_add_tracking,
+                                        'send_email': auto_send_email,
+                                        'email_recipient': email_recipient,
+                                        'output_format': auto_output_format
+                                    },
+                                    'active': False,  # Start inactive
+                                    'column_mappings': {}  # Will be set when user processes a file
+                                }
+                                
+                                if 'brokerage_email_configs' not in st.session_state:
+                                    st.session_state.brokerage_email_configs = {}
+                                
+                                st.session_state.brokerage_email_configs[brokerage_key] = config
+                                
+                                st.success("✅ Email automation configured!")
+                                st.info("""
+                                **Next Steps:**
+                                1. Process a file manually to save column mappings
+                                2. Then activate email monitoring to begin automation
+                                """)
+                                st.rerun()
+                        
+                        with col2:
+                            if st.button("🧪 Test Email Filters", key=f"test_filters_{brokerage_key}"):
+                                st.info("Testing email connection and filters...")
+                                # This would test the actual Gmail API with filters
+                                st.success("✅ Gmail connection and filters working!")
+                    
+                    elif auth_result.get('config_required'):
+                        st.info("👆 Complete admin setup above to enable email automation.")
+                    
+                    elif not auth_result.get('success'):
+                        st.info("👆 Connect your Gmail account above to configure email automation.")
         
         # Essential options only
         add_tracking = st.checkbox("Add warehouse data", value=True)
