@@ -14,6 +14,15 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 sys.path.insert(0, os.path.join(current_dir, 'src'))
 
+# Import credential manager for email automation detection
+try:
+    from credential_manager import credential_manager
+    from email_monitor import email_monitor
+    email_monitor.credential_manager = credential_manager
+except ImportError as e:
+    st.error(f"Failed to import required modules: {e}")
+    st.stop()
+
 def main():
     """Main application router."""
     
@@ -30,14 +39,31 @@ def main():
     # Sidebar navigation
     with st.sidebar:
         st.title("🚚 FF2API Platform")
+        
+        # Check if any brokerages have email automation available
+        available_brokerages = credential_manager.get_available_brokerages()
+        email_automation_available = False
+        
+        for brokerage in available_brokerages:
+            cred_status = credential_manager.validate_credentials(brokerage)
+            if cred_status.email_automation_available:
+                email_automation_available = True
+                break
+        
+        # Build app options dynamically
+        app_options = [
+            "End-to-End Load Processing", 
+            "Postback & Enrichment System", 
+            "FF2API - Load Processing"
+        ]
+        
+        if email_automation_available:
+            app_options.append("Email Automation Setup")
+        
         # Navigation options
         page = st.selectbox(
             "Choose Application:",
-            [
-                "End-to-End Load Processing", 
-                "Postback & Enrichment System", 
-                "FF2API - Load Processing"
-            ],
+            app_options,
             help="Select which part of the FF2API platform to use"
         )
         
@@ -47,6 +73,8 @@ def main():
             st.info("Process loads via API mapping")
         elif page == "Postback & Enrichment System":
             st.info("Enrich existing load data")
+        elif page == "Email Automation Setup":
+            st.info("Configure automatic email processing")
         else:  # End-to-End Load Processing
             st.info("Create new loads with enrichment")
     
@@ -75,6 +103,17 @@ def main():
                 except ImportError:
                     st.error("FF2API system not available")
                     
+        except Exception as e:
+            st.error("System error occurred")
+            st.error(str(e))
+    
+    elif page == "Email Automation Setup":
+        # Load email automation setup
+        try:
+            from email_automation_app import main as email_automation_main
+            email_automation_main()
+        except ImportError:
+            st.error("Email Automation system not available")
         except Exception as e:
             st.error("System error occurred")
             st.error(str(e))

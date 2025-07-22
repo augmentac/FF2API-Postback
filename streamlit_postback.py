@@ -23,6 +23,9 @@ try:
     from enrichment.manager import EnrichmentManager
     from postback.router import PostbackRouter
     from credential_manager import credential_manager
+    from email_monitor import email_monitor
+    # Initialize email monitor with credential manager
+    email_monitor.credential_manager = credential_manager
 except ImportError as e:
     st.error(f"Failed to import modules: {e}")
     st.stop()
@@ -274,6 +277,15 @@ def main():
         else:
             brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
             st.warning("⚠️ No configured brokerages found")
+        
+        # Email automation status (if available)
+        if brokerage_key:
+            cred_status = credential_manager.validate_credentials(brokerage_key)
+            if cred_status.email_automation_available:
+                if cred_status.email_automation_active:
+                    st.success("📧 Email Automation Active")
+                else:
+                    st.info("📧 Email Automation Available")
         
         # Essential options only  
         add_tracking = st.checkbox("Add tracking data", value=True)

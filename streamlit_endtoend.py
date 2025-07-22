@@ -17,6 +17,9 @@ import logging
 from workflow_processor import EndToEndWorkflowProcessor, WorkflowResults
 from load_id_mapper import LoadIDMapping
 from credential_manager import credential_manager
+from email_monitor import email_monitor
+# Initialize email monitor with credential manager
+email_monitor.credential_manager = credential_manager
 
 # Configure logging for Streamlit Cloud
 logging.basicConfig(
@@ -299,6 +302,15 @@ def main():
             brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
             st.warning("⚠️ No configured brokerages found")
         
+        # Email automation status (if available)
+        if brokerage_key:
+            cred_status = credential_manager.validate_credentials(brokerage_key)
+            if cred_status.email_automation_available:
+                if cred_status.email_automation_active:
+                    st.success("📧 Email Automation Active")
+                else:
+                    st.info("📧 Email Automation Available")
+        
         # Essential options only
         add_tracking = st.checkbox("Add warehouse data", value=True)
         send_email = st.checkbox("Email results")
@@ -320,6 +332,36 @@ def main():
                 )
             else:
                 snowflake_options = []
+    
+    # Check for auto-processed files first
+    if 'email_processed_data' in st.session_state:
+        brokerage_files = [
+            item for item in st.session_state.email_processed_data 
+            if item['brokerage_key'] == brokerage_key
+        ]
+        
+        if brokerage_files:
+            st.header("📧 Recently Auto-Processed Files")
+            
+            # Show most recent files
+            recent_files = sorted(brokerage_files, key=lambda x: x['processed_time'], reverse=True)[:3]
+            
+            for file_info in recent_files:
+                with st.expander(f"📄 {file_info['filename']} - {file_info['record_count']} records"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Processed:** {file_info['processed_time'].strftime('%Y-%m-%d %H:%M')}")
+                        st.write(f"**From:** {file_info['sender']}")
+                    with col2:
+                        if st.button(f"Process Again", key=f"reprocess_{file_info['filename']}"):
+                            # Process the saved dataframe again
+                            st.session_state['email_reprocess_data'] = file_info['dataframe']
+                            st.rerun()
+            
+            if len(brokerage_files) > 3:
+                st.info(f"View all {len(brokerage_files)} auto-processed files in Email Automation Setup")
+            
+            st.markdown("---")
     
     # Single column layout
     st.header("Upload New Load Data")

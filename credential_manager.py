@@ -26,6 +26,8 @@ class CredentialCapabilities:
     api_available: bool
     snowflake_available: bool
     email_available: bool
+    email_automation_available: bool
+    email_automation_active: bool
     capabilities: List[str]
     brokerage_key: str
 
@@ -107,6 +109,11 @@ class CredentialManager:
         snowflake_available = bool(self.snowflake_creds)
         email_available = bool(self.email_creds)
         
+        # Check for email automation configuration
+        email_automation_config = self._get_email_automation_config(brokerage_key)
+        email_automation_available = bool(email_automation_config)
+        email_automation_active = email_automation_config.get('active', False) if email_automation_config else False
+        
         # Determine available capabilities
         capabilities = []
         if api_available:
@@ -115,6 +122,8 @@ class CredentialManager:
             capabilities.extend(['data_enrichment', 'warehouse_queries'])
         if email_available:
             capabilities.append('email_delivery')
+        if email_automation_available:
+            capabilities.append('email_automation')
         if api_available and snowflake_available:
             capabilities.append('end_to_end_workflow')
             
@@ -122,6 +131,8 @@ class CredentialManager:
             api_available=api_available,
             snowflake_available=snowflake_available,
             email_available=email_available,
+            email_automation_available=email_automation_available,
+            email_automation_active=email_automation_active,
             capabilities=capabilities,
             brokerage_key=brokerage_key
         )
@@ -276,6 +287,40 @@ class CredentialManager:
                 'retry_count': 3,
                 'retry_delay': 1
             }
+    
+    def _get_email_automation_config(self, brokerage_key: str) -> Optional[Dict[str, Any]]:
+        """
+        Load email automation configuration for a specific brokerage.
+        
+        Args:
+            brokerage_key: Brokerage identifier
+            
+        Returns:
+            Email automation config dictionary or None if not configured
+        """
+        try:
+            email_automation = st.secrets.get("email_automation", {})
+            normalized_key = self._normalize_brokerage_key(brokerage_key)
+            
+            brokerage_config = email_automation.get(normalized_key, {})
+            if not brokerage_config:
+                logger.info(f"No email automation configured for brokerage: {brokerage_key}")
+                return None
+            
+            # Validate required fields
+            required_fields = ['gmail_credentials', 'inbox_filters']
+            missing_fields = [field for field in required_fields if field not in brokerage_config]
+            
+            if missing_fields:
+                logger.warning(f"Incomplete email automation config for {brokerage_key}, missing: {missing_fields}")
+                return None
+            
+            logger.info(f"Email automation config loaded for brokerage: {brokerage_key}")
+            return brokerage_config
+            
+        except Exception as e:
+            logger.error(f"Error loading email automation config for {brokerage_key}: {e}")
+            return None
 
 
 # Global instance for application use
