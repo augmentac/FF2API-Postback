@@ -109,6 +109,12 @@ class StreamlitGoogleSSO:
                             st.write(f"**{key}:**", f"{'✅ Set' if value else '❌ Empty'} ({len(str(value))} chars)")
                         else:
                             st.write(f"**{key}:**", "❌ Missing")
+                
+                # Check app_url specifically
+                app_url = st.secrets.get('app_url', 'NOT_SET')
+                st.write(f"**app_url:**", f"{'✅ Set' if app_url != 'NOT_SET' else '❌ Missing'}")
+                if app_url != 'NOT_SET':
+                    st.write(f"**app_url value:**", app_url)
             except Exception as e:
                 st.write("**Debug error:**", str(e))
         
@@ -277,7 +283,9 @@ client_secret = "your-universal-client-secret"
             
             # Use the app URL for redirect, but we'll handle it manually
             app_url = st.secrets.get('app_url', 'http://localhost:8501')
+            logger.info(f"Using app_url: {app_url}")
             redirect_uri = f"{app_url}/"
+            logger.info(f"Redirect URI: {redirect_uri}")
             
             params = {
                 'client_id': self._config['client_id'],
