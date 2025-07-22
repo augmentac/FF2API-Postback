@@ -135,10 +135,23 @@ class CredentialManager:
         """
         try:
             api_secrets = st.secrets.get("api", {})
-            # Convert snake_case back to kebab-case for user display
-            brokerages = [key.replace('_', '-') for key in api_secrets.keys() if key != 'base_url']
-            logger.info(f"Available brokerages: {brokerages}")
-            return sorted(brokerages)
+            
+            # Filter out configuration keys (not actual brokerage credentials)
+            config_keys = {
+                'base_url', 'timeout', 'retry_count', 'retry_delay', 
+                'default_api_base_url', 'api_base_url', 'default-api-base-url'
+            }
+            
+            # Get actual brokerage keys (exclude configuration keys)
+            brokerage_keys = []
+            for key in api_secrets.keys():
+                # Skip configuration keys (case-insensitive)
+                if key.lower().replace('_', '-') not in config_keys:
+                    # Convert snake_case back to kebab-case for user display
+                    brokerage_keys.append(key.replace('_', '-'))
+            
+            logger.info(f"Available brokerages: {brokerage_keys}")
+            return sorted(brokerage_keys)
         except Exception as e:
             logger.error(f"Error discovering brokerages: {e}")
             return []
