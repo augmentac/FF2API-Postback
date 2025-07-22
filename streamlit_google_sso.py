@@ -282,7 +282,12 @@ client_secret = "your-universal-client-secret"
             state = base64.urlsafe_b64encode(json.dumps(state_data).encode()).decode()
             
             # Use the app URL for redirect, but we'll handle it manually
-            app_url = st.secrets.get('app_url', 'http://localhost:8501')
+            # Check both top-level and google_sso section for app_url
+            app_url = st.secrets.get('app_url')
+            if not app_url:
+                google_sso = st.secrets.get("google_sso", {})
+                app_url = google_sso.get('app_url', 'http://localhost:8501')
+            
             logger.info(f"Using app_url: {app_url}")
             redirect_uri = f"{app_url}/"
             logger.info(f"Redirect URI: {redirect_uri}")
@@ -313,7 +318,11 @@ client_secret = "your-universal-client-secret"
             
             # Exchange code for tokens  
             token_url = "https://oauth2.googleapis.com/token"
-            app_url = st.secrets.get('app_url', 'http://localhost:8501')
+            # Check both top-level and google_sso section for app_url
+            app_url = st.secrets.get('app_url')
+            if not app_url:
+                google_sso = st.secrets.get("google_sso", {})
+                app_url = google_sso.get('app_url', 'http://localhost:8501')
             redirect_uri = f"{app_url}/"
             
             data = {
