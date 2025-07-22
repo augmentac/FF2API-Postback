@@ -16,6 +16,7 @@ import logging
 # Import workflow components
 from workflow_processor import EndToEndWorkflowProcessor, WorkflowResults
 from load_id_mapper import LoadIDMapping
+from credential_manager import credential_manager
 
 # Configure logging for Streamlit Cloud
 logging.basicConfig(
@@ -286,12 +287,36 @@ def main():
     
     st.title("End-to-End Load Processing")
     
-    # Simplified sidebar
+    # Simplified sidebar with automatic credential validation
     with st.sidebar:
         st.header("Settings")
         
+        # Brokerage selection with automatic validation
+        available_brokerages = credential_manager.get_available_brokerages()
+        if available_brokerages:
+            brokerage_key = st.selectbox("Brokerage", available_brokerages, index=0)
+        else:
+            brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
+            st.warning("⚠️ No configured brokerages found")
+        
+        # Show credential status
+        if brokerage_key:
+            cred_status = credential_manager.validate_credentials(brokerage_key)
+            
+            # Capability indicators
+            col1, col2 = st.columns(2)
+            with col1:
+                if cred_status.api_available:
+                    st.success("✅ API Access")
+                else:
+                    st.error("❌ No API Access")
+            with col2:
+                if cred_status.snowflake_available:
+                    st.success("✅ Warehouse")
+                else:
+                    st.error("❌ No Warehouse")
+        
         # Essential options only
-        brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
         add_tracking = st.checkbox("Add warehouse data", value=True)
         send_email = st.checkbox("Email results")
         

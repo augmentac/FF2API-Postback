@@ -11,6 +11,7 @@ from datetime import datetime
 from load_id_mapper import LoadIDMapper, LoadProcessingResult, LoadIDMapping
 from enrichment.manager import EnrichmentManager
 from postback.router import PostbackRouter
+from credential_manager import credential_manager
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +43,21 @@ class EndToEndWorkflowProcessor:
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.load_id_mapper = LoadIDMapper(config)
+        self.brokerage_key = config.get('brokerage_key', 'augment-brokerage')
         self.workflow_type = config.get('workflow_type', 'endtoend')  # 'endtoend' or 'postback'
         
-        # Initialize existing components
-        enrichment_config = config.get('enrichment', {}).get('sources', [])
+        # Get automatic credential resolution
+        self.credentials = credential_manager.validate_credentials(self.brokerage_key)
+        brokerage_creds = credential_manager.get_brokerage_credentials(self.brokerage_key)
+        
+        # Initialize load ID mapper with resolved credentials
+        self.load_id_mapper = LoadIDMapper(self.brokerage_key, brokerage_creds)
+        
+        # Initialize enrichment with global credentials and brokerage context
+        enrichment_config = self._build_enrichment_config(config.get('enrichment', {}).get('sources', []))
         self.enrichment_manager = EnrichmentManager(enrichment_config)
         
+        # Initialize postback router
         postback_config = config.get('postback', {}).get('handlers', [])
         self.postback_router = PostbackRouter(postback_config)
         
@@ -298,3 +307,37 @@ class EndToEndWorkflowProcessor:
         summary['steps_failed'] = len([s for s in self.steps if s.status == 'failed'])
         
         return summary
+    
+    def _build_enrichment_config(self, enrichment_sources: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Build enrichment configuration with automatic credential resolution."""
+        enrichment_config = []
+        
+        for source in enrichment_sources:
+            if source.get('type') == 'snowflake_augment':
+                # Add global Snowflake credentials and brokerage context
+                snowflake_creds = credential_manager.get_snowflake_credentials()
+                if snowflake_creds:
+                    enriched_source = {
+                        **source,
+                        **snowflake_creds,  # Add global credentials
+                        'brokerage_key': self.brokerage_key  # Add brokerage context for filtering
+                    }
+                    enrichment_config.append(enriched_source)
+                else:
+                    logger.warning("Snowflake credentials not available - skipping Snowflake enrichment")
+            else:
+                # Other enrichment sources pass through unchanged
+                enrichment_config.append(source)
+        
+        return enrichment_config
+    
+    def get_credential_status(self) -> Dict[str, Any]:
+        """Get current credential validation status for UI display."""
+        return {
+            'brokerage_key': self.brokerage_key,
+            'api_available': self.credentials.api_available,
+            'snowflake_available': self.credentials.snowflake_available,
+            'email_available': self.credentials.email_available,
+            'capabilities': self.credentials.capabilities,
+            'available_brokerages': credential_manager.get_available_brokerages()
+        }

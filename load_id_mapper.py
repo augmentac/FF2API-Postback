@@ -33,33 +33,47 @@ class LoadIDMapping:
 class LoadIDMapper:
     """Maps CSV load numbers to internal system Load IDs via GoAugment API."""
     
-    def __init__(self, config: Dict[str, Any]):
-        self.base_url = config.get('load_api_url', 'https://load.prod.goaugment.com/unstable/loads')
-        self.brokerage_key = config.get('brokerage_key', 'augment-brokerage')
-        self.timeout = config.get('api_timeout', 30)
-        self.retry_count = config.get('retry_count', 3)
-        self.retry_delay = config.get('retry_delay', 1)
+    def __init__(self, brokerage_key: str, credentials: Dict[str, Any]):
+        """
+        Initialize with automatic credential resolution.
         
-        # Get auth configuration - reuse FF2API auth
-        self.auth_config = config.get('auth', {})
+        Args:
+            brokerage_key: Brokerage identifier for API context
+            credentials: Resolved credentials from credential manager
+        """
+        self.brokerage_key = brokerage_key
+        self.api_key = credentials.get('api_key')
+        self.base_url = credentials.get('base_url', 'https://load.prod.goaugment.com/unstable/loads')
+        self.timeout = credentials.get('timeout', 30)
+        self.retry_count = credentials.get('retry_count', 3)
+        self.retry_delay = credentials.get('retry_delay', 1)
+        
+        if not self.api_key:
+            logger.warning(f"No API credentials available for brokerage: {brokerage_key}")
+    
+    # Keep legacy constructor for backward compatibility
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]):
+        """Legacy constructor for backward compatibility."""
+        brokerage_key = config.get('brokerage_key', 'augment-brokerage')
+        credentials = {
+            'api_key': config.get('auth', {}).get('api_key'),
+            'base_url': config.get('load_api_url', 'https://load.prod.goaugment.com/unstable/loads'),
+            'timeout': config.get('api_timeout', 30),
+            'retry_count': config.get('retry_count', 3),
+            'retry_delay': config.get('retry_delay', 1)
+        }
+        return cls(brokerage_key, credentials)
         
     def get_auth_headers(self) -> Dict[str, str]:
-        """Get authentication headers for API calls."""
+        """Get authentication headers for API calls using resolved credentials."""
         headers = {'Content-Type': 'application/json'}
         
-        # Try to get auth from secrets or config
-        try:
-            if hasattr(st, 'secrets') and 'api' in st.secrets:
-                api_key = st.secrets.api.get('API_KEY')
-                if api_key:
-                    headers['Authorization'] = f'Bearer {api_key}'
-            elif self.auth_config.get('api_key'):
-                headers['Authorization'] = f'Bearer {self.auth_config["api_key"]}'
-            else:
-                logger.warning("No API authentication configured")
-                
-        except Exception as e:
-            logger.error(f"Error getting auth headers: {e}")
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+            logger.debug(f"Added API authentication for brokerage: {self.brokerage_key}")
+        else:
+            logger.warning(f"No API key available for brokerage: {self.brokerage_key}")
             
         return headers
     
@@ -103,7 +117,7 @@ class LoadIDMapper:
     
     def _fetch_internal_load_id(self, load_number: str) -> tuple[Optional[str], str, Optional[str]]:
         """
-        Fetch internal load ID for a given load number.
+        Fetch internal load ID for a given load number using automatic credential resolution.
         
         Args:
             load_number: The brokerage load number (e.g., CSVTEST75279)
@@ -111,6 +125,11 @@ class LoadIDMapper:
         Returns:
             Tuple of (internal_load_id, status, error_message)
         """
+        # Check if we have API credentials
+        if not self.api_key:
+            logger.error(f"No API credentials for brokerage {self.brokerage_key}")
+            return None, 'no_credentials', f'No API credentials configured for {self.brokerage_key}'
+        
         url = f"{self.base_url}/brokerage-key/{self.brokerage_key}/brokerage-load-id/{load_number}"
         headers = self.get_auth_headers()
         

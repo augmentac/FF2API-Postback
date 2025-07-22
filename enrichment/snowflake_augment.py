@@ -25,9 +25,19 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
         self.database = config.get('database', 'AUGMENT_DW')
         self.schema = config.get('schema', 'MARTS')
         self.enabled_enrichments = config.get('enrichments', [])
-        self.use_load_ids = config.get('use_load_ids', False)  # NEW: Flag for load ID-based enrichment
+        self.use_load_ids = config.get('use_load_ids', False)  # Flag for load ID-based enrichment
+        self.brokerage_key = config.get('brokerage_key')  # NEW: Brokerage context for filtering
         self._connection = None
         self._connection_error = None
+        
+        # Store global Snowflake credentials from config
+        self.snowflake_creds = {
+            'account': config.get('account'),
+            'user': config.get('user'), 
+            'password': config.get('password'),
+            'warehouse': config.get('warehouse', 'COMPUTE_WH'),
+            'role': config.get('role')
+        }
         
         if not SNOWFLAKE_AVAILABLE:
             logger.error("Snowflake connector not available")
@@ -51,25 +61,38 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             return False
     
     def _get_connection(self):
-        """Get Snowflake connection using Streamlit secrets."""
+        """Get Snowflake connection using global credentials with brokerage context."""
         if self._connection_error:
             return None
             
         if not self._connection:
             try:
-                # Get credentials from Streamlit secrets
-                if hasattr(st, 'secrets') and 'snowflake' in st.secrets:
+                # Use global credentials passed from credential manager
+                if all(self.snowflake_creds.get(key) for key in ['account', 'user', 'password']):
                     self._connection = snowflake.connector.connect(
-                        account=st.secrets.snowflake.get('ACCOUNT'),
-                        user=st.secrets.snowflake.get('USER'),
-                        password=st.secrets.snowflake.get('PASSWORD'),
+                        account=self.snowflake_creds['account'],
+                        user=self.snowflake_creds['user'],
+                        password=self.snowflake_creds['password'],
                         database=self.database,
                         schema=self.schema,
-                        warehouse=st.secrets.snowflake.get('WAREHOUSE', 'COMPUTE_WH')
+                        warehouse=self.snowflake_creds['warehouse'],
+                        role=self.snowflake_creds.get('role')
                     )
-                    logger.info("Snowflake connection established")
+                    
+                    # Set session parameters for brokerage context if available
+                    if self.brokerage_key:
+                        cursor = self._connection.cursor()
+                        try:
+                            cursor.execute(f"ALTER SESSION SET BROKERAGE_CONTEXT = '{self.brokerage_key}'")
+                            logger.info(f"Set brokerage context: {self.brokerage_key}")
+                        except Exception as e:
+                            logger.warning(f"Could not set brokerage context: {e}")
+                        finally:
+                            cursor.close()
+                    
+                    logger.info(f"Snowflake connection established for brokerage: {self.brokerage_key}")
                 else:
-                    self._connection_error = "Snowflake credentials not configured in secrets"
+                    self._connection_error = "Snowflake global credentials not provided"
                     logger.error(self._connection_error)
                     return None
                     
@@ -193,7 +216,7 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             cursor.close()
     
     def _get_tracking_data(self, connection, pro_number: str) -> Dict[str, Any]:
-        """Get latest tracking data for a PRO number."""
+        """Get latest tracking data for a PRO number with brokerage filtering."""
         query = f"""
         SELECT 
             current_status,
@@ -201,13 +224,18 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             scan_datetime,
             estimated_delivery_date
         FROM {self.database}.{self.schema}.fct_tracking_events
-        WHERE pro_number = %s 
-        ORDER BY scan_datetime DESC 
-        LIMIT 1
-        """
+        WHERE pro_number = %s"""
+        
+        # Add brokerage filtering if context is available
+        params = [pro_number]
+        if self.brokerage_key:
+            query += " AND brokerage_id = %s"
+            params.append(self.brokerage_key)
+        
+        query += " ORDER BY scan_datetime DESC LIMIT 1"
         
         try:
-            results = self._execute_query(connection, query, [pro_number])
+            results = self._execute_query(connection, query, params)
             
             if results:
                 result = results[0]
@@ -229,7 +257,7 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             return {'sf_tracking_error': str(e)}
     
     def _get_customer_data(self, connection, customer_code: str) -> Dict[str, Any]:
-        """Get customer information."""
+        """Get customer information with brokerage filtering."""
         query = f"""
         SELECT 
             customer_name,
@@ -237,11 +265,16 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             payment_terms,
             customer_tier
         FROM {self.database}.{self.schema}.dim_customers
-        WHERE customer_code = %s
-        """
+        WHERE customer_code = %s"""
+        
+        # Add brokerage filtering if context is available
+        params = [customer_code]
+        if self.brokerage_key:
+            query += " AND brokerage_id = %s"
+            params.append(self.brokerage_key)
         
         try:
-            results = self._execute_query(connection, query, [customer_code])
+            results = self._execute_query(connection, query, params)
             
             if results:
                 result = results[0]
@@ -334,7 +367,7 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
             return {'sf_lane_error': str(e)}
     
     def _get_load_data_by_id(self, connection, internal_load_id: str) -> Dict[str, Any]:
-        """Get comprehensive load data using internal load ID."""
+        """Get comprehensive load data using internal load ID with brokerage filtering."""
         query = f"""
         SELECT 
             l.current_status as sf_load_status,
@@ -352,13 +385,18 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
         FROM {self.database}.{self.schema}.dim_loads l
         LEFT JOIN {self.database}.{self.schema}.dim_customers c ON l.customer_id = c.customer_id
         LEFT JOIN {self.database}.{self.schema}.fct_tracking_events t ON l.pro_number = t.pro_number
-        WHERE l.internal_load_id = %s
-        ORDER BY t.scan_datetime DESC
-        LIMIT 1
-        """
+        WHERE l.internal_load_id = %s"""
+        
+        # Add brokerage filtering if context is available
+        params = [internal_load_id]
+        if self.brokerage_key:
+            query += " AND l.brokerage_id = %s"
+            params.append(self.brokerage_key)
+        
+        query += " ORDER BY t.scan_datetime DESC LIMIT 1"
         
         try:
-            results = self._execute_query(connection, query, [internal_load_id])
+            results = self._execute_query(connection, query, params)
             
             if results:
                 result = results[0]

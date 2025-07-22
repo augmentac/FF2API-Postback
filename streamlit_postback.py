@@ -22,6 +22,7 @@ sys.path.insert(0, current_dir)
 try:
     from enrichment.manager import EnrichmentManager
     from postback.router import PostbackRouter
+    from credential_manager import credential_manager
 except ImportError as e:
     st.error(f"Failed to import modules: {e}")
     st.stop()
@@ -111,17 +112,21 @@ def auto_detect_column_mappings(csv_columns: List[str]) -> Dict[str, str]:
     
     return mappings
 
-def process_data_simple(df, add_tracking, output_format, send_email, email_recipient, snowflake_options, enable_webhook, webhook_url):
-    """Simplified data processing with minimal UI."""
+def process_data_simple(df, brokerage_key, add_tracking, output_format, send_email, email_recipient, snowflake_options, enable_webhook, webhook_url):
+    """Simplified data processing with automatic credential resolution."""
     
     with st.spinner("Processing..."):
         try:
-            # Build simple config
+            # Validate credentials for this brokerage
+            cred_status = credential_manager.validate_credentials(brokerage_key)
+            
+            # Build simple config with credential validation
             config = load_default_config()
             config['workflow_type'] = 'postback'
+            config['brokerage_key'] = brokerage_key
             
-            # Add enrichment if enabled
-            if add_tracking:
+            # Add enrichment if enabled and credentials available
+            if add_tracking and cred_status.snowflake_available:
                 sf_enrichments = []
                 if "Tracking Status" in snowflake_options:
                     sf_enrichments.append("tracking")
@@ -132,12 +137,18 @@ def process_data_simple(df, add_tracking, output_format, send_email, email_recip
                 if "Lane Performance" in snowflake_options:
                     sf_enrichments.append("lane")
                 
+                # Get global Snowflake credentials
+                snowflake_creds = credential_manager.get_snowflake_credentials()
                 config['enrichment']['sources'] = [{
                     'type': 'snowflake_augment',
                     'database': 'AUGMENT_DW',
                     'schema': 'MARTS', 
-                    'enrichments': sf_enrichments
+                    'enrichments': sf_enrichments,
+                    'brokerage_key': brokerage_key,
+                    **snowflake_creds  # Add global credentials
                 }]
+            elif add_tracking and not cred_status.snowflake_available:
+                st.warning("⚠️ Snowflake enrichment requested but credentials not available")
             
             # Set output format
             config['postback']['handlers'] = [{
@@ -145,18 +156,19 @@ def process_data_simple(df, add_tracking, output_format, send_email, email_recip
                 'output_path': f'/tmp/results.{output_format.lower()}'
             }]
             
-            # Add email if enabled
+            # Add email if enabled and credentials available
             if send_email and email_recipient:
-                try:
+                email_creds = credential_manager.get_email_credentials()
+                if email_creds:
                     config['postback']['handlers'].append({
                         'type': 'email',
                         'recipient': email_recipient,
                         'subject': 'Data Processing Results',
-                        'smtp_user': st.secrets.get("email", {}).get("SMTP_USER"),
-                        'smtp_pass': st.secrets.get("email", {}).get("SMTP_PASS"),
+                        'smtp_user': email_creds.get('smtp_user'),
+                        'smtp_pass': email_creds.get('smtp_pass'),
                     })
-                except:
-                    st.warning("Email not configured")
+                else:
+                    st.warning("⚠️ Email requested but credentials not configured")
             
             # Process data
             enrichment_manager = EnrichmentManager(config['enrichment']['sources'])
@@ -251,11 +263,36 @@ def main():
     
     st.title("Postback & Enrichment")
     
-    # Simplified sidebar
+    # Simplified sidebar with automatic credential validation
     with st.sidebar:
         st.header("Settings")
         
-        # Essential options only
+        # Brokerage selection with automatic validation
+        available_brokerages = credential_manager.get_available_brokerages()
+        if available_brokerages:
+            brokerage_key = st.selectbox("Brokerage", available_brokerages, index=0)
+        else:
+            brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
+            st.warning("⚠️ No configured brokerages found")
+        
+        # Show credential status
+        if brokerage_key:
+            cred_status = credential_manager.validate_credentials(brokerage_key)
+            
+            # Capability indicators
+            col1, col2 = st.columns(2)
+            with col1:
+                if cred_status.snowflake_available:
+                    st.success("✅ Warehouse")
+                else:
+                    st.error("❌ No Warehouse")
+            with col2:
+                if cred_status.email_available:
+                    st.success("✅ Email")
+                else:
+                    st.info("ℹ️ Email Optional")
+        
+        # Essential options only  
         add_tracking = st.checkbox("Add tracking data", value=True)
         send_email = st.checkbox("Email results")
         
@@ -341,7 +378,7 @@ def main():
             
             if ready_to_process and (not send_email or email_recipient):
                 if st.button("Process Data", type="primary", use_container_width=True):
-                    process_data_simple(df, add_tracking, output_format, send_email, email_recipient, 
+                    process_data_simple(df, brokerage_key, add_tracking, output_format, send_email, email_recipient, 
                                        snowflake_options, enable_webhook, webhook_url)
             else:
                 if not ready_to_process:
