@@ -18,6 +18,7 @@ from workflow_processor import EndToEndWorkflowProcessor, WorkflowResults
 from load_id_mapper import LoadIDMapping
 from credential_manager import credential_manager
 from email_monitor import email_monitor
+from gmail_auth_service import gmail_auth_service
 # Initialize email monitor with credential manager
 email_monitor.credential_manager = credential_manager
 
@@ -390,19 +391,92 @@ def main():
                 st.info("📧 Not configured for this brokerage")
                 
                 with st.expander("Setup Email Automation"):
-                    st.write("To enable automatic email processing:")
+                    st.write("To enable automatic email processing, you need to authenticate with Gmail:")
                     
-                    gmail_email = st.text_input("Gmail address for monitoring", placeholder="reports@yourcompany.com")
-                    sender_filter = st.text_input("Sender email filter (optional)", placeholder="carrier@company.com")
-                    subject_filter = st.text_input("Subject filter (optional)", placeholder="Daily Load Report")
+                    # Check if OAuth2 configuration exists
+                    auth_config = gmail_auth_service.get_auth_config(brokerage_key)
                     
-                    if st.button("Save Email Configuration"):
-                        if gmail_email:
-                            _save_email_automation_config(brokerage_key, gmail_email, sender_filter, subject_filter)
+                    if not auth_config:
+                        st.warning("⚠️ Gmail OAuth2 not configured for this brokerage")
+                        st.info("""
+                        **Admin Setup Required:**
+                        1. Create Google Cloud Project
+                        2. Enable Gmail API
+                        3. Configure OAuth2 credentials
+                        4. Add configuration to Streamlit secrets
+                        """)
+                        st.code(f"""
+[gmail_oauth.{brokerage_key.replace('-', '_')}]
+client_id = "your-google-client-id"
+client_secret = "your-google-client-secret" 
+redirect_uri = "your-redirect-uri"
+                        """)
+                        return
+                    
+                    # Check if already authenticated
+                    existing_creds = gmail_auth_service.get_credentials(brokerage_key)
+                    
+                    if existing_creds:
+                        st.success(f"✅ Authenticated as: {existing_creds.email}")
+                        
+                        # Test connection
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("Test Connection"):
+                                with st.spinner("Testing Gmail connection..."):
+                                    test_result = gmail_auth_service.test_credentials(brokerage_key)
+                                    if test_result['success']:
+                                        st.success(f"✅ {test_result['message']}")
+                                        st.info(f"Email: {test_result.get('email', 'N/A')}")
+                                    else:
+                                        st.error(f"❌ {test_result['message']}")
+                        
+                        with col2:
+                            if st.button("Disconnect Gmail"):
+                                gmail_auth_service.revoke_credentials(brokerage_key)
+                                st.success("Gmail disconnected")
+                                st.rerun()
+                        
+                        # Email filters configuration
+                        st.write("**Email Filters:**")
+                        sender_filter = st.text_input("Sender email filter (optional)", placeholder="carrier@company.com")
+                        subject_filter = st.text_input("Subject filter (optional)", placeholder="Daily Load Report")
+                        
+                        if st.button("Save Email Configuration"):
+                            _save_email_automation_config(brokerage_key, existing_creds.email, sender_filter, subject_filter)
                             st.success("Email automation configured! You can now start monitoring.")
                             st.rerun()
+                    
+                    else:
+                        st.info("🔐 Gmail authentication required")
+                        
+                        # Generate OAuth2 URL
+                        auth_url = gmail_auth_service.generate_auth_url(brokerage_key, state=brokerage_key)
+                        
+                        if auth_url:
+                            st.markdown("**Step 1:** Click the button below to authenticate with Gmail")
+                            
+                            # Create authentication button
+                            if st.button("🔐 Authenticate with Gmail", type="primary"):
+                                st.markdown(f"**Please visit this URL to authenticate:**")
+                                st.code(auth_url)
+                                st.markdown("After authentication, you'll get a code. Enter it below:")
+                            
+                            # Handle authentication code input
+                            auth_code = st.text_input("Enter authentication code from Google:", placeholder="Paste the code here")
+                            
+                            if auth_code and st.button("Complete Authentication"):
+                                with st.spinner("Exchanging code for tokens..."):
+                                    credentials = gmail_auth_service.exchange_code_for_tokens(brokerage_key, auth_code)
+                                    
+                                    if credentials:
+                                        st.success(f"✅ Successfully authenticated as: {credentials.email}")
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ Authentication failed. Please try again.")
+                        
                         else:
-                            st.error("Gmail address is required")
+                            st.error("Unable to generate authentication URL. Check OAuth2 configuration.")
         
         # Essential options only
         add_tracking = st.checkbox("Add warehouse data", value=True)

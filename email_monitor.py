@@ -24,6 +24,8 @@ import pandas as pd
 import streamlit as st
 import threading
 from pathlib import Path
+import requests
+from email.mime.multipart import MIMEMultipart
 
 logger = logging.getLogger(__name__)
 
@@ -141,9 +143,9 @@ class EmailMonitorService:
                     processed_count=0
                 )
             
-            # Get Gmail service
-            service = self._get_gmail_service(config['gmail_credentials'])
-            if not service:
+            # Get Gmail API headers
+            gmail_headers = self._get_gmail_service(brokerage_key)
+            if not gmail_headers:
                 return ProcessingResult(
                     success=False,
                     message="Failed to connect to Gmail",
@@ -151,7 +153,7 @@ class EmailMonitorService:
                 )
             
             # Check for new emails
-            attachments = self._check_for_attachments(service, config, brokerage_key)
+            attachments = self._check_for_attachments(gmail_headers, config, brokerage_key)
             
             if not attachments:
                 return ProcessingResult(
@@ -243,32 +245,41 @@ class EmailMonitorService:
             logger.error(f"Error getting email automation brokerages: {e}")
             return []
     
-    def _get_gmail_service(self, gmail_credentials: Dict[str, Any]):
+    def _get_gmail_service(self, brokerage_key: str):
         """
-        Create Gmail API service instance.
+        Get Gmail API access for a brokerage.
         
         Args:
-            gmail_credentials: OAuth2 credentials for Gmail API
+            brokerage_key: Brokerage identifier
             
         Returns:
-            Gmail service instance or None
+            Gmail service headers or None
         """
         try:
-            # This would normally use Google API client library
-            # For now, return a mock service to establish the interface
-            logger.warning("Gmail service creation not yet implemented - using mock")
-            return {"mock": True}
+            # Import here to avoid circular dependency
+            from gmail_auth_service import gmail_auth_service
+            
+            credentials = gmail_auth_service.get_credentials(brokerage_key)
+            if not credentials:
+                logger.error(f"No Gmail credentials found for {brokerage_key}")
+                return None
+            
+            # Return headers for API calls
+            return {
+                'Authorization': f'Bearer {credentials.access_token}',
+                'Content-Type': 'application/json'
+            }
             
         except Exception as e:
-            logger.error(f"Failed to create Gmail service: {e}")
+            logger.error(f"Failed to get Gmail service for {brokerage_key}: {e}")
             return None
     
-    def _check_for_attachments(self, service, config: Dict[str, Any], brokerage_key: str) -> List[EmailAttachment]:
+    def _check_for_attachments(self, gmail_headers: Dict[str, str], config: Dict[str, Any], brokerage_key: str) -> List[EmailAttachment]:
         """
-        Check for new email attachments matching criteria.
+        Check for new email attachments using Gmail API.
         
         Args:
-            service: Gmail service instance
+            gmail_headers: Gmail API authorization headers
             config: Email automation configuration
             brokerage_key: Brokerage identifier
             
@@ -276,14 +287,145 @@ class EmailMonitorService:
             List of new attachments to process
         """
         try:
-            # This would normally use Gmail API to search for emails
-            # For now, return empty list to establish the interface
-            logger.debug(f"Checking attachments for {brokerage_key} (mock implementation)")
-            return []
+            # Build search query
+            query_parts = []
+            
+            # Add sender filter
+            sender_filter = config.get('inbox_filters', {}).get('sender_filter')
+            if sender_filter:
+                query_parts.append(f"from:{sender_filter}")
+            
+            # Add subject filter
+            subject_filter = config.get('inbox_filters', {}).get('subject_filter')
+            if subject_filter:
+                query_parts.append(f"subject:{subject_filter}")
+            
+            # Only look for emails with attachments
+            query_parts.append("has:attachment")
+            
+            # Only look for recent emails (last 24 hours)
+            query_parts.append("newer_than:1d")
+            
+            query = " ".join(query_parts)
+            logger.info(f"Gmail search query: {query}")
+            
+            # Search for messages
+            search_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={query}"
+            response = requests.get(search_url, headers=gmail_headers)
+            
+            if response.status_code != 200:
+                logger.error(f"Gmail search failed: {response.status_code} - {response.text}")
+                return []
+            
+            search_results = response.json()
+            messages = search_results.get('messages', [])
+            
+            if not messages:
+                logger.info(f"No new emails found for {brokerage_key}")
+                return []
+            
+            # Process each message
+            attachments = []
+            for message in messages[:10]:  # Limit to 10 most recent
+                message_attachments = self._process_message_for_attachments(
+                    message['id'], gmail_headers, brokerage_key
+                )
+                attachments.extend(message_attachments)
+            
+            logger.info(f"Found {len(attachments)} attachments for {brokerage_key}")
+            return attachments
             
         except Exception as e:
             logger.error(f"Error checking attachments for {brokerage_key}: {e}")
             return []
+    
+    def _process_message_for_attachments(self, message_id: str, gmail_headers: Dict[str, str], brokerage_key: str) -> List[EmailAttachment]:
+        """Process a single Gmail message for attachments."""
+        try:
+            # Get message details
+            message_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}"
+            response = requests.get(message_url, headers=gmail_headers)
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to get message {message_id}: {response.status_code}")
+                return []
+            
+            message_data = response.json()
+            
+            # Extract email metadata
+            headers = {h['name']: h['value'] for h in message_data.get('payload', {}).get('headers', [])}
+            sender = headers.get('From', 'Unknown')
+            subject = headers.get('Subject', 'No Subject')
+            date_str = headers.get('Date', '')
+            
+            # Parse date
+            try:
+                from email.utils import parsedate_to_datetime
+                received_time = parsedate_to_datetime(date_str)
+            except:
+                received_time = datetime.now()
+            
+            # Find attachments
+            attachments = []
+            payload = message_data.get('payload', {})
+            
+            # Check if message has parts (multipart)
+            if 'parts' in payload:
+                for part in payload['parts']:
+                    if part.get('filename') and part.get('body', {}).get('attachmentId'):
+                        attachment = self._download_attachment(
+                            message_id, part, gmail_headers, sender, subject, received_time
+                        )
+                        if attachment:
+                            attachments.append(attachment)
+            
+            return attachments
+            
+        except Exception as e:
+            logger.error(f"Error processing message {message_id}: {e}")
+            return []
+    
+    def _download_attachment(self, message_id: str, part: Dict[str, Any], gmail_headers: Dict[str, str], 
+                           sender: str, subject: str, received_time: datetime) -> Optional[EmailAttachment]:
+        """Download Gmail attachment."""
+        try:
+            filename = part.get('filename', 'unknown')
+            attachment_id = part.get('body', {}).get('attachmentId')
+            mime_type = part.get('mimeType', 'application/octet-stream')
+            
+            if not attachment_id:
+                return None
+            
+            # Only process CSV and JSON files
+            if not (mime_type in ['text/csv', 'application/csv', 'application/json'] or 
+                   filename.lower().endswith(('.csv', '.json'))):
+                logger.info(f"Skipping non-CSV/JSON attachment: {filename}")
+                return None
+            
+            # Download attachment
+            attachment_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}/attachments/{attachment_id}"
+            response = requests.get(attachment_url, headers=gmail_headers)
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to download attachment {filename}: {response.status_code}")
+                return None
+            
+            attachment_data = response.json()
+            content = base64.urlsafe_b64decode(attachment_data['data'])
+            
+            return EmailAttachment(
+                filename=filename,
+                content=content,
+                mime_type=mime_type,
+                email_id=message_id,
+                sender=sender,
+                subject=subject,
+                received_time=received_time
+            )
+            
+        except Exception as e:
+            logger.error(f"Error downloading attachment: {e}")
+            return None
     
     def _process_attachment(self, attachment: EmailAttachment, brokerage_key: str, config: Dict[str, Any]) -> bool:
         """
