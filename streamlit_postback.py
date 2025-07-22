@@ -275,10 +275,6 @@ def main():
             brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
             st.warning("⚠️ No configured brokerages found")
         
-        # Show credential status
-        if brokerage_key:
-            cred_status = credential_manager.validate_credentials(brokerage_key)
-        
         # Essential options only  
         add_tracking = st.checkbox("Add tracking data", value=True)
         send_email = st.checkbox("Email results")
