@@ -280,18 +280,13 @@ def main():
             cred_status = credential_manager.validate_credentials(brokerage_key)
             
             # Capability indicators
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             with col1:
-                if cred_status.api_available:
-                    st.success("✅ API Access")
-                else:
-                    st.error("❌ No API Access")
-            with col2:
                 if cred_status.snowflake_available:
                     st.success("✅ Warehouse")
                 else:
                     st.error("❌ No Warehouse")
-            with col3:
+            with col2:
                 if cred_status.email_available:
                     st.success("✅ Email")
                 else:
