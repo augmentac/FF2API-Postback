@@ -48,9 +48,6 @@ def main():
             "FF2API - Load Processing"
         ]
         
-        if email_automation_available:
-            app_options.append("Email Automation Setup")
-        
         # Navigation options
         page = st.selectbox(
             "Choose Application:",
