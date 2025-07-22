@@ -265,13 +265,78 @@ def main():
                 st.subheader("Data Preview")
                 st.dataframe(df.head(10))
                 
-                # Check for required columns
-                required_cols = ['load_id', 'carrier', 'PRO']
-                missing_cols = [col for col in required_cols if col not in df.columns]
+                # Column mapping interface for existing loads
+                st.subheader("🔗 Column Mapping")
+                st.info("Map your CSV columns to system fields for data enrichment")
                 
-                if missing_cols:
-                    st.warning(f"⚠️ Missing recommended columns: {', '.join(missing_cols)}")
-                    st.info("The system will work but enrichment may be limited.")
+                # Standard system field options
+                system_fields = {
+                    'load_id': 'Load ID (primary identifier)',
+                    'bol_number': 'BOL Number', 
+                    'pro_number': 'PRO Number',
+                    'carrier': 'Carrier Name/Code',
+                    'customer_code': 'Customer Code/ID',
+                    'origin_zip': 'Origin ZIP Code',
+                    'dest_zip': 'Destination ZIP Code'
+                }
+                
+                # Available CSV columns
+                csv_columns = ['-- Not Mapped --'] + list(df.columns)
+                
+                # Create mapping interface
+                column_mapping = {}
+                col_map1, col_map2 = st.columns(2)
+                
+                with col_map1:
+                    st.write("**Primary Identifiers:**")
+                    column_mapping['load_id'] = st.selectbox(
+                        "Load ID Field:", 
+                        csv_columns,
+                        index=csv_columns.index('BOL #') if 'BOL #' in csv_columns else 0,
+                        help="Select the field that identifies each load"
+                    )
+                    
+                    column_mapping['pro_number'] = st.selectbox(
+                        "PRO Number Field:", 
+                        csv_columns,
+                        index=csv_columns.index('Carrier Pro#') if 'Carrier Pro#' in csv_columns else 0
+                    )
+                    
+                    column_mapping['carrier'] = st.selectbox(
+                        "Carrier Field:", 
+                        csv_columns,
+                        index=csv_columns.index('Carrier Name') if 'Carrier Name' in csv_columns else 0
+                    )
+                
+                with col_map2:
+                    st.write("**Optional Fields:**")
+                    column_mapping['customer_code'] = st.selectbox(
+                        "Customer Code:", 
+                        csv_columns,
+                        index=csv_columns.index('Customer Name') if 'Customer Name' in csv_columns else 0
+                    )
+                    
+                    column_mapping['origin_zip'] = st.selectbox(
+                        "Origin ZIP:", 
+                        csv_columns,
+                        index=csv_columns.index('Origin Zip') if 'Origin Zip' in csv_columns else 0
+                    )
+                    
+                    column_mapping['dest_zip'] = st.selectbox(
+                        "Destination ZIP:", 
+                        csv_columns,
+                        index=csv_columns.index('Destination Zip') if 'Destination Zip' in csv_columns else 0
+                    )
+                
+                # Show mapping summary
+                active_mappings = {k: v for k, v in column_mapping.items() if v != '-- Not Mapped --'}
+                if active_mappings:
+                    st.success(f"✅ Mapped {len(active_mappings)} fields: {', '.join(active_mappings.keys())}")
+                else:
+                    st.warning("⚠️ No fields mapped. Please map at least one identifier field.")
+                
+                # Store mapping in session state
+                st.session_state.column_mapping = column_mapping
     
     with col2:
         st.header("🔄 Processing")
@@ -281,12 +346,23 @@ def main():
             # Process button
             if st.button("🚀 Process & Enrich Data", type="primary", use_container_width=True):
                 
+                # Validation checks
                 if not output_formats and not enable_email:
                     st.error("Please select at least one output format or enable email.")
                     st.stop()
                 
                 if enable_email and not email_recipient:
                     st.error("Please enter a recipient email address.")
+                    st.stop()
+                
+                # Check column mapping
+                if not hasattr(st.session_state, 'column_mapping'):
+                    st.error("Please complete column mapping before processing.")
+                    st.stop()
+                    
+                active_mappings = {k: v for k, v in st.session_state.column_mapping.items() if v != '-- Not Mapped --'}
+                if not active_mappings:
+                    st.error("Please map at least one identifier field (Load ID, PRO Number, or Carrier).")
                     st.stop()
                 
                 if not enable_tracking and not enable_snowflake:
@@ -306,6 +382,7 @@ def main():
                     progress_bar.progress(10)
                     
                     config = load_default_config()
+                    config['workflow_type'] = 'postback'  # Set workflow type for validation
                     
                     # Update enrichment config based on UI selections
                     enrichment_sources = []
@@ -376,11 +453,35 @@ def main():
                     
                     enrichment_manager = EnrichmentManager(config['enrichment']['sources'])
                     
-                    # Step 3: Enrich data
+                    # Step 3: Apply column mapping and enrich data
+                    status_text.text("Applying column mapping...")
+                    progress_bar.progress(40)
+                    
+                    # Apply column mapping to standardize field names
+                    rows = df.to_dict('records')
+                    if hasattr(st.session_state, 'column_mapping'):
+                        mapped_rows = []
+                        for row in rows:
+                            mapped_row = row.copy()  # Keep all original fields
+                            
+                            # Apply field mappings
+                            for system_field, csv_field in st.session_state.column_mapping.items():
+                                if csv_field != '-- Not Mapped --' and csv_field in row:
+                                    # Map CSV field to system field
+                                    mapped_row[system_field] = row[csv_field]
+                                    
+                                    # For PRO field, also map to standard 'PRO' field name
+                                    if system_field == 'pro_number':
+                                        mapped_row['PRO'] = row[csv_field]
+                                        
+                            mapped_rows.append(mapped_row)
+                        rows = mapped_rows
+                        
+                        st.info(f"✅ Applied column mapping to {len(rows)} rows")
+                    
                     status_text.text("Enriching data...")
                     progress_bar.progress(50)
                     
-                    rows = df.to_dict('records')
                     enriched_rows = enrichment_manager.enrich_rows(rows)
                     
                     # Step 4: Generate outputs and send emails

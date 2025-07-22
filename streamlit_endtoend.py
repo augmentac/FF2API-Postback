@@ -254,7 +254,7 @@ def main():
         uploaded_file = st.file_uploader(
             "Choose CSV or JSON file",
             type=["csv", "json"],
-            help="Upload file with load data. Required: load_id. Recommended: carrier, PRO, customer_code"
+            help="Upload NEW load data for end-to-end processing. REQUIRED: load_id field for FF2API processing."
         )
         
         if uploaded_file is not None:
@@ -277,9 +277,10 @@ def main():
                 missing_recommended = [field for field in recommended_fields if field not in df.columns]
                 
                 if not has_required:
-                    st.error(f"❌ Missing required fields: {[f for f in required_fields if f not in df.columns]}")
+                    st.error(f"❌ Missing required fields for END-TO-END processing: {[f for f in required_fields if f not in df.columns]}")
+                    st.info("💡 **Note**: End-to-End workflow requires 'load_id' for new load creation. For EXISTING loads, use the 'Postback & Enrichment System' instead.")
                 else:
-                    st.success("✅ Required fields present")
+                    st.success("✅ Required fields present for end-to-end processing")
                 
                 if missing_recommended:
                     st.warning(f"⚠️ Missing recommended fields: {missing_recommended}")
@@ -296,7 +297,8 @@ def main():
                 
                 # Validation
                 if not has_required:
-                    st.error("Cannot process: missing required fields")
+                    st.error("Cannot process: missing required fields for end-to-end processing")
+                    st.info("💡 This workflow is for creating NEW loads. For existing loads, use 'Postback & Enrichment System'.")
                     st.stop()
                 
                 if not output_formats and not enable_email:

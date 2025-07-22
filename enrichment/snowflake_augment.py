@@ -89,17 +89,28 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
         if self.use_load_ids:
             return bool(row.get('internal_load_id'))
             
-        # Otherwise check for traditional fields
-        if 'tracking' in self.enabled_enrichments and row.get('PRO'):
+        # Check for various identifier fields that can be used for lookups
+        identifier_fields = [
+            'PRO', 'pro_number', 'Carrier Pro#',  # PRO number variants
+            'load_id', 'bol_number', 'BOL #',     # BOL/Load ID variants
+            'customer_code', 'Customer Name',      # Customer variants
+            'carrier', 'Carrier Name'              # Carrier variants
+        ]
+        
+        # Return True if we have at least one identifier field
+        has_identifier = any(row.get(field) for field in identifier_fields)
+        
+        # Also check for enrichment-specific requirements
+        if 'tracking' in self.enabled_enrichments and any(row.get(field) for field in ['PRO', 'pro_number', 'Carrier Pro#']):
             return True
-        if 'customer' in self.enabled_enrichments and row.get('customer_code'):
+        if 'customer' in self.enabled_enrichments and any(row.get(field) for field in ['customer_code', 'Customer Name']):
             return True
-        if 'carrier' in self.enabled_enrichments and row.get('carrier'):
+        if 'carrier' in self.enabled_enrichments and any(row.get(field) for field in ['carrier', 'Carrier Name']):
             return True
-        if 'lane' in self.enabled_enrichments and row.get('origin_zip') and row.get('dest_zip'):
+        if 'lane' in self.enabled_enrichments and (row.get('origin_zip') or row.get('Origin Zip')) and (row.get('dest_zip') or row.get('Destination Zip')):
             return True
             
-        return False
+        return has_identifier
     
     def enrich(self, row: Dict[str, Any]) -> Dict[str, Any]:
         """Enrich row with GoAugment Snowflake data."""
@@ -125,26 +136,43 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
                 load_data = self._get_load_data_by_id(connection, row['internal_load_id'])
                 enriched.update(load_data)
             else:
-                # Traditional field-based enrichment
-                # Add tracking data if PRO exists and tracking enrichment enabled
-                if 'tracking' in self.enabled_enrichments and row.get('PRO'):
-                    tracking_data = self._get_tracking_data(connection, row['PRO'])
-                    enriched.update(tracking_data)
+                # Traditional field-based enrichment with flexible field matching
+                # Add tracking data if any PRO field exists and tracking enrichment enabled
+                if 'tracking' in self.enabled_enrichments:
+                    pro_number = (row.get('PRO') or row.get('pro_number') or 
+                                row.get('Carrier Pro#') or row.get('carrier_pro'))
+                    if pro_number:
+                        tracking_data = self._get_tracking_data(connection, str(pro_number))
+                        enriched.update(tracking_data)
                 
-                # Add customer data if customer_code exists and customer enrichment enabled
-                if 'customer' in self.enabled_enrichments and row.get('customer_code'):
-                    customer_data = self._get_customer_data(connection, row['customer_code'])
-                    enriched.update(customer_data)
+                # Add customer data if any customer field exists and customer enrichment enabled
+                if 'customer' in self.enabled_enrichments:
+                    customer_id = (row.get('customer_code') or row.get('Customer Name') or
+                                 row.get('customer_name') or row.get('Acct/Customer#'))
+                    if customer_id:
+                        customer_data = self._get_customer_data(connection, str(customer_id))
+                        enriched.update(customer_data)
                     
-                # Add carrier data if carrier exists and carrier enrichment enabled
-                if 'carrier' in self.enabled_enrichments and row.get('carrier'):
-                    carrier_data = self._get_carrier_data(connection, row['carrier'])
-                    enriched.update(carrier_data)
+                # Add carrier data if any carrier field exists and carrier enrichment enabled
+                if 'carrier' in self.enabled_enrichments:
+                    carrier_id = (row.get('carrier') or row.get('Carrier Name') or
+                                row.get('carrier_name') or row.get('carrier_code'))
+                    if carrier_id:
+                        carrier_data = self._get_carrier_data(connection, str(carrier_id))
+                        enriched.update(carrier_data)
                     
-                # Add lane performance if origin/dest exist and lane enrichment enabled
-                if 'lane' in self.enabled_enrichments and row.get('origin_zip') and row.get('dest_zip'):
-                    lane_data = self._get_lane_data(connection, row['origin_zip'], row['dest_zip'], row.get('carrier'))
-                    enriched.update(lane_data)
+                # Add lane performance if any origin/dest fields exist and lane enrichment enabled  
+                if 'lane' in self.enabled_enrichments:
+                    origin_zip = (row.get('origin_zip') or row.get('Origin Zip') or 
+                                row.get('origin_postal_code'))
+                    dest_zip = (row.get('dest_zip') or row.get('Destination Zip') or
+                              row.get('dest_postal_code'))
+                    carrier_for_lane = (row.get('carrier') or row.get('Carrier Name'))
+                    
+                    if origin_zip and dest_zip:
+                        lane_data = self._get_lane_data(connection, str(origin_zip), str(dest_zip), 
+                                                      str(carrier_for_lane) if carrier_for_lane else None)
+                        enriched.update(lane_data)
                 
         except Exception as e:
             logger.error(f"Snowflake enrichment error for row: {e}")

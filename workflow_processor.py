@@ -43,6 +43,7 @@ class EndToEndWorkflowProcessor:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
         self.load_id_mapper = LoadIDMapper(config)
+        self.workflow_type = config.get('workflow_type', 'endtoend')  # 'endtoend' or 'postback'
         
         # Initialize existing components
         enrichment_config = config.get('enrichment', {}).get('sources', [])
@@ -184,26 +185,38 @@ class EndToEndWorkflowProcessor:
         return results
     
     def _validate_csv_data(self, csv_data: List[Dict[str, Any]]) -> List[str]:
-        """Validate CSV data for required fields and format."""
+        """Validate CSV data for required fields and format based on workflow type."""
         errors = []
         
         if not csv_data:
             errors.append("CSV file is empty")
             return errors
         
-        # Check for required fields (adjust based on your requirements)
-        required_fields = ['load_id']  # Minimal requirement
-        recommended_fields = ['carrier', 'PRO', 'customer_code', 'origin_zip', 'dest_zip']
-        
         first_row = csv_data[0]
         
-        for field in required_fields:
-            if field not in first_row:
-                errors.append(f"Required field '{field}' is missing")
-        
-        missing_recommended = [field for field in recommended_fields if field not in first_row]
-        if missing_recommended:
-            logger.warning(f"Recommended fields missing: {missing_recommended}")
+        if self.workflow_type == 'endtoend':
+            # Strict validation for end-to-end workflow (new load creation)
+            required_fields = ['load_id']  # Required for FF2API processing
+            recommended_fields = ['carrier', 'PRO', 'customer_code', 'origin_zip', 'dest_zip']
+            
+            for field in required_fields:
+                if field not in first_row:
+                    errors.append(f"Required field '{field}' is missing for end-to-end processing")
+                    
+            missing_recommended = [field for field in recommended_fields if field not in first_row]
+            if missing_recommended:
+                logger.warning(f"Recommended fields missing: {missing_recommended}")
+                
+        elif self.workflow_type == 'postback':
+            # Flexible validation for postback workflow (existing loads)
+            # Just need at least one identifier field to lookup existing loads
+            identifier_fields = ['load_id', 'BOL #', 'Carrier Pro#', 'carrier_pro', 'PRO', 'customer_code', 'bol_number']
+            has_identifier = any(field in first_row for field in identifier_fields)
+            
+            if not has_identifier:
+                errors.append(f"At least one identifier field required: {identifier_fields[:3]}... (or similar)")
+            else:
+                logger.info(f"Found identifier fields: {[f for f in identifier_fields if f in first_row]}")
         
         return errors
     
