@@ -40,15 +40,6 @@ def main():
     with st.sidebar:
         st.title("🚚 FF2API Platform")
         
-        # Check if any brokerages have email automation available
-        available_brokerages = credential_manager.get_available_brokerages()
-        email_automation_available = False
-        
-        for brokerage in available_brokerages:
-            cred_status = credential_manager.validate_credentials(brokerage)
-            if cred_status.email_automation_available:
-                email_automation_available = True
-                break
         
         # Build app options dynamically
         app_options = [

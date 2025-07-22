@@ -285,6 +285,72 @@ def create_download_files(enriched_data: List[Dict[str, Any]], formats: List[str
     return output_files
 
 
+def _save_email_automation_config(brokerage_key: str, gmail_email: str, sender_filter: str, subject_filter: str):
+    """Save email automation configuration for a brokerage."""
+    try:
+        # Save configuration to session state
+        if 'brokerage_email_configs' not in st.session_state:
+            st.session_state.brokerage_email_configs = {}
+        
+        config = {
+            'gmail_credentials': {'email': gmail_email},
+            'inbox_filters': {
+                'sender_filter': sender_filter or None,
+                'subject_filter': subject_filter or None
+            },
+            'active': False,  # Start as inactive
+            'column_mappings': {},  # Will be populated when user saves a mapping
+            'processing_options': {
+                'add_tracking': True,
+                'send_email': False
+            }
+        }
+        
+        st.session_state.brokerage_email_configs[brokerage_key] = config
+        logger.info(f"Saved email automation config for {brokerage_key}")
+        
+    except Exception as e:
+        logger.error(f"Error saving email automation config: {e}")
+        st.error(f"Failed to save configuration: {e}")
+
+def _update_email_automation_status(brokerage_key: str, active: bool):
+    """Update email automation active status for a brokerage."""
+    try:
+        if 'brokerage_email_configs' in st.session_state:
+            config = st.session_state.brokerage_email_configs.get(brokerage_key, {})
+            config['active'] = active
+            st.session_state.brokerage_email_configs[brokerage_key] = config
+            
+            if active:
+                # Start monitoring for this brokerage
+                email_monitor.start_monitoring([brokerage_key])
+                logger.info(f"Started email automation for {brokerage_key}")
+            else:
+                # Stop monitoring 
+                email_monitor.stop_monitoring()
+                logger.info(f"Stopped email automation for {brokerage_key}")
+        
+    except Exception as e:
+        logger.error(f"Error updating email automation status: {e}")
+        st.error(f"Failed to update status: {e}")
+
+def _save_workflow_configuration(brokerage_key: str, column_mapping: dict, processing_options: dict):
+    """Save workflow configuration that will be used for email automation."""
+    try:
+        if 'brokerage_email_configs' in st.session_state:
+            config = st.session_state.brokerage_email_configs.get(brokerage_key, {})
+            if config:  # Only save if email automation is configured
+                config['column_mappings'] = column_mapping
+                config['processing_options'] = processing_options
+                st.session_state.brokerage_email_configs[brokerage_key] = config
+                logger.info(f"Saved workflow configuration for {brokerage_key}")
+                return True
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error saving workflow configuration: {e}")
+        return False
+
 def main():
     """Main end-to-end workflow application."""
     
@@ -302,14 +368,41 @@ def main():
             brokerage_key = st.text_input("Brokerage key", value="augment-brokerage")
             st.warning("⚠️ No configured brokerages found")
         
-        # Email automation status (if available)
+        # Email automation configuration
         if brokerage_key:
             cred_status = credential_manager.validate_credentials(brokerage_key)
+            
+            st.markdown("---")
+            st.subheader("Email Automation")
+            
             if cred_status.email_automation_available:
                 if cred_status.email_automation_active:
-                    st.success("📧 Email Automation Active")
+                    st.success("📧 Active - Processing emails automatically")
+                    if st.button("Stop Email Automation"):
+                        _update_email_automation_status(brokerage_key, False)
+                        st.rerun()
                 else:
-                    st.info("📧 Email Automation Available")
+                    st.info("📧 Available - Ready to start")
+                    if st.button("Start Email Automation"):
+                        _update_email_automation_status(brokerage_key, True)
+                        st.rerun()
+            else:
+                st.info("📧 Not configured for this brokerage")
+                
+                with st.expander("Setup Email Automation"):
+                    st.write("To enable automatic email processing:")
+                    
+                    gmail_email = st.text_input("Gmail address for monitoring", placeholder="reports@yourcompany.com")
+                    sender_filter = st.text_input("Sender email filter (optional)", placeholder="carrier@company.com")
+                    subject_filter = st.text_input("Subject filter (optional)", placeholder="Daily Load Report")
+                    
+                    if st.button("Save Email Configuration"):
+                        if gmail_email:
+                            _save_email_automation_config(brokerage_key, gmail_email, sender_filter, subject_filter)
+                            st.success("Email automation configured! You can now start monitoring.")
+                            st.rerun()
+                        else:
+                            st.error("Gmail address is required")
         
         # Essential options only
         add_tracking = st.checkbox("Add warehouse data", value=True)
