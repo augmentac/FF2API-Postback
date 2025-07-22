@@ -32,7 +32,14 @@ class StreamlitGoogleSSO:
     def _load_sso_config(self) -> Optional[Dict[str, str]]:
         """Load universal Google SSO configuration from secrets."""
         try:
+            # Debug: Check what secrets are available
+            logger.info(f"Available secret keys: {list(st.secrets.keys())}")
+            
             google_sso = st.secrets.get("google_sso", {})
+            logger.info(f"Google SSO section found: {bool(google_sso)}")
+            
+            if google_sso:
+                logger.info(f"Google SSO keys: {list(google_sso.keys())}")
             
             required_fields = ['client_id', 'client_secret']
             missing_fields = [field for field in required_fields if field not in google_sso]
@@ -41,6 +48,7 @@ class StreamlitGoogleSSO:
                 logger.warning(f"Missing Google SSO config: {missing_fields}")
                 return None
             
+            logger.info("Google SSO configuration loaded successfully")
             return {
                 'client_id': google_sso['client_id'],
                 'client_secret': google_sso['client_secret']
@@ -85,6 +93,24 @@ class StreamlitGoogleSSO:
     def _render_config_error(self) -> Dict[str, Any]:
         """Render configuration error interface."""
         st.error("🔧 **Google SSO Not Configured**")
+        
+        # Debug information
+        with st.expander("🔍 Debug Information"):
+            try:
+                st.write("**Available secret sections:**", list(st.secrets.keys()))
+                google_sso = st.secrets.get("google_sso", {})
+                st.write("**Google SSO section exists:**", bool(google_sso))
+                if google_sso:
+                    st.write("**Google SSO keys:**", list(google_sso.keys()))
+                    # Show if values exist (but not the actual values)
+                    for key in ['client_id', 'client_secret']:
+                        if key in google_sso:
+                            value = google_sso[key]
+                            st.write(f"**{key}:**", f"{'✅ Set' if value else '❌ Empty'} ({len(str(value))} chars)")
+                        else:
+                            st.write(f"**{key}:**", "❌ Missing")
+            except Exception as e:
+                st.write("**Debug error:**", str(e))
         
         with st.expander("Admin Setup Required"):
             st.markdown("### Universal Google SSO Setup")
