@@ -40,6 +40,11 @@ def mock_enrich_row(row: Dict[str, Any]) -> Dict[str, Any]:
     
     return enriched
 
+def simple_snowflake_notice():
+    """Show notice about Snowflake enrichment in simple mode."""
+    st.info("🏗️ **Snowflake Enrichment Available in Full Version**")
+    st.caption("The simple fallback version uses mock data. Deploy the full system with Snowflake credentials for real database enrichment.")
+
 def create_csv_output(data: List[Dict[str, Any]]) -> bytes:
     """Create CSV output."""
     if not data:
@@ -168,6 +173,9 @@ def main():
             
             # Enrichment settings
             enable_enrichment = st.checkbox("Enable Mock Tracking Enrichment", value=True)
+            
+            # Show Snowflake notice
+            simple_snowflake_notice()
             
             # Output settings
             col1, col2 = st.columns(2)

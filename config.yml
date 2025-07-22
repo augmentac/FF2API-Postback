@@ -33,6 +33,10 @@ enrichment:
     - type: mock_tracking
       generate_events: true
       max_events: 5
+    - type: snowflake_augment
+      database: "AUGMENT_DW"
+      schema: "MARTS"
+      enrichments: ["tracking", "customer", "carrier"]
 
 # Cloud deployment settings
 cloud:

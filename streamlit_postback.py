@@ -174,9 +174,39 @@ def main():
         
         # Enrichment settings
         st.subheader("Enrichment Settings")
-        enable_tracking = st.checkbox("Enable Mock Tracking Enrichment", value=True)
+        
+        # Mock tracking enrichment
+        enable_tracking = st.checkbox("Enable Mock Tracking Enrichment", value=False)
         if enable_tracking:
             max_events = st.slider("Max Tracking Events per Load", 1, 10, 5)
+        
+        # Snowflake enrichment
+        enable_snowflake = st.checkbox("Enable Snowflake Data Enrichment", value=True)
+        if enable_snowflake:
+            st.info("🏗️ Uses GoAugment DBT models for real data enrichment")
+            
+            snowflake_options = st.multiselect(
+                "Select Data to Add:",
+                [
+                    "📍 Latest Tracking Status", 
+                    "👤 Customer Information",
+                    "🚚 Carrier Details", 
+                    "🛣️ Lane Performance (90 days)"
+                ],
+                default=["📍 Latest Tracking Status", "👤 Customer Information"],
+                help="Choose which additional data columns to add from your internal database"
+            )
+            
+            if snowflake_options:
+                st.caption("**Will add columns:**")
+                if "📍 Latest Tracking Status" in snowflake_options:
+                    st.caption("• sf_tracking_status, sf_last_scan_location, sf_estimated_delivery")
+                if "👤 Customer Information" in snowflake_options:
+                    st.caption("• sf_customer_name, sf_account_manager, sf_payment_terms")
+                if "🚚 Carrier Details" in snowflake_options:
+                    st.caption("• sf_carrier_name, sf_carrier_otp, sf_service_levels")
+                if "🛣️ Lane Performance (90 days)" in snowflake_options:
+                    st.caption("• sf_avg_transit_days, sf_avg_lane_cost, sf_lane_volume")
         
         # Output format selection
         st.subheader("Output Formats")
@@ -259,6 +289,13 @@ def main():
                     st.error("Please enter a recipient email address.")
                     st.stop()
                 
+                if not enable_tracking and not enable_snowflake:
+                    st.warning("⚠️ No enrichment sources selected. Data will be processed without additional enrichment.")
+                    
+                if enable_snowflake and not snowflake_options:
+                    st.error("Please select at least one Snowflake enrichment option or disable Snowflake enrichment.")
+                    st.stop()
+                
                 # Show progress
                 progress_bar = st.progress(0)
                 status_text = st.empty()
@@ -270,11 +307,39 @@ def main():
                     
                     config = load_default_config()
                     
-                    # Update enrichment config
+                    # Update enrichment config based on UI selections
+                    enrichment_sources = []
+                    
+                    # Add mock tracking if enabled
                     if enable_tracking:
-                        config['enrichment']['sources'][0]['max_events'] = max_events
-                    else:
-                        config['enrichment']['sources'] = []
+                        enrichment_sources.append({
+                            'type': 'mock_tracking',
+                            'generate_events': True,
+                            'max_events': max_events
+                        })
+                    
+                    # Add Snowflake enrichment if enabled
+                    if enable_snowflake and snowflake_options:
+                        # Map UI selections to config values
+                        sf_enrichments = []
+                        if "📍 Latest Tracking Status" in snowflake_options:
+                            sf_enrichments.append("tracking")
+                        if "👤 Customer Information" in snowflake_options:
+                            sf_enrichments.append("customer")
+                        if "🚚 Carrier Details" in snowflake_options:
+                            sf_enrichments.append("carrier")
+                        if "🛣️ Lane Performance (90 days)" in snowflake_options:
+                            sf_enrichments.append("lane")
+                        
+                        enrichment_sources.append({
+                            'type': 'snowflake_augment',
+                            'database': 'AUGMENT_DW',
+                            'schema': 'MARTS',
+                            'enrichments': sf_enrichments
+                        })
+                    
+                    # Update config with selected enrichment sources
+                    config['enrichment']['sources'] = enrichment_sources
                     
                     # Add email if enabled
                     if enable_email and email_recipient:
