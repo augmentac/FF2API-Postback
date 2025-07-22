@@ -300,6 +300,8 @@ def main():
                     ["Load Tracking", "Customer Info", "Carrier Details", "Lane Performance"],
                     default=["Load Tracking", "Customer Info"]
                 )
+            else:
+                snowflake_options = []
     
     # Single column layout
     st.header("Upload New Load Data")
@@ -342,7 +344,7 @@ def main():
             if has_load_id and (send_email and email_recipient or not send_email):
                 if st.button("Process New Loads", type="primary", use_container_width=True):
                     process_endtoend_simple(df, brokerage_key, add_tracking, output_format, 
-                                          send_email, email_recipient, snowflake_options if add_tracking else [],
+                                          send_email, email_recipient, snowflake_options,
                                           api_timeout, retry_count)
             else:
                 if not has_load_id:
