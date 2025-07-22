@@ -110,6 +110,16 @@ def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send
                 elif output_format == "JSON":
                     json_data = json.dumps(results.enriched_data, indent=2, default=str)
                     st.download_button("Download Results", json_data, "results.json", "application/json")
+                elif output_format == "XML":
+                    import xml.etree.ElementTree as ET
+                    root = ET.Element("freight_data")
+                    for row in results.enriched_data:
+                        shipment = ET.SubElement(root, "shipment")
+                        for key, value in row.items():
+                            elem = ET.SubElement(shipment, key)
+                            elem.text = str(value) if value is not None else ""
+                    xml_data = ET.tostring(root, encoding='unicode')
+                    st.download_button("Download Results", xml_data, "results.xml", "application/xml")
                     
         except Exception as e:
             st.error("Processing failed")
@@ -288,7 +298,7 @@ def main():
         if send_email:
             email_recipient = st.text_input("Email address", placeholder="ops@company.com")
         
-        output_format = st.selectbox("Output format", ["CSV", "Excel", "JSON"], index=0)
+        output_format = st.selectbox("Output format", ["CSV", "Excel", "JSON", "XML"], index=0)
         
         # Advanced options hidden
         with st.expander("Advanced"):
