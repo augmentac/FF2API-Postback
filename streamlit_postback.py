@@ -137,6 +137,95 @@ def auto_detect_column_mappings(csv_columns: List[str]) -> Dict[str, str]:
     return mappings
 
 
+def process_data_simple(df, add_tracking, output_format, send_email, email_recipient, snowflake_options, enable_webhook, webhook_url):
+    """Simplified data processing with minimal UI."""
+    
+    with st.spinner("Processing..."):
+        try:
+            # Build simple config
+            config = load_default_config()
+            config['workflow_type'] = 'postback'
+            
+            # Add enrichment if enabled
+            if add_tracking:
+                sf_enrichments = []
+                if "Tracking Status" in snowflake_options:
+                    sf_enrichments.append("tracking")
+                if "Customer Info" in snowflake_options:
+                    sf_enrichments.append("customer") 
+                if "Carrier Details" in snowflake_options:
+                    sf_enrichments.append("carrier")
+                if "Lane Performance" in snowflake_options:
+                    sf_enrichments.append("lane")
+                
+                config['enrichment']['sources'] = [{
+                    'type': 'snowflake_augment',
+                    'database': 'AUGMENT_DW',
+                    'schema': 'MARTS', 
+                    'enrichments': sf_enrichments
+                }]
+            
+            # Set output format
+            config['postback']['handlers'] = [{
+                'type': output_format.lower(),
+                'output_path': f'/tmp/results.{output_format.lower()}'
+            }]
+            
+            # Add email if enabled
+            if send_email and email_recipient:
+                try:
+                    config['postback']['handlers'].append({
+                        'type': 'email',
+                        'recipient': email_recipient,
+                        'subject': 'Data Processing Results',
+                        'smtp_user': st.secrets.get("email", {}).get("SMTP_USER"),
+                        'smtp_pass': st.secrets.get("email", {}).get("SMTP_PASS"),
+                    })
+                except:
+                    st.warning("Email not configured")
+            
+            # Process data
+            enrichment_manager = EnrichmentManager(config['enrichment']['sources'])
+            postback_router = PostbackRouter(config['postback']['handlers'])
+            
+            # Apply column mapping
+            rows = df.to_dict('records')
+            current_mappings = getattr(st.session_state, 'column_mapping', {})
+            
+            if current_mappings:
+                mapped_rows = []
+                for row in rows:
+                    mapped_row = row.copy()
+                    for system_field, csv_field in current_mappings.items():
+                        if csv_field in row and row[csv_field] is not None:
+                            mapped_row[system_field] = row[csv_field]
+                            if system_field == 'pro_number':
+                                mapped_row['PRO'] = row[csv_field]
+                    mapped_rows.append(mapped_row)
+                rows = mapped_rows
+            
+            # Enrich and send
+            enriched_rows = enrichment_manager.enrich_rows(rows)
+            postback_router.send_all(enriched_rows)
+            
+            st.success("Processing complete")
+            
+            # Simple download
+            if output_format == "CSV":
+                csv_data = pd.DataFrame(enriched_rows).to_csv(index=False)
+                st.download_button("Download CSV", csv_data, "results.csv", "text/csv")
+            elif output_format == "Excel":
+                excel_data = pd.DataFrame(enriched_rows).to_excel(index=False)
+                st.download_button("Download Excel", excel_data, "results.xlsx")
+            elif output_format == "JSON":
+                json_data = json.dumps(enriched_rows, indent=2, default=str)
+                st.download_button("Download JSON", json_data, "results.json", "application/json")
+                
+        except Exception as e:
+            st.error("Processing failed")
+            st.error(str(e))
+
+
 def validate_uploaded_file(uploaded_file) -> pd.DataFrame:
     """Validate and load uploaded file."""
     try:
@@ -307,154 +396,72 @@ def main():
             webhook_url = st.text_input("Webhook URL", placeholder="https://example.com/webhook")
             webhook_timeout = st.number_input("Timeout (seconds)", value=30, min_value=5, max_value=120)
     
-    # Main content area
-    col1, col2 = st.columns([1, 1])
+    # Single column layout - simple flow
+    st.header("Upload File")
+    uploaded_file = st.file_uploader("Choose CSV or JSON file", type=["csv", "json"])
     
-    with col1:
-        st.header("📁 Upload Data")
-        uploaded_file = st.file_uploader(
-            "Choose a CSV or JSON file",
-            type=["csv", "json"],
-            help="Upload your freight data file. Required fields: load_id, carrier, PRO"
-        )
+    if uploaded_file is not None:
+        df = validate_uploaded_file(uploaded_file)
         
-        if uploaded_file is not None:
-            # Validate and display uploaded data
-            df = validate_uploaded_file(uploaded_file)
+        if df is not None:
+            st.success("File loaded")
             
-            if df is not None:
-                st.success(f"✅ File loaded successfully! {len(df)} rows found.")
+            st.markdown("---")
+            st.subheader("Preview") 
+            st.dataframe(df.head(5))
+            
+            st.markdown("---")
+            st.subheader("Field Mapping")
+            
+            # Simple auto-detection with minimal UI
+            auto_mappings = auto_detect_column_mappings(list(df.columns))
+            
+            if auto_mappings:
+                st.success("Data format detected")
+                st.session_state.column_mapping = auto_mappings
                 
-                # Show data preview
-                st.subheader("Data Preview")
-                st.dataframe(df.head(10))
-                
-                # Smart column mapping with auto-detection
-                st.subheader("🔗 Smart Column Mapping")
-                
-                # Auto-detect column mappings
-                auto_mappings = auto_detect_column_mappings(list(df.columns))
-                
-                if auto_mappings:
-                    st.success(f"✅ Auto-detected {len(auto_mappings)} field mappings")
-                    
-                    # Display mapping table
-                    mapping_df = pd.DataFrame([
-                        {"System Field": system_field.replace('_', ' ').title(), 
-                         "CSV Column": csv_col,
-                         "Field Type": "🔑 Primary" if system_field in ['load_id', 'pro_number'] else "📝 Optional"}
-                        for system_field, csv_col in auto_mappings.items()
-                    ])
-                    st.dataframe(mapping_df, hide_index=True, use_container_width=True)
-                    
-                    # Store auto-mappings
-                    st.session_state.column_mapping = auto_mappings
-                    
-                else:
-                    st.warning("⚠️ Could not auto-detect field mappings")
-                    st.session_state.column_mapping = {}
-                
-                # Manual override option
-                with st.expander("🔧 Adjust Mappings (Optional)"):
-                    st.info("Only modify if auto-detection is incorrect")
-                    
-                    # Available CSV columns for manual override
+                # Show only if there's a problem
+                with st.expander("Adjust field mapping"):
                     csv_columns = ['-- Not Mapped --'] + list(df.columns)
-                    
-                    # Manual mapping interface (more compact)
                     manual_mapping = {}
-                    col1, col2, col3 = st.columns(3)
                     
+                    col1, col2 = st.columns(2)
                     with col1:
-                        manual_mapping['load_id'] = st.selectbox(
-                            "Load ID Field:", 
-                            csv_columns,
-                            index=csv_columns.index(auto_mappings.get('load_id', '-- Not Mapped --')) if auto_mappings.get('load_id') in csv_columns else 0
-                        )
-                        manual_mapping['pro_number'] = st.selectbox(
-                            "PRO Number Field:", 
-                            csv_columns,
-                            index=csv_columns.index(auto_mappings.get('pro_number', '-- Not Mapped --')) if auto_mappings.get('pro_number') in csv_columns else 0
-                        )
+                        manual_mapping['load_id'] = st.selectbox("Load ID field:", csv_columns,
+                            index=csv_columns.index(auto_mappings.get('load_id', '-- Not Mapped --')) if auto_mappings.get('load_id') in csv_columns else 0)
+                        manual_mapping['carrier'] = st.selectbox("Carrier field:", csv_columns,
+                            index=csv_columns.index(auto_mappings.get('carrier', '-- Not Mapped --')) if auto_mappings.get('carrier') in csv_columns else 0)
                     
                     with col2:
-                        manual_mapping['carrier'] = st.selectbox(
-                            "Carrier Field:", 
-                            csv_columns,
-                            index=csv_columns.index(auto_mappings.get('carrier', '-- Not Mapped --')) if auto_mappings.get('carrier') in csv_columns else 0
-                        )
-                        manual_mapping['customer_code'] = st.selectbox(
-                            "Customer Field:", 
-                            csv_columns,
-                            index=csv_columns.index(auto_mappings.get('customer_code', '-- Not Mapped --')) if auto_mappings.get('customer_code') in csv_columns else 0
-                        )
+                        manual_mapping['pro_number'] = st.selectbox("PRO number field:", csv_columns,
+                            index=csv_columns.index(auto_mappings.get('pro_number', '-- Not Mapped --')) if auto_mappings.get('pro_number') in csv_columns else 0)
+                        manual_mapping['customer_code'] = st.selectbox("Customer field:", csv_columns,
+                            index=csv_columns.index(auto_mappings.get('customer_code', '-- Not Mapped --')) if auto_mappings.get('customer_code') in csv_columns else 0)
                     
-                    with col3:
-                        manual_mapping['origin_zip'] = st.selectbox(
-                            "Origin ZIP:", 
-                            csv_columns,
-                            index=csv_columns.index(auto_mappings.get('origin_zip', '-- Not Mapped --')) if auto_mappings.get('origin_zip') in csv_columns else 0
-                        )
-                        manual_mapping['dest_zip'] = st.selectbox(
-                            "Destination ZIP:", 
-                            csv_columns,
-                            index=csv_columns.index(auto_mappings.get('dest_zip', '-- Not Mapped --')) if auto_mappings.get('dest_zip') in csv_columns else 0
-                        )
-                    
-                    # Apply manual overrides button
-                    if st.button("Apply Manual Mappings"):
-                        # Filter out unmapped fields
+                    if st.button("Apply changes"):
                         filtered_mapping = {k: v for k, v in manual_mapping.items() if v != '-- Not Mapped --'}
                         st.session_state.column_mapping = filtered_mapping
-                        st.success(f"✅ Applied {len(filtered_mapping)} manual mappings")
+                        st.success("Mappings updated")
                         st.rerun()
-                
-                # Final validation
-                current_mappings = getattr(st.session_state, 'column_mapping', {})
-                if not current_mappings:
-                    st.error("⚠️ No field mappings available. Please check your CSV columns.")
-                else:
-                    primary_fields = [f for f in ['load_id', 'pro_number', 'carrier'] if f in current_mappings]
-                    if primary_fields:
-                        st.info(f"🎯 Ready to enrich using: {', '.join([f.replace('_', ' ').title() for f in primary_fields])}")
-                    else:
-                        st.warning("⚠️ No primary identifier fields mapped. Enrichment may be limited.")
-    
-    with col2:
-        st.header("🔄 Processing")
-        
-        if uploaded_file is not None and df is not None:
+                        
+            else:
+                st.warning("Cannot detect data format")
+                load_field = st.selectbox("Which column contains load IDs?", df.columns)
+                st.session_state.column_mapping = {'load_id': load_field}
             
-            # Process button
-            if st.button("🚀 Process & Enrich Data", type="primary", use_container_width=True):
-                
-                # Validation checks
-                if not output_formats and not enable_email:
-                    st.error("Please select at least one output format or enable email.")
-                    st.stop()
-                
-                if enable_email and not email_recipient:
-                    st.error("Please enter a recipient email address.")
-                    st.stop()
-                
-                # Check column mapping
-                current_mappings = getattr(st.session_state, 'column_mapping', {})
-                if not current_mappings:
-                    st.error("No column mappings detected. Please check your CSV format or use manual mapping.")
-                    st.stop()
-                    
-                # Check for at least one primary identifier
-                primary_fields = [f for f in ['load_id', 'pro_number', 'carrier'] if f in current_mappings]
-                if not primary_fields:
-                    st.error("Please ensure at least one primary identifier field (Load ID, PRO Number, or Carrier) is mapped.")
-                    st.stop()
-                
-                if not enable_tracking and not enable_snowflake:
-                    st.warning("⚠️ No enrichment sources selected. Data will be processed without additional enrichment.")
-                    
-                if enable_snowflake and not snowflake_options:
-                    st.error("Please select at least one Snowflake enrichment option or disable Snowflake enrichment.")
-                    st.stop()
+            st.markdown("---")
+            # Simple process button
+            ready_to_process = getattr(st.session_state, 'column_mapping', {})
+            
+            if ready_to_process and (send_email and email_recipient or not send_email):
+                if st.button("Process Data", type="primary", use_container_width=True):
+                    process_data_simple(df, add_tracking, output_format, send_email, email_recipient, 
+                                       snowflake_options if add_tracking else [], enable_webhook, webhook_url if enable_webhook else None)
+            else:
+                if not ready_to_process:
+                    st.button("Process Data", disabled=True, help="Fix data format first")
+                elif send_email and not email_recipient:
+                    st.button("Process Data", disabled=True, help="Enter email address")
                 
                 # Show progress
                 progress_bar = st.progress(0)

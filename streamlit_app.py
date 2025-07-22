@@ -43,13 +43,14 @@ def main():
         )
         
         st.markdown("---")
+        st.markdown("---")
         st.markdown("### About")
         if page == "FF2API - Load Processing":
-            st.info("📊 Process and upload freight loads to various APIs with smart mapping capabilities.")
+            st.info("Process loads via API mapping")
         elif page == "Postback & Enrichment System":
-            st.info("🔄 Enrich freight data with tracking information and export to multiple formats.")
+            st.info("Enrich existing load data")
         else:  # End-to-End Load Processing
-            st.info("🚀 Complete workflow: CSV → FF2API → Load IDs → Snowflake → Postback")
+            st.info("Create new loads with enrichment")
     
     # Route to appropriate application
     if page == "End-to-End Load Processing":
@@ -57,12 +58,11 @@ def main():
         try:
             from streamlit_endtoend import main as endtoend_main
             endtoend_main()
-        except ImportError as e:
-            st.error(f"❌ End-to-end system unavailable: {str(e)}")
-            st.info("This feature requires all workflow components to be available.")
+        except ImportError:
+            st.error("End-to-end system not available")
         except Exception as e:
-            st.error(f"❌ Error in End-to-End system: {str(e)}")
-            st.info("Please check the configuration and try again.")
+            st.error("System error occurred")
+            st.error(str(e))
     
     elif page == "FF2API - Load Processing":
         try:
@@ -75,12 +75,11 @@ def main():
                     from frontend.app import main as ff2api_main
                     ff2api_main()
                 except ImportError:
-                    st.error("❌ FF2API Load Processing system is not available in this deployment.")
-                    st.info("This feature requires the full FF2API backend components.")
+                    st.error("FF2API system not available")
                     
         except Exception as e:
-            st.error(f"❌ Error loading FF2API application: {str(e)}")
-            st.info("Please contact support if this error persists.")
+            st.error("System error occurred")
+            st.error(str(e))
     
     else:  # Postback & Enrichment System
         # Load postback system
@@ -88,24 +87,16 @@ def main():
             # Try to import the full postback system
             from streamlit_postback import main as postback_main
             postback_main()
-        except ImportError as e:
-            st.warning(f"⚠️ Full postback system unavailable: {str(e)}")
-            st.info("Loading simplified version...")
+        except ImportError:
+            st.warning("Loading simplified version...")
             try:
-                # Fallback to simple version
                 from postback_simple import main as simple_main
                 simple_main()
             except ImportError:
-                st.error("❌ Neither postback system is available.")
-                st.info("Please check the deployment configuration.")
+                st.error("Postback system not available")
         except Exception as e:
-            st.error(f"❌ Error in Postback system: {str(e)}")
-            try:
-                # Try fallback on any error
-                from postback_simple import main as simple_main  
-                simple_main()
-            except:
-                st.error("❌ All postback systems failed to load.")
+            st.error("System error occurred")
+            st.error(str(e))
 
 # Handle both direct execution and module import  
 if __name__ == "__main__":
