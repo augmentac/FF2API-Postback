@@ -493,6 +493,12 @@ client_secret = "your-universal-client-secret"
                     expiry = datetime.fromisoformat(auth_data['token_expiry'])
                     if datetime.now() < expiry:
                         return auth_data
+                    else:
+                        # Token expired, try to refresh it
+                        logger.info(f"Access token expired for {brokerage_key}, attempting refresh...")
+                        refreshed_auth = self._auto_refresh_token(brokerage_key, auth_data)
+                        if refreshed_auth:
+                            return refreshed_auth
             
             # Fallback to credential manager
             from gmail_auth_service import gmail_auth_service
@@ -567,6 +573,59 @@ client_secret = "your-universal-client-secret"
     def is_authenticated(self, brokerage_key: str) -> bool:
         """Check if user is authenticated for brokerage."""
         return self._get_stored_auth(brokerage_key) is not None
+    
+    def _auto_refresh_token(self, brokerage_key: str, current_auth: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Automatically refresh expired OAuth token.
+        
+        Args:
+            brokerage_key: Brokerage identifier
+            current_auth: Current authentication data with refresh_token
+            
+        Returns:
+            New authentication data with fresh access token, or None if refresh fails
+        """
+        try:
+            refresh_token = current_auth.get('refresh_token')
+            if not refresh_token:
+                logger.warning(f"No refresh token available for {brokerage_key}")
+                return None
+            
+            if not self.is_configured():
+                logger.error("Google SSO not configured for token refresh")
+                return None
+            
+            # Refresh the token
+            import requests
+            token_url = "https://oauth2.googleapis.com/token"
+            data = {
+                'client_id': self._config['client_id'],
+                'client_secret': self._config['client_secret'],
+                'refresh_token': refresh_token,
+                'grant_type': 'refresh_token'
+            }
+            
+            response = requests.post(token_url, data=data)
+            response.raise_for_status()
+            token_data = response.json()
+            
+            # Update stored authentication with new access token
+            new_auth = current_auth.copy()
+            new_auth['access_token'] = token_data['access_token']
+            new_auth['token_expiry'] = (datetime.now() + timedelta(seconds=token_data.get('expires_in', 3600))).isoformat()
+            new_auth['refreshed_at'] = datetime.now().isoformat()
+            
+            # Update in session state
+            if 'google_sso_auth' not in st.session_state:
+                st.session_state.google_sso_auth = {}
+            st.session_state.google_sso_auth[brokerage_key] = new_auth
+            
+            logger.info(f"Successfully auto-refreshed OAuth token for {brokerage_key}")
+            return new_auth
+            
+        except Exception as e:
+            logger.error(f"Error auto-refreshing OAuth token for {brokerage_key}: {e}")
+            return None
 
 
 # Global instance

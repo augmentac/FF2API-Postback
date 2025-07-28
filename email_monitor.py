@@ -378,6 +378,18 @@ class EmailMonitorService:
                     if test_response.status_code == 200:
                         logger.info("OAuth token verified successfully")
                         return test_headers
+                    elif test_response.status_code == 401:
+                        # Token expired, try to refresh it
+                        logger.info("Access token expired, attempting refresh...")
+                        refreshed_auth = self._refresh_oauth_token(brokerage_key, auth_data)
+                        if refreshed_auth:
+                            logger.info("Token refreshed successfully")
+                            return {
+                                'Authorization': f'Bearer {refreshed_auth["access_token"]}',
+                                'Content-Type': 'application/json'
+                            }
+                        else:
+                            logger.warning("Token refresh failed")
                     else:
                         logger.warning(f"OAuth token test failed: {test_response.status_code}")
                         
@@ -700,6 +712,71 @@ class EmailMonitorService:
             
         except Exception as e:
             logger.error(f"Error storing processed data: {e}")
+    
+    def _refresh_oauth_token(self, brokerage_key: str, current_auth: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Refresh expired OAuth token using refresh token.
+        
+        Args:
+            brokerage_key: Brokerage identifier
+            current_auth: Current authentication data with refresh_token
+            
+        Returns:
+            New authentication data with fresh access token, or None if refresh fails
+        """
+        try:
+            refresh_token = current_auth.get('refresh_token')
+            if not refresh_token:
+                logger.error(f"No refresh token available for {brokerage_key}")
+                return None
+            
+            # Get OAuth config from streamlit_google_sso
+            try:
+                from streamlit_google_sso import streamlit_google_sso
+                if not streamlit_google_sso.is_configured():
+                    logger.error("Google SSO not configured for token refresh")
+                    return None
+                
+                config = streamlit_google_sso._config
+                client_id = config['client_id']
+                client_secret = config['client_secret']
+            except Exception as e:
+                logger.error(f"Could not get OAuth config for refresh: {e}")
+                return None
+            
+            # Refresh the token
+            token_url = "https://oauth2.googleapis.com/token"
+            data = {
+                'client_id': client_id,
+                'client_secret': client_secret,
+                'refresh_token': refresh_token,
+                'grant_type': 'refresh_token'
+            }
+            
+            response = requests.post(token_url, data=data)
+            response.raise_for_status()
+            token_data = response.json()
+            
+            # Update stored authentication with new access token
+            new_auth = current_auth.copy()
+            new_auth['access_token'] = token_data['access_token']
+            new_auth['token_expiry'] = (datetime.now() + timedelta(seconds=token_data.get('expires_in', 3600))).isoformat()
+            
+            # Store updated auth in session state
+            if 'google_sso_auth' not in st.session_state:
+                st.session_state.google_sso_auth = {}
+            st.session_state.google_sso_auth[brokerage_key] = new_auth
+            
+            # Also update stored credentials in this service
+            if brokerage_key in self.oauth_credentials:
+                self.oauth_credentials[brokerage_key]['access_token'] = token_data['access_token']
+            
+            logger.info(f"Successfully refreshed OAuth token for {brokerage_key}")
+            return new_auth
+            
+        except Exception as e:
+            logger.error(f"Error refreshing OAuth token for {brokerage_key}: {e}")
+            return None
 
 
 # Global instance for application use
