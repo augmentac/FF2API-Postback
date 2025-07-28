@@ -342,14 +342,20 @@ def _render_email_automation_sidebar():
                 
                 # Show automation status - check both credential status and actual monitor status
                 try:
-                    monitor_running = email_monitor.is_monitoring_active() if hasattr(email_monitor, 'is_monitoring_active') else False
+                    # Use the correct property/method from the email monitor
+                    monitor_running = getattr(email_monitor, 'monitoring_active', False)
+                    if hasattr(email_monitor, 'get_monitoring_status'):
+                        status_info = email_monitor.get_monitoring_status()
+                        # Update debug to show status details
+                    else:
+                        status_info = "No get_monitoring_status method"
                 except Exception as e:
                     monitor_running = False
+                    status_info = f"Error: {e}"
                 
                 # Debug the status and email monitor
-                available_methods = [method for method in dir(email_monitor) if not method.startswith('_')]
                 st.caption(f"Debug: cred_status.email_automation_active={cred_status.email_automation_active}, monitor_running={monitor_running}")
-                st.caption(f"Email monitor methods: {available_methods}")
+                st.caption(f"Monitor status info: {status_info}")
                 
                 if cred_status.email_automation_active or monitor_running:
                     st.info("🟢 Email automation active")
