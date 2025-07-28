@@ -20,7 +20,7 @@ class DatabaseManager:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         
-        # Enhanced brokerage configurations table
+        # Enhanced brokerage configurations table with end-to-end workflow support
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS brokerage_configurations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +37,11 @@ class DatabaseManager:
                 version INTEGER DEFAULT 1,
                 is_active BOOLEAN DEFAULT 1,
                 description TEXT,
+                processing_mode TEXT DEFAULT 'manual',
+                enrichment_config TEXT,
+                postback_config TEXT,
+                email_automation_config TEXT,
+                workflow_preferences TEXT,
                 UNIQUE(brokerage_name, configuration_name)
             )
         ''')
@@ -867,7 +872,7 @@ class DatabaseManager:
             raise
         return key 
 
-    def save_brokerage_configuration(self, brokerage_name, configuration_name, field_mappings, api_credentials, file_headers=None, description=None, auth_type='api_key', bearer_token=None):
+    def save_brokerage_configuration(self, brokerage_name, configuration_name, field_mappings, api_credentials, file_headers=None, description=None, auth_type='api_key', bearer_token=None, processing_mode='manual', enrichment_config=None, postback_config=None, email_automation_config=None, workflow_preferences=None):
         """Save or update brokerage configuration with versioning"""
         # Input validation
         if not brokerage_name or not isinstance(brokerage_name, str):
@@ -930,12 +935,20 @@ class DatabaseManager:
                 cursor.execute('''
                     UPDATE brokerage_configurations 
                     SET field_mappings = ?, api_credentials = ?, auth_type = ?, bearer_token = ?, 
-                        file_headers = ?, updated_at = ?, last_used_at = ?, description = ?
+                        file_headers = ?, updated_at = ?, last_used_at = ?, description = ?,
+                        processing_mode = ?, enrichment_config = ?, postback_config = ?, 
+                        email_automation_config = ?, workflow_preferences = ?
                     WHERE id = ?
                 ''', (
                     json.dumps(field_mappings), encrypted_credentials, auth_type, encrypted_bearer_token,
                     json.dumps(file_headers) if file_headers else None,
-                    datetime.now(), datetime.now(), description, config_id
+                    datetime.now(), datetime.now(), description,
+                    processing_mode,
+                    json.dumps(enrichment_config) if enrichment_config else None,
+                    json.dumps(postback_config) if postback_config else None,
+                    json.dumps(email_automation_config) if email_automation_config else None,
+                    json.dumps(workflow_preferences) if workflow_preferences else None,
+                    config_id
                 ))
                 
                 # Log configuration change
@@ -950,13 +963,19 @@ class DatabaseManager:
                 cursor.execute('''
                     INSERT INTO brokerage_configurations 
                     (brokerage_name, configuration_name, field_mappings, api_credentials, 
-                     auth_type, bearer_token, file_headers, last_used_at, description)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     auth_type, bearer_token, file_headers, last_used_at, description,
+                     processing_mode, enrichment_config, postback_config, email_automation_config, workflow_preferences)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     safe_brokerage_name, safe_configuration_name, 
                     json.dumps(field_mappings), encrypted_credentials, auth_type, encrypted_bearer_token,
                     json.dumps(file_headers) if file_headers else None,
-                    datetime.now(), description
+                    datetime.now(), description,
+                    processing_mode,
+                    json.dumps(enrichment_config) if enrichment_config else None,
+                    json.dumps(postback_config) if postback_config else None,
+                    json.dumps(email_automation_config) if email_automation_config else None,
+                    json.dumps(workflow_preferences) if workflow_preferences else None
                 ))
                 
                 config_id = cursor.lastrowid

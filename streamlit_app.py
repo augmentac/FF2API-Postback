@@ -43,9 +43,8 @@ def main():
         
         # Build app options dynamically
         app_options = [
-            "End-to-End Load Processing", 
-            "Postback & Enrichment System", 
-            "FF2API - Load Processing"
+            "Unified Load Processing",
+            "Postback & Enrichment System"
         ]
         
         # Navigation options
@@ -57,51 +56,20 @@ def main():
         
         st.markdown("---")
         st.markdown("### About")
-        if page == "FF2API - Load Processing":
-            st.info("Process loads via API mapping")
+        if page == "Unified Load Processing":
+            st.info("Complete load processing with field mapping, enrichment, and delivery options")
         elif page == "Postback & Enrichment System":
-            st.info("Enrich existing load data")
-        elif page == "Email Automation Setup":
-            st.info("Configure automatic email processing")
-        else:  # End-to-End Load Processing
-            st.info("Create new loads with enrichment")
+            st.info("Enrich existing load data without creating new loads")
     
     # Route to appropriate application
-    if page == "End-to-End Load Processing":
-        # Load end-to-end workflow system
+    if page == "Unified Load Processing":
+        # Load unified processing system
         try:
-            from streamlit_endtoend import main as endtoend_main
-            endtoend_main()
+            from src.frontend.unified_app import main as unified_main
+            unified_main()
         except ImportError:
-            st.error("End-to-end system not available")
-        except Exception as e:
-            st.error("System error occurred")
-            st.error(str(e))
-    
-    elif page == "FF2API - Load Processing":
-        try:
-            # Try multiple import paths for the original app
-            try:
-                from src.frontend.app import main as ff2api_main
-                ff2api_main()
-            except ImportError:
-                try:
-                    from frontend.app import main as ff2api_main
-                    ff2api_main()
-                except ImportError:
-                    st.error("FF2API system not available")
-                    
-        except Exception as e:
-            st.error("System error occurred")
-            st.error(str(e))
-    
-    elif page == "Email Automation Setup":
-        # Load email automation setup
-        try:
-            from email_automation_app import main as email_automation_main
-            email_automation_main()
-        except ImportError:
-            st.error("Email Automation system not available")
+            st.error("Unified processing system not available")
+            st.error("Please ensure all required modules are installed")
         except Exception as e:
             st.error("System error occurred")
             st.error(str(e))
