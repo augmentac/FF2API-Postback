@@ -708,7 +708,7 @@ def _render_data_preview_section():
                     with col1:
                         st.metric("Mapped Fields", len(api_preview_data['mapped_fields']))
                     with col2:
-                        required_fields = [f for f in api_preview_data['mapped_fields'] if get_full_api_schema().get(f, {}).get('required', False)]
+                        required_fields = [f for f in api_preview_data['mapped_fields'] if get_full_api_schema().get(f, {}).get('required') in [True, 'conditional']]
                         st.metric("Required Fields", len(required_fields))
                     with col3:
                         optional_fields = len(api_preview_data['mapped_fields']) - len(required_fields)

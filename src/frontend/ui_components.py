@@ -43,7 +43,7 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
     
     field_type = field_info.get('type', 'string')
     is_enum = bool(field_info.get('enum'))
-    is_required = field_info.get('required', False)
+    required_status = field_info.get('required', False)
     
     # Show field type and requirements
     type_indicators = []
@@ -52,8 +52,10 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
     else:
         type_indicators.append(f"📝 {field_type.title()}")
         
-    if is_required:
+    if required_status == True:
         type_indicators.append("⭐ Required")
+    elif required_status == 'conditional':
+        type_indicators.append("🔸 Conditional")
         
     st.caption(" • ".join(type_indicators))
     
@@ -92,8 +94,10 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
     # Only show validation status if we have a value, but always return the value
     if value is not None and value != "":
         st.success("✅ Manual value set")
-    elif is_required:
+    elif required_status == True:
         st.info("ℹ️ This is a required field")
+    elif required_status == 'conditional':
+        st.info("🔸 This field is required when its parent object is provided")
         
     return value
 
@@ -349,6 +353,46 @@ def get_full_api_schema():
         'load.trackingEvents.0.temperatureF': {'type': 'number', 'required': False, 'description': 'Event Temperature'},
         'load.trackingEvents.0.notes': {'type': 'string', 'required': False, 'description': 'Event Notes'},
     }
+
+def get_effective_required_fields(api_schema, current_mappings):
+    """
+    Determine which fields are effectively required based on current mappings.
+    Conditional fields become required when their parent objects are being used.
+    """
+    always_required = {k: v for k, v in api_schema.items() if v.get('required') == True}
+    conditional_fields = {k: v for k, v in api_schema.items() if v.get('required') == 'conditional'}
+    
+    # Determine which conditional fields should be treated as required
+    effective_required = always_required.copy()
+    
+    # Check parent objects that are being used
+    parent_objects_in_use = set()
+    
+    for field_path in current_mappings.keys():
+        if field_path and current_mappings[field_path] and current_mappings[field_path] != 'Select column...':
+            # Extract parent object paths - any level could indicate object usage
+            parts = field_path.split('.')
+            for i in range(1, len(parts) + 1):
+                parent_path = '.'.join(parts[:i])
+                # Skip array indices in parent path determination
+                if i == len(parts) or not parts[i-1].isdigit():
+                    parent_objects_in_use.add(parent_path)
+    
+    # Add conditional fields whose parent objects are in use
+    for field_path, field_info in conditional_fields.items():
+        # Determine parent object for this conditional field
+        parts = field_path.split('.')
+        
+        # Check various parent levels
+        for i in range(len(parts)-1, 0, -1):
+            parent_candidate = '.'.join(parts[:i])
+            # Skip array indices
+            if not parts[i-1].isdigit():
+                if parent_candidate in parent_objects_in_use:
+                    effective_required[field_path] = field_info
+                    break
+    
+    return effective_required
 
 def load_custom_css():
     """Load custom CSS styles with fallback mechanisms"""
@@ -1093,8 +1137,9 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     api_schema = get_full_api_schema()
     
     # Separate required and optional fields
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    # Required fields include both always required (True) and conditionally required ('conditional')
+    required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
     
     # Initialize mappings
     if existing_mappings:
@@ -1590,8 +1635,9 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     api_schema = get_full_api_schema()
     
     # Separate required and optional fields
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    # Required fields include both always required (True) and conditionally required ('conditional')
+    required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
     
     # Initialize mappings
     if existing_configuration:
@@ -1627,10 +1673,23 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
             except Exception as e:
                 st.warning(f"⚠️ Could not generate smart mappings: {str(e)}")
     
-    # Enhanced progress tracking
-    total_required = len(required_fields)
-    mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
-    progress = mapped_required / total_required if total_required > 0 else 1
+    # Enhanced progress tracking with intelligent conditional requirement detection
+    # Get effective required fields based on current mappings
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    
+    # Separate always-required from conditionally-required that became effective
+    always_required = {k: v for k, v in required_fields.items() if v.get('required') == True}
+    conditionally_required_active = {k: v for k, v in effective_required_fields.items() if k not in always_required}
+    
+    total_always_required = len(always_required)
+    total_conditional_active = len(conditionally_required_active)
+    total_effective_required = len(effective_required_fields)
+    
+    mapped_always_required = len([f for f in always_required.keys() if f in field_mappings and field_mappings[f] and field_mappings[f] != 'Select column...'])
+    mapped_conditional_active = len([f for f in conditionally_required_active.keys() if f in field_mappings and field_mappings[f] and field_mappings[f] != 'Select column...'])
+    mapped_effective_required = mapped_always_required + mapped_conditional_active
+    
+    progress = mapped_effective_required / total_effective_required if total_effective_required > 0 else 1
     
     # Enhanced progress indicator with better visual design
     progress_color = '#10b981' if progress == 1 else '#3b82f6'
@@ -1655,7 +1714,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                     font-size: 0.8rem; 
                     font-weight: 600;
                 ">
-                    {mapped_required}/{total_required}
+                    {mapped_effective_required}/{total_effective_required}
                 </div>
             </div>
             <div style="background: #e2e8f0; height: 8px; border-radius: 4px; overflow: hidden;">
@@ -1668,7 +1727,11 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                     box-shadow: 0 2px 4px rgba(59, 130, 246, 0.2);
                 "></div>
             </div>
-            {f'<div style="margin-top: 0.75rem; color: #10b981; font-size: 0.9rem; font-weight: 500;">✅ All required fields mapped! Ready to proceed.</div>' if progress == 1 else f'<div style="margin-top: 0.75rem; color: #64748b; font-size: 0.9rem;">🔄 {total_required - mapped_required} more required field{"s" if total_required - mapped_required > 1 else ""} to map</div>'}
+            <div style="margin-top: 0.75rem; font-size: 0.85rem; color: #64748b;">
+                ⭐ Always Required: {mapped_always_required}/{total_always_required}
+                {f' • 🔸 Conditional: {mapped_conditional_active}/{total_conditional_active}' if total_conditional_active > 0 else ''}
+            </div>
+            {f'<div style="margin-top: 0.5rem; color: #10b981; font-size: 0.9rem; font-weight: 500;">✅ All required fields mapped! Ready to proceed.</div>' if progress == 1 else f'<div style="margin-top: 0.5rem; color: #64748b; font-size: 0.9rem;">🔄 {total_effective_required - mapped_effective_required} more field{"s" if total_effective_required - mapped_effective_required > 1 else ""} to map</div>'}
         </div>
     """, unsafe_allow_html=True)
     
@@ -1788,15 +1851,17 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     """, unsafe_allow_html=True)
     
     # Show contextual actions based on current state
-    if mapped_required < total_required:
+    if mapped_effective_required < total_effective_required:
         # Focus on completing required mappings
         st.markdown("**Complete Required Fields First**")
         col1, col2 = st.columns([3, 2])
         with col1:
             if st.button("✅ Apply Current Mappings", type="primary", use_container_width=True, key="enhanced_apply_partial_v2"):
                 st.session_state.field_mappings = updated_mappings
-                mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
-                st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
+                # Recalculate with updated mappings
+                effective_after = get_effective_required_fields(api_schema, updated_mappings)
+                mapped_effective_after = len([f for f in effective_after.keys() if f in updated_mappings and updated_mappings[f] and updated_mappings[f] != 'Select column...'])
+                st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_effective_after}/{len(effective_after)} effective required fields mapped)")
                 # Don't rerun - just update the state and let the interface update naturally
         with col2:
             if st.button("🧠 Auto-Map Remaining", use_container_width=True, key="enhanced_auto_map_v2"):
@@ -1819,7 +1884,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
                 # Don't rerun - just update the state and let the interface update naturally
         with col2:
             if st.button("💾 Save Progress", use_container_width=True, key="save_partial_config_btn"):
-                st.warning(f"⚠️ Please map all {total_required} required fields before saving")
+                st.warning(f"⚠️ Please map all {total_effective_required} effective required fields before saving")
     else:
         # Required mappings complete - show prominent completion actions
         st.success("🎉 **All Required Fields Mapped!** Ready to proceed.")
@@ -2037,8 +2102,9 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
                     st.warning(f"💡 {suggestion['suggestion']}")
     
     # Separate required and optional fields
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-    optional_fields = {k: v for k, v in api_schema.items() if not v.get('required', False)}
+    # Required fields include both always required (True) and conditionally required ('conditional')
+    required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
     
     # Progress tracking - use current session state if available
     total_required = len(required_fields)
