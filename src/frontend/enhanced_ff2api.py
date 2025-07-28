@@ -493,6 +493,22 @@ def _render_email_automation_sidebar():
                                                 st.success(f"✅ Processed {result.processed_count} files")
                                             else:
                                                 st.info("📭 No new emails with attachments found")
+                                                
+                                                # Show search criteria being used
+                                                current_filters = email_monitor.oauth_credentials.get(brokerage_name, {}).get('email_filters', {})
+                                                sender_filter = current_filters.get('sender_filter', '')
+                                                subject_filter = current_filters.get('subject_filter', '')
+                                                
+                                                search_terms = []
+                                                if sender_filter:
+                                                    search_terms.append(f"from:{sender_filter}")
+                                                if subject_filter:
+                                                    search_terms.append(f"subject:{subject_filter}")
+                                                search_terms.extend(["has:attachment", "newer_than:1d"])
+                                                
+                                                st.caption(f"🔍 **Search criteria:** {' '.join(search_terms)}")
+                                                st.caption("💡 **Tip:** Try clearing email filters if your test email isn't found")
+                                                
                                             st.info(f"📝 {result.message}")
                                         else:
                                             st.error(f"❌ {result.message}")

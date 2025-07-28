@@ -442,6 +442,7 @@ class EmailMonitorService:
             
             query = " ".join(query_parts)
             logger.info(f"Gmail search query: {query}")
+            print(f"DEBUG: Gmail search query: {query}")  # Debug output
             
             # Search for messages
             search_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={query}"
@@ -449,13 +450,18 @@ class EmailMonitorService:
             
             if response.status_code != 200:
                 logger.error(f"Gmail search failed: {response.status_code} - {response.text}")
+                print(f"DEBUG: Gmail search failed: {response.status_code} - {response.text}")
                 return []
             
             search_results = response.json()
             messages = search_results.get('messages', [])
             
+            print(f"DEBUG: Found {len(messages)} messages matching search criteria")
+            logger.info(f"Found {len(messages)} messages matching search criteria")
+            
             if not messages:
                 logger.info(f"No new emails found for {brokerage_key}")
+                print(f"DEBUG: No messages found. Search criteria: {query}")
                 return []
             
             # Process each message
