@@ -2571,8 +2571,8 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
                 }
             }
         
-        # Format the mapped data for API (this will give us the proper nested structure)
-        api_preview_list = data_processor.format_for_api(mapped_df)
+        # Format the mapped data for API preview (skip validation fixes)
+        api_preview_list = data_processor.format_for_api(mapped_df, preview_mode=True)
         
         if api_preview_list:
             api_preview = api_preview_list[0]  # Get the first (and only) preview

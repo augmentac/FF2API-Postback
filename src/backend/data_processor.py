@@ -990,7 +990,7 @@ class DataProcessor:
         
         return validation_errors
     
-    def format_for_api(self, df: pd.DataFrame, chunk_size: int = 1000) -> List[Dict[str, Any]]:
+    def format_for_api(self, df: pd.DataFrame, chunk_size: int = 1000, preview_mode: bool = False) -> List[Dict[str, Any]]:
         """Format DataFrame for API consumption - only include mapped fields"""
         api_data = []
         
@@ -1006,15 +1006,15 @@ class DataProcessor:
                 self.logger.info(f"Processing chunk {start_idx//chunk_size + 1}/{(total_rows + chunk_size - 1)//chunk_size}")
                 
                 # Process chunk
-                chunk_data = self._process_chunk_for_api(chunk_df)
+                chunk_data = self._process_chunk_for_api(chunk_df, preview_mode)
                 api_data.extend(chunk_data)
                 
             return api_data
         else:
             # Process normally for small files
-            return self._process_chunk_for_api(df)
+            return self._process_chunk_for_api(df, preview_mode)
     
-    def _process_chunk_for_api(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _process_chunk_for_api(self, df: pd.DataFrame, preview_mode: bool = False) -> List[Dict[str, Any]]:
         """Process a chunk of DataFrame for API consumption"""
         api_data = []
         
@@ -1050,8 +1050,9 @@ class DataProcessor:
                     # Convert single route object to array
                     load_payload['load']['route'] = [route_data]
             
-            # Apply API-specific validation fixes
-            self._apply_api_validation_fixes(load_payload)
+            # Apply API-specific validation fixes (skip for preview mode)
+            if not preview_mode:
+                self._apply_api_validation_fixes(load_payload)
             
             # Clean up any empty nested structures, but preserve required top-level objects
             self._clean_empty_structures(load_payload)
@@ -1137,44 +1138,29 @@ class DataProcessor:
                                         else:
                                             stop['address'][field] = f"Unknown {field.title()}"
                         
-                        # Ensure arrival window fields exist
-                        if 'expectedArrivalWindowStart' not in stop or not stop['expectedArrivalWindowStart']:
-                            if i == 0:  # First stop (route.$0 - pickup)
-                                # Set default pickup time
-                                stop['expectedArrivalWindowStart'] = '2024-01-01T08:00:00.000Z'
-                            else:  # Second stop and beyond (route.$1+ - delivery)
-                                # Use first stop's arrival window as base and add a day
-                                if len(load_obj['route']) > 0 and 'expectedArrivalWindowStart' in load_obj['route'][0]:
-                                    try:
-                                        first_start = pd.to_datetime(load_obj['route'][0]['expectedArrivalWindowStart'])
-                                        # Check if parsing was successful
-                                        if pd.isna(first_start):
-                                            stop['expectedArrivalWindowStart'] = '2024-01-01T17:00:00.000Z'
-                                        else:
-                                            # Add one day for delivery
-                                            second_start = first_start + pd.Timedelta(days=1)
-                                            stop['expectedArrivalWindowStart'] = second_start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-                                    except (ValueError, TypeError, pd.errors.ParserError) as date_error:
-                                        self.logger.warning(f"Could not parse delivery start time: {date_error}")
-                                        stop['expectedArrivalWindowStart'] = '2024-01-01T17:00:00.000Z'
-                                else:
-                                    stop['expectedArrivalWindowStart'] = '2024-01-01T17:00:00.000Z'
-                        
-                        if 'expectedArrivalWindowEnd' not in stop or not stop['expectedArrivalWindowEnd']:
-                            # Generate end time from start time - ensure start time exists first
-                            if 'expectedArrivalWindowStart' in stop and stop['expectedArrivalWindowStart']:
+                        # Only generate arrival windows from existing data, no defaults
+                        if ('expectedArrivalWindowStart' not in stop or not stop['expectedArrivalWindowStart']) and i > 0:
+                            # For delivery stops, try to derive from pickup time if available
+                            if len(load_obj['route']) > 0 and 'expectedArrivalWindowStart' in load_obj['route'][0] and load_obj['route'][0]['expectedArrivalWindowStart']:
                                 try:
-                                    start_time = pd.to_datetime(stop['expectedArrivalWindowStart'])
-                                    end_time = start_time + pd.Timedelta(hours=2)
-                                    # Try to format the end time
-                                    stop['expectedArrivalWindowEnd'] = end_time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-                                except (ValueError, TypeError, pd.errors.ParserError, AttributeError) as date_error:
-                                    self.logger.warning(f"Could not generate arrival window end time: {date_error}")
-                                    # Fallback to copying start time if it exists and is valid
-                                    stop['expectedArrivalWindowEnd'] = stop['expectedArrivalWindowStart']
-                            else:
-                                # No start time available, set default end time
-                                stop['expectedArrivalWindowEnd'] = '2024-01-01T17:00:00.000Z'
+                                    first_start = pd.to_datetime(load_obj['route'][0]['expectedArrivalWindowStart'])
+                                    if not pd.isna(first_start):
+                                        # Add one day for delivery
+                                        second_start = first_start + pd.Timedelta(days=1)
+                                        stop['expectedArrivalWindowStart'] = second_start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                                except (ValueError, TypeError, pd.errors.ParserError) as date_error:
+                                    self.logger.warning(f"Could not parse delivery start time from pickup: {date_error}")
+                                    # Don't set any default - leave it empty
+                        
+                        # Only generate end time if start time exists and is valid
+                        if ('expectedArrivalWindowEnd' not in stop or not stop['expectedArrivalWindowEnd']) and 'expectedArrivalWindowStart' in stop and stop['expectedArrivalWindowStart']:
+                            try:
+                                start_time = pd.to_datetime(stop['expectedArrivalWindowStart'])
+                                end_time = start_time + pd.Timedelta(hours=2)
+                                stop['expectedArrivalWindowEnd'] = end_time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                            except (ValueError, TypeError, pd.errors.ParserError, AttributeError) as date_error:
+                                self.logger.warning(f"Could not generate arrival window end time: {date_error}")
+                                # Don't set any default - leave it empty
                 
                 # Fix 2.5: Ensure proper sequence numbers (must start from 1 and be unique)
                 for i, stop in enumerate(load_obj['route']):
