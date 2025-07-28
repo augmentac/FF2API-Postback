@@ -357,40 +357,43 @@ def get_full_api_schema():
 def get_effective_required_fields(api_schema, current_mappings):
     """
     Determine which fields are effectively required based on current mappings.
-    Conditional fields become required when their parent objects are being used.
+    Conditional fields become required only when their immediate parent objects are being used.
+    For example, load.equipment.equipmentType becomes required only when load.equipment.* fields are mapped.
     """
     always_required = {k: v for k, v in api_schema.items() if v.get('required') == True}
     conditional_fields = {k: v for k, v in api_schema.items() if v.get('required') == 'conditional'}
     
-    # Determine which conditional fields should be treated as required
+    # Start with always required fields
     effective_required = always_required.copy()
     
-    # Check parent objects that are being used
-    parent_objects_in_use = set()
+    # Find which specific object paths are actually being used (not just parent paths)
+    specific_objects_in_use = set()
     
     for field_path in current_mappings.keys():
         if field_path and current_mappings[field_path] and current_mappings[field_path] != 'Select column...':
-            # Extract parent object paths - any level could indicate object usage
+            # Only consider the immediate parent object, not all ancestor paths
             parts = field_path.split('.')
-            for i in range(1, len(parts) + 1):
-                parent_path = '.'.join(parts[:i])
-                # Skip array indices in parent path determination
-                if i == len(parts) or not parts[i-1].isdigit():
-                    parent_objects_in_use.add(parent_path)
+            if len(parts) >= 2:
+                # For load.equipment.equipmentType -> track load.equipment
+                # For load.items.0.quantity -> track load.items  
+                # For carrier.name -> track carrier
+                immediate_parent = '.'.join(parts[:-1])
+                # Remove array indices for object tracking
+                clean_parent = '.'.join([p for p in immediate_parent.split('.') if not p.isdigit()])
+                specific_objects_in_use.add(clean_parent)
     
-    # Add conditional fields whose parent objects are in use
+    # Add conditional fields only when their immediate parent object is being used
     for field_path, field_info in conditional_fields.items():
-        # Determine parent object for this conditional field
         parts = field_path.split('.')
-        
-        # Check various parent levels
-        for i in range(len(parts)-1, 0, -1):
-            parent_candidate = '.'.join(parts[:i])
-            # Skip array indices
-            if not parts[i-1].isdigit():
-                if parent_candidate in parent_objects_in_use:
-                    effective_required[field_path] = field_info
-                    break
+        if len(parts) >= 2:
+            # Get the immediate parent object for this conditional field
+            immediate_parent = '.'.join(parts[:-1])
+            # Remove array indices for comparison
+            clean_parent = '.'.join([p for p in immediate_parent.split('.') if not p.isdigit()])
+            
+            # Only activate this conditional field if its immediate parent is in use
+            if clean_parent in specific_objects_in_use:
+                effective_required[field_path] = field_info
     
     return effective_required
 
