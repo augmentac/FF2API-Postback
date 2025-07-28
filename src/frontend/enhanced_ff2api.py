@@ -346,8 +346,10 @@ def _render_email_automation_sidebar():
                 except Exception as e:
                     monitor_running = False
                 
-                # Debug the status
+                # Debug the status and email monitor
+                available_methods = [method for method in dir(email_monitor) if not method.startswith('_')]
                 st.caption(f"Debug: cred_status.email_automation_active={cred_status.email_automation_active}, monitor_running={monitor_running}")
+                st.caption(f"Email monitor methods: {available_methods}")
                 
                 if cred_status.email_automation_active or monitor_running:
                     st.info("🟢 Email automation active")
