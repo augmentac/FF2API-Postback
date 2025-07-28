@@ -338,6 +338,17 @@ def _render_email_automation_sidebar():
             auth_key = f'gmail_auth_{brokerage_name.replace("-", "_")}'
             gmail_setup_complete = st.session_state.get(auth_key, {}).get('authenticated', False)
             
+            # Get monitor status first
+            try:
+                monitor_running = getattr(email_monitor, 'monitoring_active', False)
+                if hasattr(email_monitor, 'get_monitoring_status'):
+                    status_info = email_monitor.get_monitoring_status()
+                else:
+                    status_info = {}
+            except Exception as e:
+                monitor_running = False
+                status_info = {}
+            
             # Debug the condition
             st.caption(f"Debug condition: email_automation_available={cred_status.email_automation_available}, gmail_setup_complete={gmail_setup_complete}")
             
@@ -347,6 +358,28 @@ def _render_email_automation_sidebar():
                 elif gmail_setup_complete:
                     user_email = st.session_state[auth_key].get('user_email', 'Gmail account')
                     st.success(f"✅ Gmail automation active ({user_email})")
+                
+                # Add troubleshooting when configured but not working
+                if not monitor_running and status_info.get('monitoring_active') == False:
+                    with st.expander("🔧 Troubleshooting - Monitoring Not Active", expanded=False):
+                        st.warning("Configuration shows active, but monitoring isn't running")
+                        st.write("**Possible solutions:**")
+                        st.write("• Clear session data and reconfigure")
+                        st.write("• Check Gmail API connection")
+                        st.write("• Verify OAuth permissions")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("🔄 Reset & Reconfigure", key="reset_gmail_config"):
+                                # Clear session state
+                                if auth_key in st.session_state:
+                                    del st.session_state[auth_key]
+                                st.success("Session cleared - refresh page to reconfigure")
+                                st.rerun()
+                        with col2:
+                            if st.button("🧪 Test Connection", key="test_gmail_connection"):
+                                st.info("Testing Gmail API connection...")
+                                st.info("This would test the actual Gmail connection")
                 
                 # Show automation status - check both credential status and actual monitor status
                 try:
