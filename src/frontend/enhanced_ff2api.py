@@ -384,31 +384,64 @@ def _render_email_automation_sidebar():
             else:
                 st.warning("⚠️ Gmail automation not configured")
                 
-                # Use session state to manage auth setup flow
-                if 'show_gmail_setup' not in st.session_state:
-                    st.session_state.show_gmail_setup = False
+                # Use session state to manage auth setup flow - with debugging
+                setup_key = f'show_gmail_setup_{brokerage_name}'
+                if setup_key not in st.session_state:
+                    st.session_state[setup_key] = False
                 
-                if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
-                    st.session_state.show_gmail_setup = True
-                    st.rerun()
-                
-                # Show authentication interface if setup initiated
-                if st.session_state.get('show_gmail_setup', False):
-                    with st.container():
-                        st.markdown("### 📧 Gmail Authentication Setup")
+                # Show button or auth interface
+                if not st.session_state.get(setup_key, False):
+                    if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
+                        st.session_state[setup_key] = True
+                        st.rerun()
+                else:
+                    # Show authentication interface
+                    st.markdown("### 📧 Gmail Authentication Setup")
+                    st.info("Setting up Gmail authentication for email automation...")
+                    
+                    # Check if Google SSO is configured first
+                    if not streamlit_google_sso.is_configured():
+                        st.error("🔧 **Google SSO Configuration Missing**")
+                        st.markdown("""
+                        Gmail authentication requires Google OAuth credentials to be configured in Streamlit secrets.
+                        
+                        **Required secrets configuration:**
+                        ```toml
+                        [google_sso]
+                        client_id = "your_google_client_id"
+                        client_secret = "your_google_client_secret"
+                        ```
+                        
+                        Please contact your administrator to configure these credentials.
+                        """)
+                        
+                        with st.expander("🔍 Debug Information"):
+                            try:
+                                st.write("**Available secret sections:**", list(st.secrets.keys()))
+                                google_sso = st.secrets.get("google_sso", {})
+                                st.write("**Google SSO section exists:**", bool(google_sso))
+                                if google_sso:
+                                    st.write("**Google SSO keys:**", list(google_sso.keys()))
+                            except Exception as e:
+                                st.write("Error checking secrets:", str(e))
+                    else:
+                        # Show the auth interface
                         auth_result = streamlit_google_sso.render_google_auth_button(
                             brokerage_name, 
                             "Setup Gmail Authentication"
                         )
                         
-                        if auth_result.get('authenticated'):
-                            st.success("Gmail authentication successful!")
-                            st.session_state.show_gmail_setup = False
+                        # Handle authentication result
+                        if auth_result and auth_result.get('authenticated'):
+                            st.success("✅ Gmail authentication successful!")
+                            st.session_state[setup_key] = False
                             st.rerun()
-                        
-                        # Add cancel button
-                        if st.button("❌ Cancel Setup", key="cancel_gmail_setup"):
-                            st.session_state.show_gmail_setup = False
+                    
+                    # Always show cancel button
+                    col1, col2 = st.columns([3, 1])
+                    with col2:
+                        if st.button("❌ Cancel", key="cancel_gmail_setup"):
+                            st.session_state[setup_key] = False
                             st.rerun()
                         
         except Exception as e:
