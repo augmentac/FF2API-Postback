@@ -399,12 +399,16 @@ def _render_email_automation_sidebar():
                 st.write(f"DEBUG: all session keys with 'gmail': {[k for k in st.session_state.keys() if 'gmail' in k.lower()]}")
                 
                 # Show button or auth interface
-                if not st.session_state.get(setup_key, False):
-                    if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
-                        st.session_state[setup_key] = True
-                        st.write(f"DEBUG: Just set {setup_key} to True")
-                        st.rerun()
-                else:
+                button_clicked = st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True)
+                st.write(f"DEBUG: Button clicked = {button_clicked}")
+                
+                if button_clicked:
+                    st.session_state[setup_key] = True
+                    st.write(f"DEBUG: Just set {setup_key} to True")
+                    st.write(f"DEBUG: Current value after setting: {st.session_state.get(setup_key)}")
+                    # Don't rerun immediately - let the interface render first
+                
+                if st.session_state.get(setup_key, False):
                     # Show authentication interface
                     st.markdown("### 📧 Gmail Authentication Setup")
                     st.info("Setting up Gmail authentication for email automation...")
