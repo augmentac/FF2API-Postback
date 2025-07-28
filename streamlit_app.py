@@ -63,12 +63,12 @@ def main():
     
     # Route to appropriate application
     if page == "Unified Load Processing":
-        # Load unified processing system
+        # Load enhanced FF2API system (original FF2API + end-to-end capabilities)
         try:
-            from src.frontend.unified_app import main as unified_main
-            unified_main()
+            from src.frontend.enhanced_ff2api import main as enhanced_main
+            enhanced_main()
         except ImportError:
-            st.error("Unified processing system not available")
+            st.error("Enhanced FF2API system not available")
             st.error("Please ensure all required modules are installed")
         except Exception as e:
             st.error("System error occurred")
