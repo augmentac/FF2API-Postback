@@ -213,15 +213,17 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
         if st.session_state.get('show_config_form'):
             render_configuration_form(brokerage_key, db_manager)
         
-        # Mode-specific options
-        if processor:
-            mode_config = processor.get_processing_mode_config()
-        else:
-            # Fallback if processor is not available
-            processing_mode = st.session_state.get('processing_mode', 'manual')
-            mode_config = UnifiedLoadProcessor.PROCESSING_MODES.get(processing_mode, UnifiedLoadProcessor.PROCESSING_MODES['manual'])
+        # Mode-specific options (only show if we have a selected config)
+        mode_config = None
+        if st.session_state.get('selected_config'):
+            if processor:
+                mode_config = processor.get_processing_mode_config()
+            else:
+                # Fallback if processor is not available
+                processing_mode = st.session_state.get('processing_mode', 'manual')
+                mode_config = UnifiedLoadProcessor.PROCESSING_MODES.get(processing_mode, UnifiedLoadProcessor.PROCESSING_MODES['manual'])
         
-        if mode_config.show_enrichment:
+        if mode_config and mode_config.show_enrichment:
             st.markdown("---")
             st.subheader("🔍 Enrichment Options")
             
@@ -242,7 +244,7 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
                 'snowflake_enabled': enable_snowflake
             }
         
-        if mode_config.show_postback:
+        if mode_config and mode_config.show_postback:
             st.markdown("---")
             st.subheader("📤 Output & Delivery")
             
@@ -806,6 +808,12 @@ def main():
     # Processing mode selection
     render_processing_mode_selection()
     
+    # Initialize database manager for sidebar
+    db_manager = DatabaseManager()
+    
+    # Always render sidebar first (progressive disclosure happens inside)
+    render_enhanced_sidebar(None, db_manager)
+    
     # Check if brokerage is configured (progressive disclosure like original FF2API)
     if 'brokerage_name' not in st.session_state:
         st.info("👈 Please select or create a brokerage in the sidebar to continue")
@@ -819,7 +827,7 @@ def main():
     processing_mode = st.session_state.get('processing_mode', 'manual')
     brokerage_key = st.session_state.get('brokerage_name')
     
-    # Initialize processor and sidebar - use try/catch for better error handling
+    # Initialize processor - use try/catch for better error handling
     processor = None
     try:
         # Build configuration
@@ -874,9 +882,6 @@ def main():
         st.error(f"Configuration Error: {str(e)}")
         st.info("Please check your credentials and try again.")
         return
-    
-    # Render sidebar
-    render_enhanced_sidebar(processor, db_manager)
     
     # Main content area
     col1, col2 = st.columns([2, 1])
