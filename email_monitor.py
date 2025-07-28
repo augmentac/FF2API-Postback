@@ -64,32 +64,115 @@ class EmailMonitorService:
         self.monitor_thread = None
         self.processing_callbacks = {}
         self.last_check_times = {}
+        self.oauth_credentials = {}  # Store OAuth credentials by brokerage
+        self.monitored_brokerages = []  # Track actively monitored brokerages
+    
+    def configure_oauth_monitoring(self, brokerage_key: str, oauth_credentials: Dict[str, Any], email_filters: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Configure OAuth-based email monitoring for a specific brokerage.
         
-    def start_monitoring(self, brokerages: List[str] = None) -> bool:
+        Args:
+            brokerage_key: Brokerage identifier
+            oauth_credentials: OAuth credentials from session state
+            email_filters: Email filtering configuration
+            
+        Returns:
+            Configuration result with success status
+        """
+        try:
+            logger.info(f"Configuring OAuth monitoring for brokerage: {brokerage_key}")
+            
+            # Validate OAuth credentials
+            if not oauth_credentials.get('authenticated') or not oauth_credentials.get('oauth_active'):
+                return {
+                    'success': False,
+                    'message': 'Invalid OAuth credentials - authentication required'
+                }
+            
+            user_email = oauth_credentials.get('user_email')
+            if not user_email or user_email == 'user@gmail.com':
+                return {
+                    'success': False,
+                    'message': 'Invalid user email in OAuth credentials'
+                }
+            
+            # Store OAuth credentials for this brokerage
+            self.oauth_credentials[brokerage_key] = {
+                'user_email': user_email,
+                'access_token': oauth_credentials.get('access_token', ''),
+                'refresh_token': oauth_credentials.get('refresh_token', ''),
+                'brokerage_key': brokerage_key,
+                'configured_at': datetime.now().isoformat(),
+                'email_filters': email_filters
+            }
+            
+            # Add to monitored brokerages if not already present
+            if brokerage_key not in self.monitored_brokerages:
+                self.monitored_brokerages.append(brokerage_key)
+            
+            logger.info(f"OAuth monitoring configured for {brokerage_key} ({user_email})")
+            logger.info(f"Email filters: {email_filters}")
+            logger.info(f"Monitored brokerages: {self.monitored_brokerages}")
+            
+            return {
+                'success': True,
+                'message': f'OAuth monitoring configured for {user_email}',
+                'brokerage_key': brokerage_key,
+                'user_email': user_email
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to configure OAuth monitoring for {brokerage_key}: {e}")
+            return {
+                'success': False,
+                'message': f'Configuration failed: {str(e)}'
+            }
+        
+    def start_monitoring(self, brokerages: List[str] = None) -> Dict[str, Any]:
         """
         Start background email monitoring for specified brokerages.
         
         Args:
-            brokerages: List of brokerage keys to monitor, or None for all configured
+            brokerages: List of brokerage keys to monitor, or None for OAuth-configured ones
             
         Returns:
-            True if monitoring started successfully
+            Dictionary with success status and details
         """
         try:
             if self.monitoring_active:
                 logger.warning("Email monitoring already active")
-                return True
+                return {
+                    'success': True,
+                    'message': 'Email monitoring already running',
+                    'monitored_brokerages': self.monitored_brokerages
+                }
                 
-            # Get list of brokerages to monitor
+            # Use OAuth-configured brokerages if no specific list provided
             if brokerages is None:
-                brokerages = self._get_email_automation_brokerages()
+                brokerages = self.monitored_brokerages
             
             if not brokerages:
-                logger.warning("No brokerages configured for email automation")
-                return False
+                # Check if we have any OAuth credentials
+                if self.oauth_credentials:
+                    brokerages = list(self.oauth_credentials.keys())
+                else:
+                    logger.warning("No brokerages configured for OAuth email monitoring")
+                    return {
+                        'success': False,
+                        'message': 'No brokerages configured for OAuth monitoring'
+                    }
+            
+            # Validate that we have OAuth credentials for all brokerages
+            missing_oauth = [b for b in brokerages if b not in self.oauth_credentials]
+            if missing_oauth:
+                return {
+                    'success': False,
+                    'message': f'Missing OAuth credentials for brokerages: {missing_oauth}'
+                }
             
             # Start monitoring thread
             self.monitoring_active = True
+            self.monitored_brokerages = brokerages
             self.monitor_thread = threading.Thread(
                 target=self._monitor_loop,
                 args=(brokerages,),
@@ -97,13 +180,20 @@ class EmailMonitorService:
             )
             self.monitor_thread.start()
             
-            logger.info(f"Email monitoring started for brokerages: {brokerages}")
-            return True
+            logger.info(f"OAuth email monitoring started for brokerages: {brokerages}")
+            return {
+                'success': True,
+                'message': f'Monitoring started for {len(brokerages)} brokerage(s)',
+                'monitored_brokerages': brokerages
+            }
             
         except Exception as e:
             logger.error(f"Failed to start email monitoring: {e}")
             self.monitoring_active = False
-            return False
+            return {
+                'success': False,
+                'message': f'Failed to start monitoring: {str(e)}'
+            }
     
     def stop_monitoring(self):
         """Stop background email monitoring."""
@@ -126,7 +216,7 @@ class EmailMonitorService:
     
     def check_inbox_now(self, brokerage_key: str) -> ProcessingResult:
         """
-        Manually check inbox for a specific brokerage.
+        Manually check inbox for a specific brokerage using OAuth credentials.
         
         Args:
             brokerage_key: Brokerage to check
@@ -135,22 +225,30 @@ class EmailMonitorService:
             ProcessingResult with details
         """
         try:
-            config = self.credential_manager._get_email_automation_config(brokerage_key)
-            if not config:
+            # Get OAuth credentials for this brokerage
+            oauth_creds = self.oauth_credentials.get(brokerage_key)
+            if not oauth_creds:
                 return ProcessingResult(
                     success=False,
-                    message=f"No email automation configured for {brokerage_key}",
+                    message=f"No OAuth credentials configured for {brokerage_key}",
                     processed_count=0
                 )
             
-            # Get Gmail API headers
+            # Get Gmail API headers using OAuth
             gmail_headers = self._get_gmail_service(brokerage_key)
             if not gmail_headers:
                 return ProcessingResult(
                     success=False,
-                    message="Failed to connect to Gmail",
+                    message="Failed to connect to Gmail with OAuth credentials",
                     processed_count=0
                 )
+            
+            # Use email filters from OAuth configuration
+            config = {
+                'inbox_filters': oauth_creds.get('email_filters', {}),
+                'brokerage_key': brokerage_key,
+                'user_email': oauth_creds.get('user_email')
+            }
             
             # Check for new emails
             attachments = self._check_for_attachments(gmail_headers, config, brokerage_key)
@@ -170,7 +268,7 @@ class EmailMonitorService:
             
             return ProcessingResult(
                 success=True,
-                message=f"Processed {processed_count} files",
+                message=f"Processed {processed_count} files from {oauth_creds.get('user_email')}",
                 processed_count=processed_count
             )
             
@@ -184,14 +282,16 @@ class EmailMonitorService:
             )
     
     def get_monitoring_status(self) -> Dict[str, Any]:
-        """Get current monitoring status for all brokerages."""
-        brokerages = self._get_email_automation_brokerages()
+        """Get current monitoring status for OAuth-configured brokerages."""
+        oauth_brokerages = list(self.oauth_credentials.keys())
         
         status = {
             'monitoring_active': self.monitoring_active,
-            'monitored_brokerages': brokerages,
+            'monitored_brokerages': self.monitored_brokerages,
+            'oauth_configured_brokerages': oauth_brokerages,
             'last_check_times': self.last_check_times.copy(),
-            'callback_count': len(self.processing_callbacks)
+            'callback_count': len(self.processing_callbacks),
+            'oauth_credentials_count': len(self.oauth_credentials)
         }
         
         return status
@@ -247,7 +347,7 @@ class EmailMonitorService:
     
     def _get_gmail_service(self, brokerage_key: str):
         """
-        Get Gmail API access for a brokerage.
+        Get Gmail API access for a brokerage using OAuth credentials.
         
         Args:
             brokerage_key: Brokerage identifier
@@ -256,17 +356,20 @@ class EmailMonitorService:
             Gmail service headers or None
         """
         try:
-            # Import here to avoid circular dependency
-            from gmail_auth_service import gmail_auth_service
-            
-            credentials = gmail_auth_service.get_credentials(brokerage_key)
-            if not credentials:
-                logger.error(f"No Gmail credentials found for {brokerage_key}")
+            # Use OAuth credentials stored in this service
+            oauth_creds = self.oauth_credentials.get(brokerage_key)
+            if not oauth_creds:
+                logger.error(f"No OAuth credentials found for {brokerage_key}")
                 return None
             
-            # Return headers for API calls
+            access_token = oauth_creds.get('access_token')
+            if not access_token:
+                logger.error(f"No access token found for {brokerage_key}")
+                return None
+            
+            # Return headers for Gmail API calls
             return {
-                'Authorization': f'Bearer {credentials.access_token}',
+                'Authorization': f'Bearer {access_token}',
                 'Content-Type': 'application/json'
             }
             

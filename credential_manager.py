@@ -340,21 +340,27 @@ class CredentialManager:
             
             brokerage_config = email_automation.get(normalized_key, {})
             
-            # If no secrets config, check for OAuth credentials in session state
+            # If no secrets config, check for REAL OAuth credentials in session state
             if not brokerage_config:
-                # Check if we have OAuth credentials for this brokerage
+                # Check if we have REAL OAuth credentials for this brokerage (not simulated)
                 oauth_key = f'gmail_auth_{normalized_key}'
                 if oauth_key in st.session_state:
                     oauth_creds = st.session_state[oauth_key]
-                    if oauth_creds and oauth_creds.get('authenticated', False):
-                        # Create a minimal config indicating OAuth authentication is available
+                    # Only accept real OAuth credentials, not simulated ones
+                    if (oauth_creds and 
+                        oauth_creds.get('authenticated', False) and
+                        oauth_creds.get('oauth_active', False) and
+                        oauth_creds.get('user_email') and
+                        oauth_creds.get('user_email') != 'user@gmail.com'):  # Exclude simulated
+                        
+                        # Create a minimal config indicating real OAuth authentication is available
                         brokerage_config = {
                             'gmail_credentials': 'oauth_session_state',  # Flag indicating OAuth
                             'inbox_filters': {},  # Default empty filters
                             'oauth_authenticated': True,
                             'user_email': oauth_creds.get('user_email', '')
                         }
-                        logger.info(f"Found OAuth email authentication for brokerage: {brokerage_key}")
+                        logger.info(f"Found REAL OAuth email authentication for brokerage: {brokerage_key}")
                         return brokerage_config
             
             if not brokerage_config:
