@@ -389,6 +389,10 @@ def _render_email_automation_sidebar():
                 if setup_key not in st.session_state:
                     st.session_state[setup_key] = False
                 
+                # Clean up any legacy keys that might interfere
+                if 'show_gmail_setup' in st.session_state:
+                    del st.session_state['show_gmail_setup']
+                
                 # Show debug info temporarily
                 st.write(f"DEBUG: setup_key = {setup_key}")
                 st.write(f"DEBUG: session state value = {st.session_state.get(setup_key, 'NOT_FOUND')}")
