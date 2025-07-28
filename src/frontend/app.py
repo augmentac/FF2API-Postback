@@ -34,7 +34,6 @@ from src.frontend.ui_components import (
     create_header_validation_interface,
     create_enhanced_mapping_with_validation,
     create_learning_enhanced_mapping_interface,
-    create_learning_analytics_dashboard,
     update_learning_with_processing_results,
     get_full_api_schema
 )
@@ -547,12 +546,7 @@ def show_contextual_information(db_manager):
     render_database_management_section()
     
     # Learning analytics section
-    if st.session_state.get('brokerage_name'):
-        st.markdown("---")
-        st.markdown("### 🧠 Learning Analytics")
-        
-        if st.button("📊 View Analytics", use_container_width=True, key="sidebar_learning_analytics"):
-            st.session_state.show_learning_analytics = True
+    # Learning Analytics section removed - not currently being used
 
 def _render_brokerage_selection(db_manager):
     """Render compact brokerage selection"""
@@ -1691,16 +1685,7 @@ def _render_workflow_with_progress(db_manager, data_processor):
         if st.session_state.get('processing_completed'):
             _render_results_summary_section()
     
-    # Learning analytics dashboard
-    if st.session_state.get('show_learning_analytics'):
-        st.markdown("---")
-        brokerage_name = st.session_state.get('brokerage_name')
-        if brokerage_name:
-            create_learning_analytics_dashboard(db_manager, brokerage_name)
-        
-        if st.button("❌ Close Analytics", key="close_learning_analytics"):
-            st.session_state.show_learning_analytics = False
-            st.rerun()
+    # Learning analytics dashboard removed - not currently being used
 
 def _render_current_file_info():
     """Show current file information in a compact format"""

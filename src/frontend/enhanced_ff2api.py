@@ -43,7 +43,6 @@ from src.frontend.ui_components import (
     create_header_validation_interface,
     create_enhanced_mapping_with_validation,
     create_learning_enhanced_mapping_interface,
-    create_learning_analytics_dashboard,
     update_learning_with_processing_results,
     get_full_api_schema
 )
