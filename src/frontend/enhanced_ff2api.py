@@ -486,6 +486,41 @@ def _render_email_automation_sidebar():
                             if st.button("📨 Check Inbox Now", key="check_inbox_now"):
                                 try:
                                     with st.spinner("🔍 Checking Gmail inbox..."):
+                                        # Quick test with direct Gmail API call
+                                        st.info("🧪 Testing direct Gmail API access...")
+                                        
+                                        # Get OAuth headers directly
+                                        try:
+                                            oauth_creds = email_monitor.oauth_credentials.get(brokerage_name, {})
+                                            if oauth_creds and oauth_creds.get('access_token'):
+                                                import requests
+                                                headers = {
+                                                    'Authorization': f"Bearer {oauth_creds.get('access_token')}",
+                                                    'Content-Type': 'application/json'
+                                                }
+                                                
+                                                # Test simple search without time restrictions
+                                                test_query = "has:attachment"
+                                                test_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={test_query}&maxResults=10"
+                                                response = requests.get(test_url, headers=headers)
+                                                
+                                                if response.status_code == 200:
+                                                    data = response.json()
+                                                    messages = data.get('messages', [])
+                                                    st.success(f"✅ Direct API test: Found {len(messages)} emails with attachments")
+                                                    
+                                                    if messages:
+                                                        st.info("📧 Your Gmail has emails with attachments - the issue is likely in the search filtering")
+                                                    else:
+                                                        st.warning("📭 No emails with attachments found in your Gmail account")
+                                                else:
+                                                    st.error(f"❌ Gmail API error: {response.status_code} - {response.text}")
+                                            else:
+                                                st.error("❌ No OAuth access token available")
+                                        except Exception as e:
+                                            st.error(f"❌ Direct API test failed: {e}")
+                                        
+                                        # Also run the normal check
                                         result = email_monitor.check_inbox_now(brokerage_name)
                                         
                                         if result.success:
