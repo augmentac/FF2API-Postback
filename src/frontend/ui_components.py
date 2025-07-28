@@ -19,8 +19,288 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Aligned enum definitions with reference repository
+COMMON_ENUM_FIELDS = {
+    'load.mode': {
+        'values': ['FTL', 'LTL', 'DRAYAGE'],
+        'descriptions': {
+            'FTL': 'Full Truckload - Single shipper uses entire truck',
+            'LTL': 'Less Than Truckload - Shared truck space',
+            'DRAYAGE': 'Short-distance transport (port/rail to warehouse)'
+        },
+        'common_alternatives': {
+            'full truckload': 'FTL', 'ftl': 'FTL', 'full': 'FTL',
+            'less than truckload': 'LTL', 'ltl': 'LTL', 'partial': 'LTL',
+            'drayage': 'DRAYAGE', 'port': 'DRAYAGE'
+        }
+    },
+    'load.rateType': {
+        'values': ['SPOT', 'CONTRACT', 'DEDICATED', 'PROJECT'],
+        'descriptions': {
+            'SPOT': 'One-time market rate shipment',
+            'CONTRACT': 'Pre-negotiated rates and terms',
+            'DEDICATED': 'Reserved carrier capacity',
+            'PROJECT': 'Specialized project shipping'
+        },
+        'common_alternatives': {
+            'spot': 'SPOT', 'one-time': 'SPOT', 'market': 'SPOT',
+            'contract': 'CONTRACT', 'contracted': 'CONTRACT',
+            'dedicated': 'DEDICATED', 'reserved': 'DEDICATED',
+            'project': 'PROJECT', 'special': 'PROJECT'
+        }
+    },
+    'load.status': {
+        'values': ['DRAFT', 'CUSTOMER_CONFIRMED', 'COVERED', 'DISPATCHED', 'AT_PICKUP', 'IN_TRANSIT', 'AT_DELIVERY', 'DELIVERED', 'POD_COLLECTED', 'CANCELED', 'ERROR'],
+        'descriptions': {
+            'DRAFT': 'Load created but not confirmed',
+            'CUSTOMER_CONFIRMED': 'Customer has confirmed the load',
+            'COVERED': 'Carrier assigned to load',
+            'DISPATCHED': 'Load dispatched to carrier',
+            'AT_PICKUP': 'Driver arrived at pickup location',
+            'IN_TRANSIT': 'Load is en route to destination',
+            'AT_DELIVERY': 'Driver arrived at delivery location',
+            'DELIVERED': 'Load successfully delivered',
+            'POD_COLLECTED': 'Proof of delivery collected',
+            'CANCELED': 'Load has been canceled',
+            'ERROR': 'Error occurred during processing'
+        },
+        'common_alternatives': {
+            'draft': 'DRAFT', 'new': 'DRAFT',
+            'confirmed': 'CUSTOMER_CONFIRMED', 'approved': 'CUSTOMER_CONFIRMED',
+            'covered': 'COVERED', 'assigned': 'COVERED',
+            'dispatched': 'DISPATCHED', 'sent': 'DISPATCHED',
+            'pickup': 'AT_PICKUP', 'at pickup': 'AT_PICKUP',
+            'transit': 'IN_TRANSIT', 'in transit': 'IN_TRANSIT',
+            'delivery': 'AT_DELIVERY', 'at delivery': 'AT_DELIVERY',
+            'delivered': 'DELIVERED', 'complete': 'DELIVERED',
+            'pod': 'POD_COLLECTED', 'pod collected': 'POD_COLLECTED',
+            'canceled': 'CANCELED', 'cancelled': 'CANCELED',
+            'error': 'ERROR', 'failed': 'ERROR'
+        }
+    }
+}
+
+def create_smart_manual_value_interface(field_path, field_info, current_value=None):
+    """
+    Intelligent manual value interface that adapts to field type - aligned with reference implementation
+    
+    Args:
+        field_path: API field path (e.g., 'load.mode')
+        field_info: Field information from API schema
+        current_value: Current value (may be prefixed with 'MANUAL_VALUE:')
+        
+    Returns:
+        Selected manual value or None
+    """
+    
+    # Extract current manual value if exists
+    current_manual = None
+    if current_value and str(current_value).startswith("MANUAL_VALUE:"):
+        current_manual = str(current_value).replace("MANUAL_VALUE:", "")
+    
+    st.markdown(f"**{field_info.get('description', field_path)}**")
+    
+    field_type = field_info.get('type', 'string')
+    is_enum = bool(field_info.get('enum'))
+    is_required = field_info.get('required', False)
+    
+    # Show field type and requirements
+    type_indicators = []
+    if is_enum:
+        type_indicators.append("🔽 Dropdown")
+    else:
+        type_indicators.append(f"📝 {field_type.title()}")
+        
+    if is_required:
+        type_indicators.append("⭐ Required")
+        
+    st.caption(" • ".join(type_indicators))
+    
+    value = None
+    
+    if is_enum and field_path in COMMON_ENUM_FIELDS:
+        # Use enhanced enum interface with descriptions
+        enum_config = COMMON_ENUM_FIELDS[field_path]
+        value = _render_enum_manual_input(field_path, enum_config, current_manual)
+        
+    elif is_enum:
+        # Basic enum interface for fields not in COMMON_ENUM_FIELDS
+        enum_values = field_info.get('enum', [])
+        options = ["-- Select Option --"] + enum_values
+        
+        current_index = 0
+        if current_manual and current_manual in enum_values:
+            current_index = enum_values.index(current_manual) + 1
+            
+        selected = st.selectbox(
+            "Select value:",
+            options=options,
+            index=current_index,
+            key=f"manual_{field_path}_enum"
+        )
+        
+        value = None if selected == "-- Select Option --" else selected
+        
+    elif field_type == 'number':
+        # Number input with validation
+        value = _render_number_manual_input(field_path, field_info, current_manual)
+        
+    elif field_type == 'date':
+        # Date input with validation
+        value = _render_date_manual_input(field_path, field_info, current_manual)
+        
+    else:
+        # Text input
+        value = _render_text_manual_input(field_path, field_info, current_manual)
+    
+    # Show validation status
+    if value is not None and value != "":
+        st.success("✅ Manual value set")
+    elif is_required:
+        st.info("ℹ️ This is a required field")
+        
+    return value
+
+def _render_enum_manual_input(field_path, enum_config, current_value):
+    """Render enhanced enum input with descriptions and alternatives"""
+    
+    enum_values = enum_config['values']
+    descriptions = enum_config.get('descriptions', {})
+    
+    # Create display options with descriptions
+    display_options = ["-- Select Option --"]
+    option_mapping = {}
+    
+    for value in enum_values:
+        description = descriptions.get(value, '')
+        if description:
+            display_text = f"{value} - {description}"
+        else:
+            display_text = value
+        display_options.append(display_text)
+        option_mapping[display_text] = value
+    
+    # Find current selection
+    current_index = 0
+    if current_value:
+        for i, display_text in enumerate(display_options[1:], 1):
+            if option_mapping[display_text] == current_value:
+                current_index = i
+                break
+    
+    # Render selectbox
+    selected_display = st.selectbox(
+        "Select value:",
+        options=display_options,
+        index=current_index,
+        key=f"manual_{field_path}_enhanced_enum",
+        help=f"Choose from predefined options for {field_path}"
+    )
+    
+    if selected_display == "-- Select Option --":
+        return None
+    else:
+        selected_value = option_mapping[selected_display]
+        
+        # Show selected option description
+        if selected_value in descriptions:
+            st.info(f"💡 {descriptions[selected_value]}")
+            
+        return selected_value
+
+def _render_number_manual_input(field_path, field_info, current_value):
+    """Render number input with validation"""
+    
+    try:
+        default_value = float(current_value) if current_value else None
+    except (ValueError, TypeError):
+        default_value = None
+    
+    # Determine step based on field type
+    if 'quantity' in field_path.lower() or 'sequence' in field_path.lower():
+        step = 1
+    else:
+        step = 0.01
+    
+    value = st.number_input(
+        "Enter numeric value:",
+        value=default_value,
+        step=step,
+        key=f"manual_{field_path}_number",
+        help=f"Enter a numeric value for {field_path}"
+    )
+    
+    # Validation
+    if value is not None and value < 0 and ('weight' in field_path.lower() or 'cost' in field_path.lower()):
+        st.error("❌ Value cannot be negative")
+        return None
+        
+    return value
+
+def _render_date_manual_input(field_path, field_info, current_value):
+    """Render date input with validation"""
+    
+    st.caption("📅 Format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD")
+    
+    date_str = st.text_input(
+        "Enter date:",
+        value=current_value or "",
+        key=f"manual_{field_path}_date",
+        placeholder="2024-01-15 10:30:00",
+        help="Enter date in ISO format"
+    )
+    
+    if date_str:
+        # Validate date format
+        try:
+            if len(date_str) == 10:  # YYYY-MM-DD
+                datetime.strptime(date_str, "%Y-%m-%d")
+            elif len(date_str) == 19:  # YYYY-MM-DD HH:MM:SS
+                datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            else:
+                raise ValueError("Invalid date format")
+                
+            st.success(f"✅ Valid date: {date_str}")
+            return date_str
+            
+        except ValueError:
+            st.error("❌ Invalid date format. Use YYYY-MM-DD or YYYY-MM-DD HH:MM:SS")
+            return None
+    
+    return date_str if date_str else None
+
+def _render_text_manual_input(field_path, field_info, current_value):
+    """Render text input with validation"""
+    
+    # Determine input type based on field name
+    if 'email' in field_path.lower():
+        placeholder = "user@example.com"
+    elif 'phone' in field_path.lower():
+        placeholder = "+1-555-123-4567"
+    elif 'address' in field_path.lower():
+        placeholder = "123 Main St"
+    else:
+        placeholder = f"Enter {field_info.get('description', field_path).lower()}"
+    
+    value = st.text_input(
+        "Enter text value:",
+        value=current_value or "",
+        key=f"manual_{field_path}_text",
+        placeholder=placeholder,
+        help=f"Enter text value for {field_path}"
+    )
+    
+    # Basic validation
+    if value and 'email' in field_path.lower():
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, value):
+            st.error("❌ Invalid email format")
+            return None
+    
+    return value if value else None
+
 def get_full_api_schema():
-    """Get the complete API schema for validation"""
+    """Get the complete API schema for validation - aligned with API requirements"""
     return {
         # Core Required Fields
         'load.loadNumber': {'type': 'string', 'required': True, 'description': 'Load Number'},
@@ -1006,16 +1286,31 @@ def create_field_mapping_row(field: str, field_info: dict, df, updated_mappings:
                 del updated_mappings[field]
     
     with col3:
-        # Manual value option with modal-like interface
-        if st.button("✏️", key=f"enhanced_manual_{field}", help="Enter manual value"):
-            manual_value = st.text_input(
-                f"Manual value for {field_info['description']}", 
-                key=f"enhanced_manual_input_{field}",
-                placeholder="Enter value..."
-            )
-            if manual_value:
-                updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
-                st.success(f"✅ Set manual value: {manual_value}")
+        # Smart manual value interface
+        manual_key = f"manual_{field}_toggle"
+        use_manual = st.checkbox("📝", key=manual_key, help="Set manual value for this field")
+        
+        if use_manual:
+            # Show manual value interface in an expander for better UX
+            with st.expander(f"Manual Value: {field_info.get('description', field)}", expanded=True):
+                current_value = updated_mappings.get(field)
+                manual_value = create_smart_manual_value_interface(field, field_info, current_value)
+                
+                if manual_value is not None:
+                    updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                    st.session_state[f"mapping_has_manual_{field}"] = True
+                else:
+                    # Clear manual value if None
+                    if field in updated_mappings and updated_mappings[field].startswith('MANUAL_VALUE:'):
+                        del updated_mappings[field]
+                    st.session_state[f"mapping_has_manual_{field}"] = False
+        else:
+            # Clear manual value flag when checkbox is unchecked
+            if f"mapping_has_manual_{field}" in st.session_state:
+                del st.session_state[f"mapping_has_manual_{field}"]
+            # Remove manual value from mappings if it exists
+            if field in updated_mappings and updated_mappings[field].startswith('MANUAL_VALUE:'):
+                del updated_mappings[field]
 
  
 

@@ -47,7 +47,7 @@ from src.frontend.ui_components import (
     update_learning_with_processing_results,
     get_full_api_schema
 )
-from src.frontend.smart_manual_values import render_smart_manual_value_interface, ENUM_DEFINITIONS
+from src.frontend.ui_components import COMMON_ENUM_FIELDS
 
 # Import end-to-end workflow components
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -745,43 +745,45 @@ def _render_data_preview_section():
         with preview_tab3:
             st.caption("Configuration summary - CSV mappings and manual values")
             field_mappings = st.session_state.get('field_mappings', {})
-            manual_values = st.session_state.get('manual_values_config', {})
             api_schema = get_full_api_schema()
             
             # Create comprehensive configuration summary
             config_data = []
             
-            # Add CSV mappings
-            for csv_col, api_field in field_mappings.items():
-                if not csv_col.startswith('_') and api_field and api_field != 'Select column...':
+            # Process field mappings (both CSV columns and manual values)
+            for api_field, mapping_value in field_mappings.items():
+                if not api_field.startswith('_') and mapping_value and mapping_value != 'Select column...':
                     field_info = api_schema.get(api_field, {})
-                    config_data.append({
-                        "API Field": api_field,
-                        "Source": "📄 CSV Column",
-                        "Value/Column": csv_col,
-                        "Type": field_info.get('type', 'string'),
-                        "Required": "⭐" if field_info.get('required', False) else "",
-                        "Is Enum": "🔽" if field_info.get('enum') else ""
-                    })
-            
-            # Add manual values
-            for field_name, value in manual_values.items():
-                field_info = api_schema.get(field_name, {})
-                # Show enum description if available
-                display_value = str(value)
-                if field_info.get('enum') and field_name in ENUM_DEFINITIONS:
-                    enum_desc = ENUM_DEFINITIONS[field_name].get(value, '')
-                    if enum_desc:
-                        display_value = f"{value} - {enum_desc[:50]}..."
-                
-                config_data.append({
-                    "API Field": field_name,
-                    "Source": "🎯 Manual Value",
-                    "Value/Column": display_value,
-                    "Type": field_info.get('type', 'string'),
-                    "Required": "⭐" if field_info.get('required', False) else "",
-                    "Is Enum": "🔽" if field_info.get('enum') else ""
-                })
+                    
+                    if mapping_value.startswith('MANUAL_VALUE:'):
+                        # Manual value
+                        manual_value = mapping_value.replace('MANUAL_VALUE:', '')
+                        
+                        # Show enum description if available
+                        display_value = str(manual_value)
+                        if field_info.get('enum') and api_field in COMMON_ENUM_FIELDS:
+                            enum_desc = COMMON_ENUM_FIELDS[api_field]['descriptions'].get(manual_value, '')
+                            if enum_desc:
+                                display_value = f"{manual_value} - {enum_desc[:50]}..."
+                        
+                        config_data.append({
+                            "API Field": api_field,
+                            "Source": "🎯 Manual Value",
+                            "Value/Column": display_value,
+                            "Type": field_info.get('type', 'string'),
+                            "Required": "⭐" if field_info.get('required', False) else "",
+                            "Is Enum": "🔽" if field_info.get('enum') else ""
+                        })
+                    else:
+                        # CSV column mapping
+                        config_data.append({
+                            "API Field": api_field,
+                            "Source": "📄 CSV Column",
+                            "Value/Column": mapping_value,
+                            "Type": field_info.get('type', 'string'),
+                            "Required": "⭐" if field_info.get('required', False) else "",
+                            "Is Enum": "🔽" if field_info.get('enum') else ""
+                        })
             
             if config_data:
                 config_df = pd.DataFrame(config_data)
@@ -849,28 +851,13 @@ def _render_field_mapping_section(db_manager, data_processor):
     
     st.session_state.field_mappings = field_mappings
     
-    # Smart Manual Value Interface
-    st.markdown("---")
-    api_schema = get_full_api_schema()
-    
-    # Load existing manual values from configuration or session state
-    config = st.session_state.get('selected_configuration', {})
-    config_manual_values = config.get('workflow_preferences', {}).get('manual_values', {})
-    session_manual_values = st.session_state.get('manual_values_config', {})
-    
-    # Merge configuration and session manual values (session takes precedence)
-    existing_manual_values = {**config_manual_values, **session_manual_values}
-    
-    manual_values = render_smart_manual_value_interface(api_schema, existing_manual_values)
-    st.session_state.manual_values_config = manual_values
-    
     # Auto-save field mappings - exactly like original
     if (field_mappings and 
         st.session_state.get('selected_configuration') and 
         st.session_state.get('file_headers')):
         
         try:
-            _save_configuration(db_manager, field_mappings, st.session_state.file_headers, manual_values)
+            _save_configuration(db_manager, field_mappings, st.session_state.file_headers)
         except Exception as e:
             logger.error(f"Error auto-saving configuration: {e}")
 
@@ -1062,49 +1049,16 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             raise
 
 def _process_through_ff2api(df, field_mappings, api_credentials, data_processor):
-    """Process data through FF2API with smart manual values"""
+    """Process data through FF2API - aligned with reference implementation"""
     from src.frontend.app import process_data_enhanced
-    from src.frontend.smart_manual_values import SmartManualValueInterface
     
-    # Apply manual values to the dataframe before processing
-    manual_values = st.session_state.get('manual_values_config', {})
-    
+    # Count manual values for logging
+    manual_values = [v for v in field_mappings.values() if str(v).startswith("MANUAL_VALUE:")]
     if manual_values:
-        logger.info(f"Applying {len(manual_values)} manual values to {len(df)} records")
-        
-        # Create enhanced dataframe with manual values
-        enhanced_df = df.copy()
-        api_schema = get_full_api_schema()
-        
-        # Apply manual values with enum validation and mapping
-        interface = SmartManualValueInterface(api_schema)
-        valid_manual_values, validation_errors = interface.validate_all_manual_values()
-        
-        if validation_errors:
-            logger.warning(f"Manual value validation errors: {validation_errors}")
-            st.warning(f"⚠️ {len(validation_errors)} manual value validation issues detected")
-            with st.expander("Manual Value Issues", expanded=False):
-                for error in validation_errors:
-                    st.error(error)
-        
-        # Add manual values as new columns for processing
-        for field_name, value in valid_manual_values.items():
-            # Create a column name that won't conflict with CSV columns
-            manual_col_name = f"_manual_{field_name}"
-            enhanced_df[manual_col_name] = value
-            
-            # Update field mappings to include manual values
-            field_mappings[field_name] = manual_col_name
-            
-            logger.info(f"Added manual value: {field_name} = {value}")
-        
-        # Show applied manual values summary
-        if valid_manual_values:
-            st.info(f"✅ Applied {len(valid_manual_values)} manual values to all records")
-        
-        df = enhanced_df
+        logger.info(f"Processing with {len(manual_values)} manual values applied to {len(df)} records")
+        st.info(f"✅ Processing with {len(manual_values)} manual values applied to all records")
     
-    # Process with enhanced dataframe
+    # Process with field mappings (which now include MANUAL_VALUE: prefixed entries)
     return process_data_enhanced(df, field_mappings, api_credentials, 
                                st.session_state.brokerage_name, data_processor, 
                                DatabaseManager(), st.session_state.session_id)
@@ -1405,16 +1359,11 @@ def validate_mapping(df, field_mappings, data_processor):
         logger.error(f"Mapping validation error: {e}")
         return [{'row': 0, 'errors': [str(e)]}]
 
-def _save_configuration(db_manager, field_mappings, file_headers, manual_values=None):
-    """Save configuration with field mappings and manual values"""
+def _save_configuration(db_manager, field_mappings, file_headers):
+    """Save configuration with field mappings - exactly like original"""
     try:
         config = st.session_state.selected_configuration
         brokerage_name = st.session_state.brokerage_name
-        
-        # Prepare workflow preferences with manual values
-        workflow_preferences = config.get('workflow_preferences', {})
-        if manual_values:
-            workflow_preferences['manual_values'] = manual_values
         
         db_manager.save_brokerage_configuration(
             brokerage_name=brokerage_name,
@@ -1424,15 +1373,12 @@ def _save_configuration(db_manager, field_mappings, file_headers, manual_values=
             file_headers=file_headers,
             description=config.get('description', ''),
             auth_type=config.get('auth_type', 'api_key'),
-            bearer_token=config.get('bearer_token'),
-            workflow_preferences=workflow_preferences
+            bearer_token=config.get('bearer_token')
         )
         
         # Update session state
         st.session_state.selected_configuration['field_mappings'] = field_mappings
         st.session_state.selected_configuration['field_count'] = len(field_mappings)
-        if manual_values:
-            st.session_state.selected_configuration['manual_values'] = manual_values
         
     except Exception as e:
         st.error(f"❌ Failed to save configuration: {str(e)}")
