@@ -325,6 +325,7 @@ class CredentialManager:
     def _get_email_automation_config(self, brokerage_key: str) -> Optional[Dict[str, Any]]:
         """
         Load email automation configuration for a specific brokerage.
+        Checks both st.secrets and session state for OAuth credentials.
         
         Args:
             brokerage_key: Brokerage identifier
@@ -333,21 +334,41 @@ class CredentialManager:
             Email automation config dictionary or None if not configured
         """
         try:
+            # First check st.secrets for traditional config
             email_automation = st.secrets.get("email_automation", {})
             normalized_key = self._normalize_brokerage_key(brokerage_key)
             
             brokerage_config = email_automation.get(normalized_key, {})
+            
+            # If no secrets config, check for OAuth credentials in session state
+            if not brokerage_config:
+                # Check if we have OAuth credentials for this brokerage
+                oauth_key = f'gmail_auth_{normalized_key}'
+                if oauth_key in st.session_state:
+                    oauth_creds = st.session_state[oauth_key]
+                    if oauth_creds and oauth_creds.get('authenticated', False):
+                        # Create a minimal config indicating OAuth authentication is available
+                        brokerage_config = {
+                            'gmail_credentials': 'oauth_session_state',  # Flag indicating OAuth
+                            'inbox_filters': {},  # Default empty filters
+                            'oauth_authenticated': True,
+                            'user_email': oauth_creds.get('user_email', '')
+                        }
+                        logger.info(f"Found OAuth email authentication for brokerage: {brokerage_key}")
+                        return brokerage_config
+            
             if not brokerage_config:
                 logger.info(f"No email automation configured for brokerage: {brokerage_key}")
                 return None
             
-            # Validate required fields
-            required_fields = ['gmail_credentials', 'inbox_filters']
-            missing_fields = [field for field in required_fields if field not in brokerage_config]
-            
-            if missing_fields:
-                logger.warning(f"Incomplete email automation config for {brokerage_key}, missing: {missing_fields}")
-                return None
+            # Validate required fields for secrets-based config
+            if brokerage_config.get('gmail_credentials') != 'oauth_session_state':
+                required_fields = ['gmail_credentials', 'inbox_filters']
+                missing_fields = [field for field in required_fields if field not in brokerage_config]
+                
+                if missing_fields:
+                    logger.warning(f"Incomplete email automation config for {brokerage_key}, missing: {missing_fields}")
+                    return None
             
             logger.info(f"Email automation config loaded for brokerage: {brokerage_key}")
             return brokerage_config

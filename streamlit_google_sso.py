@@ -239,26 +239,45 @@ client_secret = "your-universal-client-secret"
             
             st.markdown("**Step 2:** After authentication, check the URL for a 'code' parameter or enter it manually:")
             
+            # Check if we already processed authentication successfully
+            auth_success_key = f'gmail_auth_success_{brokerage_key}'
+            if st.session_state.get(auth_success_key, False):
+                st.success("✅ Gmail authentication completed successfully!")
+                # Clear the success flag and return success
+                del st.session_state[auth_success_key]
+                return {'success': True, 'authenticated': True, 'user_email': 'authenticated'}
+            
             # Check if we got redirected back with a code
             try:
                 url_params = st.query_params
                 auto_code = url_params.get('code', '')
-                if auto_code:
+                # Check if we already processed this code
+                processed_code_key = f'processed_code_{brokerage_key}'
+                if auto_code and st.session_state.get(processed_code_key) != auto_code:
                     st.success("✅ Authorization code detected from redirect!")
+                    # Mark this code as being processed
+                    st.session_state[processed_code_key] = auto_code
                     # Automatically process the authorization code
                     with st.spinner("🔄 Automatically processing authorization code..."):
                         result = self._handle_manual_auth_code(brokerage_key, auto_code)
                         
                         if result['success']:
                             st.success(f"✅ Successfully authenticated as: {result['user_email']}")
-                            # Clear the code from URL parameters to prevent reprocessing
+                            # Store success flag to prevent reprocessing on rerun
+                            st.session_state[auth_success_key] = True
+                            # Clear query params now that processing is complete
                             st.query_params.clear()
                             st.rerun()
                             return result
                         else:
                             st.error(f"❌ Automatic authentication failed: {result['message']}")
-                            # Fall through to manual input on failure
+                            # Clear the processed code so user can try again
+                            if processed_code_key in st.session_state:
+                                del st.session_state[processed_code_key]
                             auto_code = ''
+                elif auto_code:
+                    # Code already processed, skip
+                    auto_code = ''
             except Exception as e:
                 auto_code = ''
                 st.warning(f"⚠️ Could not auto-process redirect: {str(e)}")

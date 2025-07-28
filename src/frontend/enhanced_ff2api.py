@@ -384,16 +384,32 @@ def _render_email_automation_sidebar():
             else:
                 st.warning("⚠️ Gmail automation not configured")
                 
-                # Use the Google SSO authentication interface
+                # Use session state to manage auth setup flow
+                if 'show_gmail_setup' not in st.session_state:
+                    st.session_state.show_gmail_setup = False
+                
                 if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
-                    auth_result = streamlit_google_sso.render_google_auth_button(
-                        brokerage_name, 
-                        "Setup Gmail Authentication"
-                    )
-                    
-                    if auth_result.get('authenticated'):
-                        st.success("Gmail authentication successful!")
-                        st.rerun()
+                    st.session_state.show_gmail_setup = True
+                    st.rerun()
+                
+                # Show authentication interface if setup initiated
+                if st.session_state.get('show_gmail_setup', False):
+                    with st.container():
+                        st.markdown("### 📧 Gmail Authentication Setup")
+                        auth_result = streamlit_google_sso.render_google_auth_button(
+                            brokerage_name, 
+                            "Setup Gmail Authentication"
+                        )
+                        
+                        if auth_result.get('authenticated'):
+                            st.success("Gmail authentication successful!")
+                            st.session_state.show_gmail_setup = False
+                            st.rerun()
+                        
+                        # Add cancel button
+                        if st.button("❌ Cancel Setup", key="cancel_gmail_setup"):
+                            st.session_state.show_gmail_setup = False
+                            st.rerun()
                         
         except Exception as e:
             st.error(f"Email automation error: {e}")
