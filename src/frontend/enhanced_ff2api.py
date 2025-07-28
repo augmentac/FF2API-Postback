@@ -331,8 +331,14 @@ def _render_email_automation_sidebar():
             # Check if email automation is configured for this brokerage
             cred_status = credential_manager.validate_credentials(brokerage_name)
             
-            if cred_status.email_automation_available:
-                st.success("✅ Gmail automation configured")
+            # Check both credential manager and Google OAuth availability
+            google_oauth_available = streamlit_google_sso.is_configured()
+            
+            if cred_status.email_automation_available or google_oauth_available:
+                if cred_status.email_automation_available:
+                    st.success("✅ Gmail automation configured (via secrets)")
+                else:
+                    st.success("✅ Gmail authentication available (via Google OAuth)")
                 
                 # Show automation status
                 if cred_status.email_automation_active:
@@ -384,95 +390,28 @@ def _render_email_automation_sidebar():
             else:
                 st.warning("⚠️ Gmail automation not configured")
                 
-                # Gmail authentication setup flow
-                setup_key = f'show_gmail_setup_{brokerage_name}'
-                if setup_key not in st.session_state:
-                    st.session_state[setup_key] = False
-                
-                # Clean up any legacy keys that might interfere
-                if 'show_gmail_setup' in st.session_state:
-                    del st.session_state['show_gmail_setup']
-                
-                # Show setup button or authentication interface
-                if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
-                    st.session_state[setup_key] = True
-                
-                # Show authentication interface when setup is initiated
-                if st.session_state.get(setup_key, False):
-                    st.write(f"🔍 DEBUG: About to show interface. setup_key={setup_key}, value={st.session_state.get(setup_key)}")
-                    st.markdown("### 📧 Gmail Authentication Setup")
-                    st.info("Setting up Gmail authentication for email automation...")
-                    st.write("🔍 DEBUG: Interface elements rendered successfully")
+                # Check if Google OAuth is available for authentication
+                if streamlit_google_sso.is_configured():
+                    # Google OAuth is configured - show setup button
+                    if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
+                        st.info("🔄 Starting Gmail authentication...")
+                        st.info("📝 Gmail authentication flow would be implemented here.")
+                        st.success("✅ Google OAuth is properly configured and ready!")
+                else:
+                    # Google OAuth not configured - show configuration requirements
+                    st.error("🔧 **Google SSO Configuration Required**")
+                    st.markdown("""
+                    Gmail authentication requires Google OAuth credentials to be configured.
                     
-                    # Check if Google SSO is configured
-                    st.write("🔍 DEBUG: About to check if Google SSO is configured...")
-                    try:
-                        sso_configured = streamlit_google_sso.is_configured()
-                        st.write(f"🔍 DEBUG: Google SSO configured = {sso_configured}")
-                    except Exception as e:
-                        st.write(f"🔍 DEBUG: Error checking SSO config: {e}")
-                        sso_configured = False
+                    **Required secrets configuration:**
+                    ```toml
+                    [google_sso]
+                    client_id = "your_google_client_id"
+                    client_secret = "your_google_client_secret"
+                    ```
                     
-                    st.write("🔍 DEBUG: SSO check completed successfully")
-                    
-                    if not sso_configured:
-                        st.error("🔧 **Google SSO Configuration Missing**")
-                        st.markdown("""
-                        Gmail authentication requires Google OAuth credentials to be configured in Streamlit secrets.
-                        
-                        **Required secrets configuration:**
-                        ```toml
-                        [google_sso]
-                        client_id = "your_google_client_id"
-                        client_secret = "your_google_client_secret"
-                        ```
-                        
-                        Please contact your administrator to configure these credentials.
-                        """)
-                        
-                        with st.expander("🔍 Debug Information"):
-                            try:
-                                st.write("**Available secret sections:**", list(st.secrets.keys()))
-                                google_sso = st.secrets.get("google_sso", {})
-                                st.write("**Google SSO section exists:**", bool(google_sso))
-                                if google_sso:
-                                    st.write("**Google SSO keys:**", list(google_sso.keys()))
-                            except Exception as e:
-                                st.write("Error checking secrets:", str(e))
-                    else:
-                        # Google SSO is configured - show authentication interface
-                        st.success("✅ Google OAuth is properly configured!")
-                        st.info("📋 **Gmail Authentication Available**")
-                        
-                        st.markdown("""
-                        **Next Steps:**
-                        1. Click the authentication link below
-                        2. Sign in with your Google account
-                        3. Grant Gmail permissions for email automation
-                        """)
-                        
-                        # Instead of calling the problematic render_google_auth_button, 
-                        # let's implement a simpler approach that doesn't cause disappearing
-                        if st.button("🔗 Authenticate with Gmail", key="start_gmail_auth", type="primary", use_container_width=True):
-                            st.info("🔄 Gmail authentication would start here...")
-                            st.info("📝 This feature is ready to be implemented once the interface stability is confirmed.")
-                        
-                        st.markdown("---")
-                        st.write("**🔧 Technical Status:**")
-                        st.write(f"✅ Google OAuth Client ID: Configured")
-                        st.write(f"✅ Google OAuth Client Secret: Configured") 
-                        st.write(f"✅ Interface Stability: Fixed")
-                        st.write(f"🔄 Authentication Flow: Ready for implementation")
-                    
-                    # Cancel button
-                    st.write("🔍 DEBUG: About to show cancel button...")
-                    col1, col2 = st.columns([3, 1])
-                    with col2:
-                        if st.button("❌ Cancel", key="cancel_gmail_setup"):
-                            st.write("🔍 DEBUG: Cancel button clicked!")
-                            st.session_state[setup_key] = False
-                            st.rerun()
-                    st.write("🔍 DEBUG: Finished rendering interface completely!")
+                    Please contact your administrator to configure these credentials.
+                    """)
                         
         except Exception as e:
             st.error(f"Email automation error: {e}")
