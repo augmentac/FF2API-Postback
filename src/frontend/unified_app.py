@@ -145,12 +145,16 @@ def render_processing_mode_selection():
     
     # Show mode description
     mode = st.session_state.processing_mode
-    mode_config = UnifiedLoadProcessor.PROCESSING_MODES.get(mode)
-    if mode_config:
-        st.info(f"**{mode_config.name}**: {mode_config.description}")
+    try:
+        mode_config = UnifiedLoadProcessor.PROCESSING_MODES.get(mode)
+        if mode_config:
+            st.info(f"**{mode_config.name}**: {mode_config.description}")
+    except Exception as e:
+        logger.error(f"Error getting mode config: {e}")
+        st.info(f"Selected mode: {mode}")
 
 
-def render_enhanced_sidebar(processor: UnifiedLoadProcessor, db_manager: DatabaseManager):
+def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manager: DatabaseManager):
     """Render enhanced sidebar with processing options"""
     with st.sidebar:
         st.header("⚙️ Configuration")
@@ -193,7 +197,12 @@ def render_enhanced_sidebar(processor: UnifiedLoadProcessor, db_manager: Databas
             st.info("No saved configurations found")
         
         # Mode-specific options
-        mode_config = processor.get_processing_mode_config()
+        if processor:
+            mode_config = processor.get_processing_mode_config()
+        else:
+            # Fallback if processor is not available
+            processing_mode = st.session_state.get('processing_mode', 'manual')
+            mode_config = UnifiedLoadProcessor.PROCESSING_MODES.get(processing_mode, UnifiedLoadProcessor.PROCESSING_MODES['manual'])
         
         if mode_config.show_enrichment:
             st.markdown("---")
@@ -243,7 +252,7 @@ def render_enhanced_sidebar(processor: UnifiedLoadProcessor, db_manager: Databas
             }
         
         # Email automation (for end-to-end mode)
-        if processor.processing_mode == 'endtoend':
+        if processor and processor.processing_mode == 'endtoend':
             st.markdown("---")
             st.subheader("📧 Email Automation")
             
@@ -417,56 +426,65 @@ def main():
     # Processing mode selection
     render_processing_mode_selection()
     
-    # Initialize processor based on selected mode
+    # Get processing mode and brokerage
     processing_mode = st.session_state.get('processing_mode', 'manual')
     brokerage_key = st.session_state.get('selected_brokerage', 'augment-brokerage')
     
-    # Build configuration
-    config = {
-        'brokerage_key': brokerage_key,
-        'api_timeout': 30,
-        'retry_count': 3,
-        'enrichment': {'sources': []},
-        'postback': {'handlers': []}
-    }
-    
-    # Add enrichment config if enabled
-    if processing_mode == 'endtoend':
-        enrichment_config = st.session_state.get('enrichment_config', {})
-        if enrichment_config.get('tracking_enabled'):
-            config['enrichment']['sources'].append({
-                'type': 'tracking_api',
-                'pro_column': 'PRO',
-                'carrier_column': 'carrier'
-            })
+    # Initialize processor and sidebar - use try/catch for better error handling
+    processor = None
+    try:
+        # Build configuration
+        config = {
+            'brokerage_key': brokerage_key,
+            'api_timeout': 30,
+            'retry_count': 3,
+            'enrichment': {'sources': []},
+            'postback': {'handlers': []}
+        }
         
-        if enrichment_config.get('snowflake_enabled'):
-            config['enrichment']['sources'].append({
-                'type': 'snowflake_augment',
-                'database': 'AUGMENT_DW',
-                'schema': 'MARTS',
-                'enrichments': ['tracking', 'customer'],
-                'use_load_ids': True
-            })
-        
-        # Add postback config
-        postback_config = st.session_state.get('postback_config', {})
-        if postback_config:
-            output_format = postback_config.get('output_format', 'CSV').lower()
-            config['postback']['handlers'].append({
-                'type': output_format,
-                'output_path': f'/tmp/unified_results.{output_format}'
-            })
-            
-            if postback_config.get('send_email') and postback_config.get('email_recipient'):
-                config['postback']['handlers'].append({
-                    'type': 'email',
-                    'recipient': postback_config['email_recipient'],
-                    'subject': 'Unified Load Processing Results'
+        # Add enrichment config if enabled
+        if processing_mode == 'endtoend':
+            enrichment_config = st.session_state.get('enrichment_config', {})
+            if enrichment_config.get('tracking_enabled'):
+                config['enrichment']['sources'].append({
+                    'type': 'tracking_api',
+                    'pro_column': 'PRO',
+                    'carrier_column': 'carrier'
                 })
-    
-    # Initialize processor
-    processor = UnifiedLoadProcessor(config, processing_mode)
+            
+            if enrichment_config.get('snowflake_enabled'):
+                config['enrichment']['sources'].append({
+                    'type': 'snowflake_augment',
+                    'database': 'AUGMENT_DW',
+                    'schema': 'MARTS',
+                    'enrichments': ['tracking', 'customer'],
+                    'use_load_ids': True
+                })
+            
+            # Add postback config
+            postback_config = st.session_state.get('postback_config', {})
+            if postback_config:
+                output_format = postback_config.get('output_format', 'CSV').lower()
+                config['postback']['handlers'].append({
+                    'type': output_format,
+                    'output_path': f'/tmp/unified_results.{output_format}'
+                })
+                
+                if postback_config.get('send_email') and postback_config.get('email_recipient'):
+                    config['postback']['handlers'].append({
+                        'type': 'email',
+                        'recipient': postback_config['email_recipient'],
+                        'subject': 'Unified Load Processing Results'
+                    })
+        
+        # Initialize processor
+        processor = UnifiedLoadProcessor(config, processing_mode)
+        
+    except Exception as e:
+        logger.error(f"Error initializing processor: {e}")
+        st.error(f"Configuration Error: {str(e)}")
+        st.info("Please check your credentials and try again.")
+        return
     
     # Render sidebar
     render_enhanced_sidebar(processor, db_manager)
@@ -499,11 +517,14 @@ def main():
                     st.dataframe(df.head(10), use_container_width=True)
                 
                 # Field mapping (if not automated mode)
-                if not processor.mode_config.auto_process:
+                if processor and not processor.mode_config.auto_process:
                     field_mapping = render_field_mapping_interface(df, processor)
-                else:
+                elif processor:
                     # Use saved configuration or auto-detect
                     field_mapping = processor.get_suggested_field_mapping(df.columns.tolist())
+                else:
+                    st.error("Processor not available - please refresh the page")
+                    return
                 
                 # Processing section
                 st.markdown("---")

@@ -124,7 +124,8 @@ class UnifiedLoadProcessor:
         
         # Initialize core components
         self.db_manager = DatabaseManager()
-        self.api_client = LoadsAPIClient()
+        # Lazy initialize API client - will be configured when needed
+        self.api_client = None
         self.data_processor = DataProcessor()
         
         # Initialize brokerage context
@@ -237,12 +238,31 @@ class UnifiedLoadProcessor:
     def process_ff2api(self, df: pd.DataFrame, api_config: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Process data through FF2API."""
         try:
-            # Configure API client
-            self.api_client.configure(
-                base_url=api_config.get('base_url'),
-                api_key=api_config.get('api_key'),
-                bearer_token=api_config.get('bearer_token')
-            )
+            # Initialize and configure API client
+            if self.api_client is None:
+                # Only initialize if we have credentials
+                api_key = api_config.get('api_key')
+                bearer_token = api_config.get('bearer_token')
+                auth_type = api_config.get('auth_type', 'api_key')
+                
+                if auth_type == 'api_key' and not api_key:
+                    raise ValueError("API key is required for api_key authentication")
+                elif auth_type == 'bearer_token' and not bearer_token:
+                    raise ValueError("Bearer token is required for bearer_token authentication")
+                
+                self.api_client = LoadsAPIClient(
+                    base_url=api_config.get('base_url', 'https://api.prod.goaugment.com'),
+                    api_key=api_key,
+                    bearer_token=bearer_token,
+                    auth_type=auth_type
+                )
+            else:
+                # Reconfigure existing client if needed
+                self.api_client.configure(
+                    base_url=api_config.get('base_url'),
+                    api_key=api_config.get('api_key'),
+                    bearer_token=api_config.get('bearer_token')
+                )
             
             # Process data through FF2API
             results = []
