@@ -354,10 +354,10 @@ def _render_email_automation_sidebar():
                 monitor_running = False
                 status_info = {}
             
-            # Debug the actual OAuth credentials (not credential manager fake detection)
-            st.caption(f"Debug OAuth: gmail_setup_complete={gmail_setup_complete}, google_oauth_available={google_oauth_available}")
-            if gmail_oauth_credentials:
-                st.caption(f"OAuth details: user={gmail_oauth_credentials.get('user_email', 'none')}, oauth_active={gmail_oauth_credentials.get('oauth_active', False)}")
+            # Debug info (remove in production)
+            # st.caption(f"Debug OAuth: gmail_setup_complete={gmail_setup_complete}, google_oauth_available={google_oauth_available}")
+            # if gmail_oauth_credentials:
+            #     st.caption(f"OAuth details: user={gmail_oauth_credentials.get('user_email', 'none')}, oauth_active={gmail_oauth_credentials.get('oauth_active', False)}")
             
             if gmail_setup_complete:
                 # Real OAuth credentials detected
@@ -468,9 +468,9 @@ def _render_email_automation_sidebar():
                     monitor_running = False
                     status_info = f"Error: {e}"
                 
-                # Debug the status and email monitor (only real status, no fake credentials)
-                st.caption(f"Debug: monitor_running={monitor_running}, gmail_oauth_complete={gmail_setup_complete}")
-                st.caption(f"Monitor status info: {status_info}")
+                # Debug the status and email monitor (remove in production)
+                # st.caption(f"Debug: monitor_running={monitor_running}, gmail_oauth_complete={gmail_setup_complete}")
+                # st.caption(f"Monitor status info: {status_info}")
                 
                 # Show clear status based on OAuth and monitoring state
                 if gmail_setup_complete and monitor_running:
