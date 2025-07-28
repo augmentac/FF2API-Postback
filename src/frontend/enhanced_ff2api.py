@@ -385,14 +385,26 @@ def _render_email_automation_sidebar():
                         
                         if config_result.get('success'):
                             st.success("✅ OAuth credentials configured in email monitor")
+                            
+                            # Automatically start monitoring since OAuth is configured
+                            st.info("🔄 Starting email monitoring automatically...")
+                            start_result = email_monitor.start_monitoring()
+                            
+                            if start_result.get('success'):
+                                st.success("✅ Email monitoring started automatically")
+                                # Update the monitor status for this check
+                                monitor_running = True
+                                st.rerun()  # Refresh to show active status
+                            else:
+                                st.error(f"❌ Failed to auto-start monitoring: {start_result.get('message', 'Unknown error')}")
                         else:
                             st.warning(f"⚠️ OAuth configuration issue: {config_result.get('message', 'Unknown error')}")
                             
                 except Exception as e:
                     st.warning(f"⚠️ Could not auto-configure email monitoring: {e}")
                 
-                # Add troubleshooting when configured but not working
-                if not monitor_running and status_info.get('monitoring_active') == False:
+                # Only show troubleshooting if OAuth is configured but monitoring still not running
+                if not monitor_running and status_info.get('monitoring_active') == False and status_info.get('oauth_credentials_count', 0) > 0:
                     with st.expander("🔧 Troubleshooting - Monitoring Not Active", expanded=False):
                         st.warning("Configuration shows active, but monitoring isn't running")
                         st.write("**Possible solutions:**")
@@ -460,45 +472,25 @@ def _render_email_automation_sidebar():
                 st.caption(f"Debug: monitor_running={monitor_running}, gmail_oauth_complete={gmail_setup_complete}")
                 st.caption(f"Monitor status info: {status_info}")
                 
-                # Only show as active if we have real OAuth AND monitoring is actually running
+                # Show clear status based on OAuth and monitoring state
                 if gmail_setup_complete and monitor_running:
-                    st.info("🟢 Email automation active")
-                else:
-                    st.info("🔴 Email automation inactive")
-                
-                # Email monitoring controls
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("▶️ Start Monitor", key="start_email_monitor", use_container_width=True):
-                        try:
-                            if not gmail_setup_complete:
-                                st.error("❌ Gmail OAuth authentication required first")
-                                return
-                            
-                            # OAuth credentials should already be configured automatically
-                            with st.spinner("🔄 Starting email monitoring..."):
-                                start_result = email_monitor.start_monitoring()
+                    st.success("🟢 **Email automation active** - Monitoring Gmail for freight emails")
+                    st.info(f"📧 Monitoring inbox: {gmail_oauth_credentials.get('user_email')}")
+                    
+                    # Optional stop button for advanced users
+                    with st.expander("⚙️ Advanced Controls", expanded=False):
+                        if st.button("⏹️ Stop Email Monitoring", key="stop_email_monitor"):
+                            try:
+                                email_monitor.stop_monitoring()
+                                st.success("Email monitoring stopped")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to stop monitoring: {e}")
                                 
-                                if start_result.get('success'):
-                                    user_email = gmail_oauth_credentials.get('user_email')
-                                    st.success(f"✅ Email monitoring started for {user_email}")
-                                    st.success(f"📧 Monitoring emails for brokerage: {brokerage_name}")
-                                    st.rerun()  # Refresh to update status
-                                else:
-                                    st.error(f"❌ Failed to start monitoring: {start_result.get('message', 'Unknown error')}")
-                                    
-                        except Exception as e:
-                            st.error(f"❌ Failed to start monitoring: {e}")
-                            import traceback
-                            st.code(traceback.format_exc())
-                
-                with col2:
-                    if st.button("⏹️ Stop Monitor", key="stop_email_monitor", use_container_width=True):
-                        try:
-                            email_monitor.stop_monitoring()
-                            st.info("Email monitoring stopped")
-                        except Exception as e:
-                            st.error(f"Failed to stop monitoring: {e}")
+                elif gmail_setup_complete:
+                    st.info("🟡 **Gmail OAuth connected** - Email monitoring will start automatically")
+                else:
+                    st.info("🔴 **Email automation inactive** - Gmail authentication required")
                     
                 # Email filters
                 with st.expander("📬 Email Filters", expanded=False):
