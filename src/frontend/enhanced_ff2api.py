@@ -499,6 +499,142 @@ def _render_current_file_info():
                     if key in st.session_state:
                         del st.session_state[key]
                 st.rerun()
+        
+        # Add preview data button - exactly like original
+        col1, col2 = st.columns(2)
+        with col2:
+            if st.button("👀 Preview Data", key="preview_toggle_btn", use_container_width=True):
+                st.session_state.show_preview = not st.session_state.get('show_preview', False)
+        
+        # Show preview if requested - exactly like original
+        if st.session_state.get('show_preview', False):
+            _render_data_preview_section()
+
+def _render_data_preview_section():
+    """Render data preview section - exactly like original FF2API"""
+    with st.expander("📊 Data Preview", expanded=True):
+        # Create tabs for different preview types
+        preview_tab1, preview_tab2, preview_tab3 = st.tabs(["📋 CSV Data", "🔗 JSON API Preview", "📝 Mapping Details"])
+        
+        with preview_tab1:
+            st.caption("Raw CSV data (first 10 rows)")
+            st.dataframe(st.session_state.uploaded_df.head(10), use_container_width=True)
+        
+        with preview_tab2:
+            st.caption("Sample API payload generated from first row of your CSV data")
+            
+            # Get field mappings and data processor
+            field_mappings = st.session_state.get('field_mappings', {})
+            
+            # Import data processor dynamically to avoid circular imports
+            from src.backend.data_processor import DataProcessor
+            from src.frontend.ui_components import generate_sample_api_preview
+            
+            data_processor = DataProcessor()
+            
+            # Generate API preview
+            api_preview_data = generate_sample_api_preview(
+                st.session_state.uploaded_df, 
+                field_mappings, 
+                data_processor
+            )
+            
+            # Display message about the preview
+            if "No field mappings configured yet" in api_preview_data["message"]:
+                st.info("🔗 Complete field mapping first to see API preview")
+                st.markdown("""
+                    **What you'll see here:**
+                    - JSON structure showing how your CSV data will be formatted for the API
+                    - Real sample values from your first CSV row
+                    - Properly nested objects (load, customer, brokerage)
+                    - Field validation and data type conversion
+                """)
+            elif "error" in api_preview_data["message"].lower():
+                st.warning(f"⚠️ {api_preview_data['message']}")
+            else:
+                st.success(f"✅ {api_preview_data['message']}")
+            
+            # Display JSON preview with enhanced formatting
+            if api_preview_data["preview"] and field_mappings:
+                # Show structure overview
+                preview_sections = list(api_preview_data["preview"].keys())
+                if preview_sections:
+                    st.markdown(f"**📋 API Structure:** {', '.join(preview_sections)}")
+                
+                # Display the JSON with custom styling
+                st.markdown("**🔄 JSON API Payload:**")
+                st.json(api_preview_data["preview"])
+                
+                # Show additional helpful information
+                if "mapped_fields" in api_preview_data:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Mapped Fields", len(api_preview_data['mapped_fields']))
+                    with col2:
+                        required_fields = [f for f in api_preview_data['mapped_fields'] if get_full_api_schema().get(f, {}).get('required', False)]
+                        st.metric("Required Fields", len(required_fields))
+                    with col3:
+                        optional_fields = len(api_preview_data['mapped_fields']) - len(required_fields)
+                        st.metric("Optional Fields", optional_fields)
+                
+                # Show source row information
+                if "source_row" in api_preview_data:
+                    with st.expander("🔍 Source CSV Row Details", expanded=False):
+                        st.caption("Raw CSV values used to generate this preview")
+                        source_df = pd.DataFrame([api_preview_data["source_row"]])
+                        st.dataframe(source_df, use_container_width=True)
+            
+            elif not field_mappings:
+                # Show helpful preview structure when no mappings exist
+                st.markdown("**🔄 Expected API Structure:**")
+                sample_structure = {
+                    "load": {
+                        "loadNumber": "Your load number here",
+                        "mode": "FTL/LTL/DRAYAGE",
+                        "equipment": {
+                            "equipmentType": "DRY_VAN"
+                        },
+                        "route": []
+                    },
+                    "customer": {
+                        "customerId": "Your customer ID",
+                        "name": "Customer name"
+                    },
+                    "brokerage": {
+                        "contacts": []
+                    }
+                }
+                st.json(sample_structure)
+        
+        with preview_tab3:
+            st.caption("Field mapping summary")
+            field_mappings = st.session_state.get('field_mappings', {})
+            
+            if field_mappings:
+                mapping_df = pd.DataFrame([
+                    {"CSV Column": csv_col, "API Field": api_field}
+                    for csv_col, api_field in field_mappings.items()
+                    if not csv_col.startswith('_') and api_field and api_field != 'Select column...'
+                ])
+                
+                if not mapping_df.empty:
+                    st.dataframe(mapping_df, use_container_width=True)
+                    
+                    # Show mapping statistics
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Mapped Fields", len(mapping_df))
+                    with col2:
+                        required_mapped = len([f for f in mapping_df["API Field"] if get_full_api_schema().get(f, {}).get('required', False)])
+                        st.metric("Required Mapped", required_mapped)
+                    with col3:
+                        csv_columns = len(st.session_state.uploaded_df.columns)
+                        completion = (len(mapping_df) / csv_columns) * 100 if csv_columns > 0 else 0
+                        st.metric("Completion", f"{completion:.1f}%")
+                else:
+                    st.info("No field mappings configured yet")
+            else:
+                st.info("No field mappings configured yet")
 
 def _render_field_mapping_section(db_manager, data_processor):
     """Render field mapping section - exactly like original"""
