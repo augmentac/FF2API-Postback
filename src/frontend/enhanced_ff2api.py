@@ -708,7 +708,10 @@ def _render_data_preview_section():
                     with col1:
                         st.metric("Mapped Fields", len(api_preview_data['mapped_fields']))
                     with col2:
-                        required_fields = [f for f in api_preview_data['mapped_fields'] if get_full_api_schema().get(f, {}).get('required') in [True, 'conditional']]
+                        from src.frontend.ui_components import get_effective_required_fields
+                        current_mappings = st.session_state.get('field_mappings', {})
+                        effective_required = get_effective_required_fields(get_full_api_schema(), current_mappings)
+                        required_fields = [f for f in api_preview_data['mapped_fields'] if f in effective_required]
                         st.metric("Required Fields", len(required_fields))
                     with col3:
                         optional_fields = len(api_preview_data['mapped_fields']) - len(required_fields)
@@ -748,6 +751,10 @@ def _render_data_preview_section():
             field_mappings = st.session_state.get('field_mappings', {})
             api_schema = get_full_api_schema()
             
+            # Get effective required fields for accurate indicators
+            from src.frontend.ui_components import get_effective_required_fields
+            effective_required = get_effective_required_fields(api_schema, field_mappings)
+            
             # Create comprehensive configuration summary
             config_data = []
             
@@ -768,7 +775,7 @@ def _render_data_preview_section():
                             "Source": "🎯 Manual Value",
                             "Value/Column": display_value,
                             "Type": field_info.get('type', 'string'),
-                            "Required": "⭐" if field_info.get('required', False) else "",
+                            "Required": "⭐" if api_field in effective_required else "🔸" if field_info.get('required') == 'conditional' else "",
                             "Is Enum": "🔽" if field_info.get('enum') else ""
                         })
                     else:
@@ -778,7 +785,7 @@ def _render_data_preview_section():
                             "Source": "📄 CSV Column",
                             "Value/Column": mapping_value,
                             "Type": field_info.get('type', 'string'),
-                            "Required": "⭐" if field_info.get('required', False) else "",
+                            "Required": "⭐" if api_field in effective_required else "🔸" if field_info.get('required') == 'conditional' else "",
                             "Is Enum": "🔽" if field_info.get('enum') else ""
                         })
             

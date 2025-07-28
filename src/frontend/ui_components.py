@@ -1136,28 +1136,28 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Separate required and optional fields
-    # Required fields include both always required (True) and conditionally required ('conditional')
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
-    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
-    
     # Initialize mappings
     if existing_mappings:
         field_mappings = existing_mappings.copy()
     else:
         field_mappings = {}
     
-    # Progress indicator for mapping completeness
-    total_required = len(required_fields)
-    mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
+    # Get effective required fields based on current mappings
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
     
-    if total_required > 0:
-        progress = mapped_required / total_required
+    # Progress indicator for mapping completeness with intelligent conditional detection
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    total_effective_required = len(effective_required_fields)
+    mapped_effective_required = len([f for f in effective_required_fields.keys() if f in field_mappings and field_mappings[f] and field_mappings[f] != 'Select column...'])
+    
+    if total_effective_required > 0:
+        progress = mapped_effective_required / total_effective_required
         st.markdown(f"""
             <div style="background: white; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
                     <strong>Required Fields Progress</strong>
-                    <span style="color: #2563eb;">{mapped_required}/{total_required} completed</span>
+                    <span style="color: #2563eb;">{mapped_effective_required}/{total_effective_required} completed</span>
                 </div>
                 <div style="background: #e2e8f0; height: 8px; border-radius: 4px;">
                     <div style="background: #2563eb; height: 100%; width: {progress*100}%; border-radius: 4px; transition: width 0.3s;"></div>
@@ -1188,7 +1188,7 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
         if not required_fields:
             st.info("No required fields found in the API schema.")
         else:
-            for field, field_info in required_fields.items():
+            for field, field_info in effective_required_fields.items():
                 create_field_mapping_row(field, field_info, df, updated_mappings, required=True)
     
     with tab2:
@@ -1224,9 +1224,10 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     with col1:
         if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings"):
             st.session_state.field_mappings = updated_mappings
-            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
-            st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
-            if mapped_required_after == total_required:
+            effective_after = get_effective_required_fields(api_schema, updated_mappings)
+            mapped_effective_after = len([f for f in effective_after.keys() if f in updated_mappings and updated_mappings[f] and updated_mappings[f] != 'Select column...'])
+            st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_effective_after}/{len(effective_after)} effective required fields mapped)")
+            if mapped_effective_after == len(effective_after):
                 st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
             st.rerun()
     
@@ -1250,13 +1251,14 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     with col4:
         if st.button("💾 Save & Continue", type="secondary", use_container_width=True, key="enhanced_save_continue"):
             st.session_state.field_mappings = updated_mappings
-            mapped_required_after = len([f for f in required_fields.keys() if f in updated_mappings])
-            if mapped_required_after == total_required:
+            effective_after = get_effective_required_fields(api_schema, updated_mappings)
+            mapped_effective_after = len([f for f in effective_after.keys() if f in updated_mappings and updated_mappings[f] and updated_mappings[f] != 'Select column...'])
+            if mapped_effective_after == len(effective_after):
                 st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
                 st.success("✅ Mappings saved! Moving to validation step...")
                 st.rerun()
             else:
-                st.warning(f"⚠️ Please map all {total_required} required fields before continuing. Currently mapped: {mapped_required_after}")
+                st.warning(f"⚠️ Please map all {len(effective_after)} effective required fields before continuing. Currently mapped: {mapped_effective_after}")
     
     return updated_mappings
 
@@ -1634,17 +1636,16 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     # Get the API schema
     api_schema = get_full_api_schema()
     
-    # Separate required and optional fields
-    # Required fields include both always required (True) and conditionally required ('conditional')
-    required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
-    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
-    
     # Initialize mappings
     if existing_configuration:
         field_mappings = existing_configuration['field_mappings'].copy()
         st.info(f"📋 Starting with saved configuration mappings ({len(field_mappings)} fields)")
     else:
         field_mappings = {}
+    
+    # Get effective required fields based on current mappings
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
     
     # Handle header changes
     if header_comparison and header_comparison['status'] == 'changed':
@@ -1678,7 +1679,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
     
     # Separate always-required from conditionally-required that became effective
-    always_required = {k: v for k, v in required_fields.items() if v.get('required') == True}
+    always_required = {k: v for k, v in api_schema.items() if v.get('required') == True}
     conditionally_required_active = {k: v for k, v in effective_required_fields.items() if k not in always_required}
     
     total_always_required = len(always_required)
@@ -1774,7 +1775,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
         if not required_fields:
             st.info("No required fields found in the API schema.")
         else:
-            for field, field_info in required_fields.items():
+            for field, field_info in effective_required_fields.items():
                 create_enhanced_field_mapping_row(field, field_info, df, updated_mappings, required=True, header_comparison=header_comparison)
     
     else:
@@ -2106,18 +2107,19 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
     optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
     
-    # Progress tracking - use current session state if available
-    total_required = len(required_fields)
+    # Progress tracking - use current session state if available with intelligent conditional detection
     current_mappings = st.session_state.get('field_mappings', field_mappings)
-    mapped_required = len([f for f in required_fields.keys() if f in current_mappings])
+    effective_required_fields = get_effective_required_fields(api_schema, current_mappings)
+    total_effective_required = len(effective_required_fields)
+    mapped_effective_required = len([f for f in effective_required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
     
-    if total_required > 0:
-        progress = mapped_required / total_required
+    if total_effective_required > 0:
+        progress = mapped_effective_required / total_effective_required
         st.markdown(f"""
             <div style="background: white; padding: 1rem; border-radius: 0.5rem; margin-bottom: 1rem; border: 1px solid #e2e8f0;">
                 <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
                     <strong>Required Fields Progress</strong>
-                    <span style="color: #2563eb;">{mapped_required}/{total_required} completed</span>
+                    <span style="color: #2563eb;">{mapped_effective_required}/{total_effective_required} completed</span>
                 </div>
                 <div style="background: #e2e8f0; height: 8px; border-radius: 4px;">
                     <div style="background: #2563eb; height: 100%; width: {progress*100}%; border-radius: 4px; transition: width 0.3s;"></div>
@@ -2170,7 +2172,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
         if not required_fields:
             st.info("No required fields found in the API schema.")
         else:
-            for field, field_info in required_fields.items():
+            for field, field_info in effective_required_fields.items():
                 create_learning_enhanced_field_mapping_row(
                     field, field_info, df, updated_mappings, 
                     required=True, db_manager=db_manager, 
@@ -2251,10 +2253,11 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             # updated_mappings is already in sync with session state via field row updates
             current_mappings = st.session_state.get('field_mappings', updated_mappings)
             st.session_state.field_mappings = current_mappings
-            mapped_required_after = len([f for f in required_fields.keys() if f in current_mappings])
-            st.success(f"Applied {len(current_mappings)} mappings! ({mapped_required_after}/{total_required} required fields mapped)")
+            effective_after = get_effective_required_fields(api_schema, current_mappings)
+            mapped_effective_after = len([f for f in effective_after.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
+            st.success(f"Applied {len(current_mappings)} mappings! ({mapped_effective_after}/{len(effective_after)} effective required fields mapped)")
             
-            if mapped_required_after == total_required:
+            if mapped_effective_after == len(effective_after):
                 st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
     
     with col2:
@@ -2309,15 +2312,16 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             # updated_mappings is already in sync with session state via field row updates
             current_mappings = st.session_state.get('field_mappings', updated_mappings)
             st.session_state.field_mappings = current_mappings
-            mapped_required_after = len([f for f in required_fields.keys() if f in current_mappings])
+            effective_after = get_effective_required_fields(api_schema, current_mappings)
+            mapped_effective_after = len([f for f in effective_after.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
             
-            if mapped_required_after == total_required:
+            if mapped_effective_after == len(effective_after):
                 st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
                 st.success("✅ Mappings saved! Moving to validation step...")
                 st.rerun()
             else:
-                st.warning(f"⚠️ Please map all {total_required} required fields before continuing. "
-                          f"Currently mapped: {mapped_required_after}")
+                st.warning(f"⚠️ Please map all {len(effective_after)} effective required fields before continuing. "
+                          f"Currently mapped: {mapped_effective_after}")
     
     # Return the current session state since field rows update it directly
     return st.session_state.get('field_mappings', updated_mappings)

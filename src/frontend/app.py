@@ -320,12 +320,12 @@ def _render_configuration_status(config):
     total_required = 0
     
     if file_uploaded:
-        from src.frontend.ui_components import get_full_api_schema
+        from src.frontend.ui_components import get_full_api_schema, get_effective_required_fields
         api_schema = get_full_api_schema()
-        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
         current_mappings = st.session_state.get('field_mappings', field_mappings)
-        mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
-        total_required = len(required_fields)
+        effective_required_fields = get_effective_required_fields(api_schema, current_mappings)
+        mapped_required = len([f for f in effective_required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
+        total_required = len(effective_required_fields)
         mapping_complete = mapped_required >= total_required and total_required > 0
     
     readiness_checks = [
@@ -826,12 +826,12 @@ def _render_consolidated_status():
     total_required = 0
     
     if file_uploaded:
-        from src.frontend.ui_components import get_full_api_schema
+        from src.frontend.ui_components import get_full_api_schema, get_effective_required_fields
         api_schema = get_full_api_schema()
-        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
         current_mappings = st.session_state.get('field_mappings', field_mappings)
-        mapped_required = len([f for f in required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
-        total_required = len(required_fields)
+        effective_required_fields = get_effective_required_fields(api_schema, current_mappings)
+        mapped_required = len([f for f in effective_required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
+        total_required = len(effective_required_fields)
         mapping_complete = mapped_required >= total_required and total_required > 0
     
     readiness_checks = [
@@ -1988,17 +1988,17 @@ def _render_smart_mapping_section(db_manager, data_processor):
         
         # Progress indicator
         api_schema = get_full_api_schema()
-        required_fields = {k: v for k, v in api_schema.items() if v.get('required', False)}
-        mapped_required = len([f for f in required_fields.keys() if f in field_mappings])
-        total_required = len(required_fields)
+        effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+        mapped_required = len([f for f in effective_required_fields.keys() if f in field_mappings and field_mappings[f] and field_mappings[f] != 'Select column...'])
+        total_required = len(effective_required_fields)
         
         progress = mapped_required / total_required if total_required > 0 else 0
         st.progress(progress)
         
         if mapped_required >= total_required:
-            st.success(f"✅ All {mapped_required} required fields mapped!")
+            st.success(f"✅ All {mapped_required} effective required fields mapped!")
         else:
-            st.info(f"📋 {mapped_required}/{total_required} required fields mapped")
+            st.info(f"📋 {mapped_required}/{total_required} effective required fields mapped")
 
 def _render_validation_section(db_manager, data_processor):
     """Validation section with smart defaults"""
