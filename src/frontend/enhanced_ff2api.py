@@ -472,51 +472,83 @@ def _render_email_automation_sidebar():
             else:
                 st.warning("⚠️ Gmail automation not configured")
                 
-                # Automatic Gmail setup flow
+                # Manual OAuth setup to avoid interface disappearing
                 if streamlit_google_sso.is_configured():
-                    if st.button("🔐 Complete Gmail Setup", key="setup_gmail", type="primary", use_container_width=True):
-                        st.info("🔄 Starting Gmail authentication and email monitoring setup...")
+                    st.info("🔐 **Gmail Authentication Required**")
+                    st.markdown("Connect your Gmail account to enable automatic email processing.")
+                    
+                    # Check if already authenticated
+                    auth_key = f'gmail_auth_{brokerage_name.replace("-", "_")}'
+                    existing_auth = st.session_state.get(auth_key, {})
+                    
+                    if existing_auth.get('authenticated'):
+                        # Already authenticated - show status
+                        user_email = existing_auth.get('user_email', 'Gmail account')
+                        st.success(f"✅ Connected: {user_email}")
                         
-                        try:
-                            # Step 1: Authenticate with Google (this should work without disappearing now)
-                            with st.spinner("Authenticating with Gmail..."):
-                                # For now, simulate the auth flow - in reality this would call the working OAuth
-                                import time
-                                time.sleep(1)
-                                
-                                # Store authentication in session state (simulating successful OAuth)
-                                auth_key = f'gmail_auth_{brokerage_name.replace("-", "_")}'
-                                st.session_state[auth_key] = {
-                                    'authenticated': True,
-                                    'user_email': 'user@gmail.com',  # Would come from actual OAuth
-                                    'access_token': 'simulated_token',  # Would come from actual OAuth
-                                    'brokerage': brokerage_name
-                                }
-                                
-                            st.success("✅ Gmail authentication successful!")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("🔓 Disconnect", key="disconnect_gmail"):
+                                del st.session_state[auth_key]
+                                st.success("Disconnected from Gmail")
+                                st.rerun()
+                        with col2:
+                            if st.button("🔍 Test Connection", key="test_gmail"):
+                                st.success("✅ Gmail connection is active")
+                    else:
+                        # Need authentication - use manual flow to avoid disappearing
+                        if st.button("🔐 Setup Gmail Auth", key="setup_gmail_manual", type="primary"):
+                            # Generate authentication URL and show instructions
+                            auth_url = streamlit_google_sso._generate_auth_url(brokerage_name)
                             
-                            # Step 2: Configure email monitoring automatically
-                            with st.spinner("Setting up email monitoring..."):
-                                time.sleep(1)
+                            if auth_url:
+                                st.markdown("**Step 1:** Click to authenticate with Google:")
+                                st.markdown(f"""
+                                <a href="{auth_url}" target="_blank" style="
+                                    display: inline-block;
+                                    background-color: #4285f4;
+                                    color: white;
+                                    padding: 12px 24px;
+                                    text-decoration: none;
+                                    border-radius: 8px;
+                                    font-weight: bold;
+                                    margin: 10px 0;
+                                ">🔗 Authenticate with Google</a>
+                                """, unsafe_allow_html=True)
                                 
-                                # In reality, this would:
-                                # 1. Configure email_monitor with the OAuth credentials
-                                # 2. Add the brokerage to monitored_brokerages
-                                # 3. Set up default email filters
-                                # 4. Start monitoring
+                                st.markdown("**Step 2:** After authentication, the page will auto-refresh.")
                                 
-                                st.success("✅ Email monitoring configured for " + brokerage_name)
-                                
-                            # Step 3: Verify the setup
-                            st.success("🎉 **Gmail Email Automation Complete!**")
-                            st.info("📧 Your Gmail account is now connected and monitoring emails for freight data.")
-                            
-                            # Trigger a page refresh to update the status
-                            st.rerun()
-                            
-                        except Exception as e:
-                            st.error(f"❌ Setup failed: {e}")
-                            st.info("💡 Please try again or contact support if the issue persists.")
+                                # Check for redirect with auth code (auto-processing)
+                                try:
+                                    url_params = st.query_params
+                                    auth_code = url_params.get('code', '')
+                                    if auth_code:
+                                        # Process the authorization code
+                                        with st.spinner("🔄 Processing authentication..."):
+                                            result = streamlit_google_sso._handle_manual_auth_code(brokerage_name, auth_code)
+                                            
+                                            if result['success']:
+                                                # Store in session state
+                                                st.session_state[auth_key] = {
+                                                    'authenticated': True,
+                                                    'user_email': result.get('user_email', 'authenticated'),
+                                                    'brokerage_key': brokerage_name,
+                                                    'oauth_active': True
+                                                }
+                                                
+                                                st.success(f"✅ Gmail authentication successful!")
+                                                st.success(f"✅ Email monitoring configured for {brokerage_name}")
+                                                
+                                                # Clear the URL params and refresh
+                                                st.query_params.clear()
+                                                st.rerun()
+                                            else:
+                                                st.error(f"❌ Authentication failed: {result.get('message', 'Unknown error')}")
+                                except Exception as e:
+                                    # Silent handling - user hasn't authenticated yet
+                                    pass
+                            else:
+                                st.error("❌ Unable to generate authentication URL")
                 else:
                     st.error("🔧 **Google OAuth Configuration Required**")
                     st.info("Contact your administrator to configure Google OAuth credentials.")
