@@ -367,10 +367,24 @@ def _render_email_automation_sidebar():
                 with col1:
                     if st.button("▶️ Start Monitor", key="start_email_monitor", use_container_width=True):
                         try:
-                            email_monitor.start_monitoring()
-                            st.success("Email monitoring started")
+                            # Add debugging to see what happens during start
+                            st.info("🔄 Attempting to start email monitoring...")
+                            result = email_monitor.start_monitoring()
+                            
+                            # Check status immediately after starting
+                            post_start_status = email_monitor.get_monitoring_status()
+                            st.write(f"Debug: Status after start: {post_start_status}")
+                            
+                            if post_start_status.get('monitoring_active'):
+                                st.success("✅ Email monitoring started successfully")
+                            else:
+                                st.warning("⚠️ Monitoring start command sent, but monitoring not active")
+                                st.info("💡 This may be due to missing authentication or brokerage configuration")
+                                
                         except Exception as e:
-                            st.error(f"Failed to start monitoring: {e}")
+                            st.error(f"❌ Failed to start monitoring: {e}")
+                            import traceback
+                            st.code(traceback.format_exc())
                 
                 with col2:
                     if st.button("⏹️ Stop Monitor", key="stop_email_monitor", use_container_width=True):
