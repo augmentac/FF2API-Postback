@@ -167,17 +167,19 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
             st.warning("⚠️ Please select or create a brokerage to continue")
             return
         
+        # Update session state when brokerage changes
+        if st.session_state.get('brokerage_name') != brokerage_key:
+            st.session_state.brokerage_name = brokerage_key
+        
         st.session_state.selected_brokerage = brokerage_key
         
         # Configuration management
         st.markdown("---")
         st.subheader("💾 Saved Configurations")
         
-        # Get configurations using correct method
+        # Get configurations using correct method  
         try:
-            all_configs = db_manager.get_brokerage_configurations(brokerage_key)
-            # Filter out placeholder configurations
-            saved_configs = [cfg for cfg in all_configs if cfg.get('name') != '_initial_placeholder']
+            saved_configs = db_manager.get_brokerage_configurations(brokerage_key)
         except Exception as e:
             logger.error(f"Error getting configurations: {e}")
             saved_configs = []
@@ -296,12 +298,16 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
 
 
 def render_brokerage_selection(db_manager: DatabaseManager) -> Optional[str]:
-    """Render brokerage selection with creation capability."""
+    """Render brokerage selection with creation capability - matches original FF2API UX."""
     st.subheader("🏢 Brokerage")
+    
+    # Display success message if brokerage was just created
+    if 'brokerage_creation_success' in st.session_state:
+        st.success(st.session_state.brokerage_creation_success)
+        del st.session_state.brokerage_creation_success
     
     # Get existing brokerages from database
     try:
-        # Get all unique brokerage names from database
         import sqlite3
         conn = sqlite3.connect(db_manager.db_path)
         cursor = conn.cursor()
@@ -312,89 +318,91 @@ def render_brokerage_selection(db_manager: DatabaseManager) -> Optional[str]:
         logger.error(f"Error getting brokerages: {e}")
         existing_brokerages = []
     
+    # Add current session brokerage to options if not in database yet
+    current_brokerage = st.session_state.get('brokerage_name', '')
+    if current_brokerage and current_brokerage not in existing_brokerages:
+        existing_brokerages.append(current_brokerage)
+    
     if existing_brokerages:
         # Show selection with option to create new
+        current_brokerage = st.session_state.get('brokerage_name', '')
+        if current_brokerage in existing_brokerages:
+            default_index = existing_brokerages.index(current_brokerage) + 1
+        else:
+            default_index = 0
+            
         selected_brokerage = st.selectbox(
             "Select Brokerage:",
             ["-- Choose a brokerage --"] + existing_brokerages + ["➕ Create New"],
+            index=default_index,
             key="brokerage_selection"
         )
         
+        # Handle selection changes
         if selected_brokerage == "➕ Create New":
             st.session_state.show_brokerage_form = True
-            return None
         elif selected_brokerage != "-- Choose a brokerage --":
+            # Check if selection changed
+            if current_brokerage != selected_brokerage:
+                # Clear existing configuration when changing brokerage
+                keys_to_clear = ['selected_config', 'api_credentials']
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
             return selected_brokerage
         else:
             return None
     else:
-        # No brokerages exist - show creation option
-        st.info("💡 Create your first brokerage")
-        if st.button("➕ Create Brokerage", use_container_width=True):
-            st.session_state.show_brokerage_form = True
-            st.rerun()
-        
-        # Always check for brokerage form after button click
-        if st.session_state.get('show_brokerage_form'):
-            created_brokerage = render_brokerage_form()
-            if created_brokerage:
-                return created_brokerage
-        
-        return None
+        # No brokerages exist - direct input like original FF2API
+        new_brokerage = st.text_input(
+            "Enter brokerage name:",
+            value=st.session_state.get('brokerage_name', ''),
+            placeholder="Your brokerage name",
+            help="Enter the name of your brokerage company"
+        )
+        if new_brokerage.strip():
+            return new_brokerage.strip()
+        else:
+            return None
+    
+    # Show brokerage creation form if requested
+    if st.session_state.get('show_brokerage_form'):
+        created_brokerage = render_brokerage_form()
+        if created_brokerage:
+            return created_brokerage
+    
+    return None
 
 
 def render_brokerage_form() -> Optional[str]:
-    """Render brokerage creation form."""
+    """Render brokerage creation form - matches original FF2API pattern."""
     st.markdown("---")
     st.subheader("➕ New Brokerage")
     
-    # Use session state to persist form input
-    if 'brokerage_form_name' not in st.session_state:
-        st.session_state.brokerage_form_name = ""
-    
     new_brokerage = st.text_input(
-        "Brokerage Name",
-        value=st.session_state.brokerage_form_name,
+        "Brokerage Name:",
         placeholder="Enter your brokerage name",
-        help="This will be used to organize your configurations",
-        key="new_brokerage_name"
+        help="This will be used to organize your configurations"
     )
-    
-    # Update session state
-    st.session_state.brokerage_form_name = new_brokerage
     
     col1, col2 = st.columns(2)
     
     with col1:
         if st.button("✅ Create", type="primary", use_container_width=True):
             if new_brokerage.strip():
-                try:
-                    # Create a placeholder configuration to establish the brokerage in the database
-                    db_manager = DatabaseManager()
-                    placeholder_config = db_manager.save_brokerage_configuration(
-                        brokerage_name=new_brokerage.strip(),
-                        configuration_name="_initial_placeholder",
-                        field_mappings={"_status": "brokerage_created", "_created_at": str(datetime.now())},
-                        api_credentials={"_placeholder": True},
-                        description="Initial brokerage creation - create your first configuration",
-                        auth_type='api_key',
-                        processing_mode='manual'
-                    )
-                    
-                    if placeholder_config:
-                        st.success(f"✅ Created brokerage: {new_brokerage.strip()}")
-                        st.session_state.brokerage_form_name = ""  # Clear form
-                        st.session_state.show_brokerage_form = False
-                        st.rerun()  # Rerun to refresh the brokerage list
-                        return new_brokerage.strip()
-                    else:
-                        st.error("Failed to create brokerage - database error")
-                        return None
-                        
-                except Exception as e:
-                    st.error(f"Error creating brokerage: {str(e)}")
-                    logger.error(f"Brokerage creation error: {e}")
-                    return None
+                # Store in session state like original FF2API
+                st.session_state.brokerage_name = new_brokerage.strip()
+                st.session_state.show_brokerage_form = False
+                st.session_state.brokerage_creation_success = f"✅ Created: {new_brokerage.strip()}"
+                
+                # Clear any existing configuration when creating new brokerage
+                keys_to_clear = ['selected_config', 'api_credentials']
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                
+                st.rerun()
+                return new_brokerage.strip()
             else:
                 st.error("Please enter a brokerage name")
                 return None
@@ -402,7 +410,6 @@ def render_brokerage_form() -> Optional[str]:
     with col2:
         if st.button("❌ Cancel", use_container_width=True):
             st.session_state.show_brokerage_form = False
-            st.session_state.brokerage_form_name = ""  # Clear form
             st.rerun()
     
     return None
@@ -799,9 +806,18 @@ def main():
     # Processing mode selection
     render_processing_mode_selection()
     
+    # Check if brokerage is configured (progressive disclosure like original FF2API)
+    if 'brokerage_name' not in st.session_state:
+        st.info("👈 Please select or create a brokerage in the sidebar to continue")
+        return
+    
+    if 'selected_config' not in st.session_state:
+        st.info("👈 Please configure your API credentials in the sidebar to continue")
+        return
+    
     # Get processing mode and brokerage
     processing_mode = st.session_state.get('processing_mode', 'manual')
-    brokerage_key = st.session_state.get('selected_brokerage', 'augment-brokerage')
+    brokerage_key = st.session_state.get('brokerage_name')
     
     # Initialize processor and sidebar - use try/catch for better error handling
     processor = None
