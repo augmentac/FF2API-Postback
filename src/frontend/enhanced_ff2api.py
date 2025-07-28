@@ -399,11 +399,21 @@ def _render_email_automation_sidebar():
                 
                 # Show authentication interface when setup is initiated
                 if st.session_state.get(setup_key, False):
+                    st.write(f"🔍 DEBUG: About to show interface. setup_key={setup_key}, value={st.session_state.get(setup_key)}")
                     st.markdown("### 📧 Gmail Authentication Setup")
                     st.info("Setting up Gmail authentication for email automation...")
+                    st.write("🔍 DEBUG: Interface elements rendered successfully")
                     
                     # Check if Google SSO is configured
-                    if not streamlit_google_sso.is_configured():
+                    st.write("🔍 DEBUG: About to check if Google SSO is configured...")
+                    try:
+                        sso_configured = streamlit_google_sso.is_configured()
+                        st.write(f"🔍 DEBUG: Google SSO configured = {sso_configured}")
+                    except Exception as e:
+                        st.write(f"🔍 DEBUG: Error checking SSO config: {e}")
+                        sso_configured = False
+                    
+                    if not sso_configured:
                         st.error("🔧 **Google SSO Configuration Missing**")
                         st.markdown("""
                         Gmail authentication requires Google OAuth credentials to be configured in Streamlit secrets.
@@ -441,11 +451,14 @@ def _render_email_automation_sidebar():
                             st.rerun()
                     
                     # Cancel button
+                    st.write("🔍 DEBUG: About to show cancel button...")
                     col1, col2 = st.columns([3, 1])
                     with col2:
                         if st.button("❌ Cancel", key="cancel_gmail_setup"):
+                            st.write("🔍 DEBUG: Cancel button clicked!")
                             st.session_state[setup_key] = False
                             st.rerun()
+                    st.write("🔍 DEBUG: Finished rendering interface completely!")
                         
         except Exception as e:
             st.error(f"Email automation error: {e}")
