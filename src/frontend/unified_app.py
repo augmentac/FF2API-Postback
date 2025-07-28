@@ -25,6 +25,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 from backend.unified_processor import UnifiedLoadProcessor, ProcessingMode
 from backend.database import DatabaseManager
+from backend.api_client import LoadsAPIClient
 from ui_components import (
     load_custom_css, 
     render_main_header, 
@@ -159,22 +160,12 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
     with st.sidebar:
         st.header("⚙️ Configuration")
         
-        # Brokerage selection
-        available_brokerages = credential_manager.get_available_brokerages()
-        if available_brokerages:
-            brokerage_key = st.selectbox(
-                "🏢 Brokerage", 
-                available_brokerages, 
-                index=0,
-                key="brokerage_selection"
-            )
-        else:
-            brokerage_key = st.text_input(
-                "🏢 Brokerage Key", 
-                value="augment-brokerage",
-                key="brokerage_input"
-            )
-            st.warning("⚠️ No configured brokerages found")
+        # Brokerage selection with creation capability
+        brokerage_key = render_brokerage_selection(db_manager)
+        
+        if not brokerage_key:
+            st.warning("⚠️ Please select or create a brokerage to continue")
+            return
         
         st.session_state.selected_brokerage = brokerage_key
         
@@ -182,19 +173,41 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
         st.markdown("---")
         st.subheader("💾 Saved Configurations")
         
-        saved_configs = db_manager.get_configurations_for_company(brokerage_key)
+        # Get configurations using correct method
+        try:
+            saved_configs = db_manager.get_brokerage_configurations(brokerage_key)
+        except Exception as e:
+            logger.error(f"Error getting configurations: {e}")
+            saved_configs = []
+        
         if saved_configs:
-            config_names = [f"{cfg[2]} (v{cfg[7]})" for cfg in saved_configs]
-            selected_config = st.selectbox(
+            config_options = [cfg['name'] for cfg in saved_configs]
+            selected_config_name = st.selectbox(
                 "Select Configuration:",
-                ["None"] + config_names,
+                ["-- Choose a configuration --"] + config_options + ["➕ Create New"],
                 key="config_selection"
             )
             
-            if selected_config != "None":
+            if selected_config_name and selected_config_name not in ["-- Choose a configuration --", "➕ Create New"]:
+                selected_config = next(cfg for cfg in saved_configs if cfg['name'] == selected_config_name)
                 st.session_state.selected_config = selected_config
+                
+                # Update last used
+                try:
+                    db_manager.update_configuration_last_used(brokerage_key, selected_config['name'])
+                except Exception as e:
+                    logger.error(f"Error updating last used: {e}")
+                    
+            elif selected_config_name == "➕ Create New":
+                st.session_state.show_config_form = True
         else:
-            st.info("No saved configurations found")
+            st.info("💡 Create your first configuration")
+            if st.button("➕ Create Configuration", use_container_width=True):
+                st.session_state.show_config_form = True
+        
+        # Show configuration creation form
+        if st.session_state.get('show_config_form'):
+            render_configuration_form(brokerage_key, db_manager)
         
         # Mode-specific options
         if processor:
@@ -280,13 +293,319 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
                         st.success("✅ Gmail connected successfully!")
 
 
-def render_field_mapping_interface(df: pd.DataFrame, processor: UnifiedLoadProcessor):
+def render_brokerage_selection(db_manager: DatabaseManager) -> Optional[str]:
+    """Render brokerage selection with creation capability."""
+    st.subheader("🏢 Brokerage")
+    
+    # Get existing brokerages from database
+    try:
+        # Get all unique brokerage names from database
+        import sqlite3
+        conn = sqlite3.connect(db_manager.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT DISTINCT brokerage_name FROM brokerage_configurations WHERE is_active = 1 ORDER BY brokerage_name')
+        existing_brokerages = [row[0] for row in cursor.fetchall()]
+        conn.close()
+    except Exception as e:
+        logger.error(f"Error getting brokerages: {e}")
+        existing_brokerages = []
+    
+    if existing_brokerages:
+        # Show selection with option to create new
+        selected_brokerage = st.selectbox(
+            "Select Brokerage:",
+            ["-- Choose a brokerage --"] + existing_brokerages + ["➕ Create New"],
+            key="brokerage_selection"
+        )
+        
+        if selected_brokerage == "➕ Create New":
+            st.session_state.show_brokerage_form = True
+            return None
+        elif selected_brokerage != "-- Choose a brokerage --":
+            return selected_brokerage
+        else:
+            return None
+    else:
+        # No brokerages exist - show creation form
+        st.info("💡 Create your first brokerage")
+        if st.button("➕ Create Brokerage", use_container_width=True):
+            st.session_state.show_brokerage_form = True
+        return None
+    
+    # Show brokerage creation form
+    if st.session_state.get('show_brokerage_form'):
+        return render_brokerage_form()
+
+
+def render_brokerage_form() -> Optional[str]:
+    """Render brokerage creation form."""
+    st.markdown("---")
+    st.subheader("➕ New Brokerage")
+    
+    new_brokerage = st.text_input(
+        "Brokerage Name",
+        placeholder="Enter your brokerage name",
+        help="This will be used to organize your configurations"
+    )
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✅ Create", type="primary", use_container_width=True):
+            if new_brokerage.strip():
+                st.session_state.show_brokerage_form = False
+                st.success(f"✅ Created brokerage: {new_brokerage.strip()}")
+                return new_brokerage.strip()
+            else:
+                st.error("Please enter a brokerage name")
+                return None
+    
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.show_brokerage_form = False
+            st.rerun()
+    
+    return None
+
+
+def render_configuration_form(brokerage_key: str, db_manager: DatabaseManager):
+    """Render configuration creation/editing form."""
+    st.markdown("---")
+    st.subheader("⚙️ New Configuration")
+    
+    # Configuration form state
+    if 'config_form_state' not in st.session_state:
+        st.session_state.config_form_state = {
+            'config_name': '',
+            'config_description': '',
+            'api_base_url': 'https://api.prod.goaugment.com',
+            'api_key': '',
+            'auth_type': 'api_key',
+            'bearer_token': ''
+        }
+    
+    # Configuration name
+    config_name = st.text_input(
+        "Configuration Name",
+        value=st.session_state.config_form_state['config_name'],
+        placeholder="e.g., Standard Mapping",
+        help="Give this configuration a descriptive name"
+    )
+    
+    # Optional description
+    config_description = st.text_area(
+        "Description (Optional)",
+        value=st.session_state.config_form_state['config_description'],
+        placeholder="Describe this configuration...",
+        height=60
+    )
+    
+    # Authentication type
+    auth_type = st.selectbox(
+        "Authentication Type",
+        options=['api_key', 'bearer_token'],
+        index=0 if st.session_state.config_form_state['auth_type'] == 'api_key' else 1,
+        format_func=lambda x: "API Key (with token refresh)" if x == 'api_key' else "Bearer Token (direct)",
+        help="Choose authentication method - API Key automatically refreshes tokens, Bearer Token uses your token directly"
+    )
+    
+    # API Base URL
+    api_base_url = st.text_input(
+        "API Base URL",
+        value=st.session_state.config_form_state['api_base_url'],
+        placeholder="https://api.prod.goaugment.com",
+        help="The base URL for your FF2API endpoint"
+    )
+    
+    # Conditional authentication fields
+    api_key = ""
+    bearer_token = ""
+    
+    if auth_type == 'api_key':
+        api_key = st.text_input(
+            "API Key",
+            value=st.session_state.config_form_state['api_key'],
+            type="password",
+            placeholder="Your API key (used to refresh bearer tokens)",
+            help="Your API key for authentication"
+        )
+    else:  # bearer_token
+        bearer_token = st.text_input(
+            "Bearer Token",
+            value=st.session_state.config_form_state['bearer_token'],
+            type="password",
+            placeholder="Your bearer token (used directly for API calls)",
+            help="Your bearer token for direct API authentication"
+        )
+    
+    # Update form state
+    st.session_state.config_form_state.update({
+        'config_name': config_name,
+        'config_description': config_description,
+        'api_base_url': api_base_url,
+        'auth_type': auth_type,
+        'api_key': api_key,
+        'bearer_token': bearer_token
+    })
+    
+    # Action buttons
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🧪 Test Connection", use_container_width=True):
+            test_api_connection(api_base_url, auth_type, api_key, bearer_token)
+    
+    with col2:
+        if st.button("💾 Save Configuration", type="primary", use_container_width=True):
+            save_configuration(brokerage_key, db_manager)
+    
+    with col3:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.show_config_form = False
+            st.rerun()
+
+
+def test_api_connection(api_base_url: str, auth_type: str, api_key: str, bearer_token: str):
+    """Test API connection with provided credentials."""
+    # Validate required fields
+    if auth_type == 'api_key' and not api_key:
+        st.error("Please provide an API key for API key authentication")
+        return
+    elif auth_type == 'bearer_token' and not bearer_token:
+        st.error("Please provide a bearer token for bearer token authentication")
+        return
+    
+    if not api_base_url:
+        st.error("Please provide an API base URL")
+        return
+    
+    # Test connection
+    with st.spinner("Testing API connection..."):
+        try:
+            if auth_type == 'api_key':
+                client = LoadsAPIClient(api_base_url, api_key=api_key, auth_type='api_key')
+            else:  # bearer_token
+                client = LoadsAPIClient(api_base_url, bearer_token=bearer_token, auth_type='bearer_token')
+            
+            result = client.validate_connection()
+            
+            if result.get('success'):
+                st.success("✅ API connection successful!")
+                st.session_state.connection_tested = True
+            else:
+                st.error(f"❌ API connection failed: {result.get('message', 'Unknown error')}")
+                st.session_state.connection_tested = False
+                
+        except Exception as e:
+            st.error(f"❌ Connection test failed: {str(e)}")
+            st.session_state.connection_tested = False
+
+
+def save_configuration(brokerage_key: str, db_manager: DatabaseManager):
+    """Save the configuration to database."""
+    form_state = st.session_state.config_form_state
+    
+    config_name = form_state['config_name'].strip()
+    config_description = form_state['config_description'].strip()
+    api_base_url = form_state['api_base_url'].strip()
+    auth_type = form_state['auth_type']
+    api_key = form_state['api_key'].strip()
+    bearer_token = form_state['bearer_token'].strip()
+    
+    # Validate required fields
+    if not config_name:
+        st.error("Please provide a configuration name")
+        return
+    
+    if auth_type == 'api_key' and not api_key:
+        st.error("Please provide an API key for API key authentication")
+        return
+    elif auth_type == 'bearer_token' and not bearer_token:
+        st.error("Please provide a bearer token for bearer token authentication")
+        return
+    
+    if not api_base_url:
+        st.error("Please provide an API base URL")
+        return
+    
+    # Build API credentials
+    if auth_type == 'api_key':
+        api_credentials = {
+            'base_url': api_base_url,
+            'api_key': api_key
+        }
+        save_bearer_token = None
+    else:  # bearer_token
+        api_credentials = {
+            'base_url': api_base_url
+        }
+        save_bearer_token = bearer_token
+    
+    # Save to database
+    try:
+        # Start with placeholder field mappings
+        placeholder_mappings = {
+            "_status": "pending_file_upload",
+            "_created_at": str(datetime.now()),
+            "_description": "Configuration created, awaiting file upload for field mapping"
+        }
+        
+        config_id = db_manager.save_brokerage_configuration(
+            brokerage_name=brokerage_key,
+            configuration_name=config_name,
+            field_mappings=placeholder_mappings,
+            api_credentials=api_credentials,
+            file_headers=None,
+            description=config_description,
+            auth_type=auth_type,
+            bearer_token=save_bearer_token,
+            processing_mode='manual'
+        )
+        
+        st.success(f"✅ Configuration '{config_name}' saved successfully!")
+        
+        # Clear form and close
+        st.session_state.config_form_state = {
+            'config_name': '',
+            'config_description': '',
+            'api_base_url': 'https://api.prod.goaugment.com',
+            'api_key': '',
+            'auth_type': 'api_key',
+            'bearer_token': ''
+        }
+        st.session_state.show_config_form = False
+        
+        # Set the new configuration as selected
+        saved_config = {
+            'id': config_id,
+            'name': config_name,
+            'description': config_description,
+            'api_credentials': api_credentials,
+            'auth_type': auth_type,
+            'bearer_token': save_bearer_token,
+            'field_mappings': placeholder_mappings
+        }
+        st.session_state.selected_config = saved_config
+        
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"❌ Failed to save configuration: {str(e)}")
+        logger.error(f"Configuration save error: {e}")
+
+
+def render_field_mapping_interface(df: pd.DataFrame, processor: UnifiedLoadProcessor, saved_mappings: Dict[str, str] = None):
     """Render field mapping interface"""
     st.subheader("🔗 Field Mapping")
     
-    # Get suggested mappings
+    # Get suggested mappings or use saved mappings
     csv_columns = df.columns.tolist()
-    suggested_mapping = processor.get_suggested_field_mapping(csv_columns)
+    if saved_mappings:
+        # Filter saved mappings to only include fields that exist in current CSV
+        current_mapping = {col: saved_mappings.get(col, "") for col in csv_columns if col in saved_mappings}
+        suggested_mapping = current_mapping
+    else:
+        suggested_mapping = processor.get_suggested_field_mapping(csv_columns)
     
     # Get API schema for validation
     api_schema = get_full_api_schema()
@@ -299,6 +618,9 @@ def render_field_mapping_interface(df: pd.DataFrame, processor: UnifiedLoadProce
     
     with col1:
         st.markdown("**CSV Columns**")
+        if saved_mappings:
+            st.info("ℹ️ Using saved field mappings - modify as needed")
+        
         for csv_col in csv_columns:
             suggested_api_field = suggested_mapping.get(csv_col, "")
             
@@ -312,7 +634,8 @@ def render_field_mapping_interface(df: pd.DataFrame, processor: UnifiedLoadProce
                 f"Map '{csv_col}' to:",
                 [""] + api_fields,
                 index=default_index + 1 if suggested_api_field else 0,
-                key=f"mapping_{csv_col}"
+                key=f"mapping_{csv_col}",
+                help=f"Current mapping: {suggested_api_field}" if suggested_api_field else "No mapping selected"
             )
             
             if mapped_field:
@@ -326,6 +649,16 @@ def render_field_mapping_interface(df: pd.DataFrame, processor: UnifiedLoadProce
                 for csv_col, api_field in field_mapping.items()
             ])
             st.dataframe(mapping_df, use_container_width=True)
+            
+            # Show mapping validation
+            required_fields = ['loadNumber', 'mode', 'equipment', 'route']
+            mapped_required = [field for field in required_fields if field in field_mapping.values()]
+            missing_required = [field for field in required_fields if field not in field_mapping.values()]
+            
+            if missing_required:
+                st.warning(f"⚠️ Missing required fields: {', '.join(missing_required)}")
+            else:
+                st.success("✅ All required fields mapped")
         else:
             st.info("Configure field mappings on the left")
     
@@ -518,10 +851,44 @@ def main():
                 
                 # Field mapping (if not automated mode)
                 if processor and not processor.mode_config.auto_process:
-                    field_mapping = render_field_mapping_interface(df, processor)
+                    # Check if we have a selected configuration with field mappings
+                    selected_config = st.session_state.get('selected_config')
+                    if selected_config and selected_config.get('field_mappings'):
+                        saved_mappings = selected_config['field_mappings']
+                        if saved_mappings.get('_status') != 'pending_file_upload':
+                            # Use saved mappings as default
+                            field_mapping = render_field_mapping_interface(df, processor, saved_mappings)
+                        else:
+                            # Configuration exists but needs field mapping
+                            field_mapping = render_field_mapping_interface(df, processor)
+                            # Update the configuration with new field mappings if they've changed
+                            if field_mapping and field_mapping != saved_mappings:
+                                try:
+                                    updated_config = selected_config.copy()
+                                    updated_config['field_mappings'] = field_mapping
+                                    st.session_state.selected_config = updated_config
+                                    # Save the updated mapping to database
+                                    db_manager.save_brokerage_configuration(
+                                        brokerage_name=brokerage_key,
+                                        configuration_name=selected_config['name'],
+                                        field_mappings=field_mapping,
+                                        api_credentials=selected_config['api_credentials'],
+                                        description=selected_config.get('description', ''),
+                                        auth_type=selected_config.get('auth_type', 'api_key'),
+                                        bearer_token=selected_config.get('bearer_token'),
+                                        processing_mode=processing_mode
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Error updating field mappings: {e}")
+                    else:
+                        field_mapping = render_field_mapping_interface(df, processor)
                 elif processor:
                     # Use saved configuration or auto-detect
-                    field_mapping = processor.get_suggested_field_mapping(df.columns.tolist())
+                    selected_config = st.session_state.get('selected_config')
+                    if selected_config and selected_config.get('field_mappings'):
+                        field_mapping = selected_config['field_mappings']
+                    else:
+                        field_mapping = processor.get_suggested_field_mapping(df.columns.tolist())
                 else:
                     st.error("Processor not available - please refresh the page")
                     return
@@ -531,13 +898,19 @@ def main():
                 st.subheader("⚙️ Processing")
                 
                 if field_mapping:
-                    # Get API credentials
-                    brokerage_creds = credential_manager.get_brokerage_api_key(brokerage_key)
-                    if brokerage_creds:
+                    # Get API credentials from selected configuration
+                    selected_config = st.session_state.get('selected_config')
+                    if selected_config and selected_config.get('api_credentials'):
                         api_config = {
-                            'base_url': 'https://load.prod.goaugment.com/unstable/loads',
-                            'api_key': brokerage_creds
+                            'base_url': selected_config['api_credentials'].get('base_url', 'https://api.prod.goaugment.com'),
+                            'auth_type': selected_config.get('auth_type', 'api_key')
                         }
+                        
+                        # Add appropriate credential based on auth type
+                        if selected_config.get('auth_type') == 'bearer_token':
+                            api_config['bearer_token'] = selected_config.get('bearer_token')
+                        else:
+                            api_config['api_key'] = selected_config['api_credentials'].get('api_key')
                         
                         if st.button("🚀 Process Data", type="primary", use_container_width=True):
                             with st.spinner("Processing data..."):
@@ -550,8 +923,8 @@ def main():
                                 # Display results
                                 render_processing_results(result)
                     else:
-                        st.error("❌ API credentials not configured for this brokerage")
-                        st.info("Please configure API credentials in the credential manager")
+                        st.error("❌ No configuration selected with API credentials")
+                        st.info("Please select a configuration or create a new one with API credentials")
                 else:
                     st.warning("⚠️ Please configure field mappings to proceed")
                 
@@ -570,13 +943,13 @@ def main():
         else:
             st.error("❌ API credentials missing")
         
-        if processor.mode_config.show_enrichment:
+        if processor and processor.mode_config.show_enrichment:
             if cred_status.tracking_api_available:
                 st.success("✅ Tracking API available")
             else:
                 st.warning("⚠️ Tracking API not configured")
         
-        if processor.mode_config.show_postback:
+        if processor and processor.mode_config.show_postback:
             if cred_status.email_available:
                 st.success("✅ Email delivery available")
             else:

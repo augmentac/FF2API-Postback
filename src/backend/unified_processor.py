@@ -193,28 +193,48 @@ class UnifiedLoadProcessor:
         
         return enrichment_config
     
-    def get_available_configurations(self, company_id: str) -> List[Dict[str, Any]]:
-        """Get saved configurations for a company/brokerage."""
+    def get_available_configurations(self, brokerage_name: str) -> List[Dict[str, Any]]:
+        """Get saved configurations for a brokerage."""
         try:
-            return self.db_manager.get_configurations_for_company(company_id)
+            return self.db_manager.get_brokerage_configurations(brokerage_name)
         except Exception as e:
-            logger.error(f"Error retrieving configurations for {company_id}: {e}")
+            logger.error(f"Error retrieving configurations for {brokerage_name}: {e}")
             return []
     
-    def save_configuration(self, company_id: str, config_name: str, field_mapping: Dict[str, str], 
-                          additional_config: Dict[str, Any] = None) -> bool:
+    def save_configuration(self, brokerage_name: str, config_name: str, field_mapping: Dict[str, str], 
+                          api_credentials: Dict[str, Any], additional_config: Dict[str, Any] = None) -> bool:
         """Save a processing configuration for reuse."""
         try:
             # Extend configuration with end-to-end settings if applicable
-            extended_config = {
-                'field_mapping': field_mapping,
-                'processing_mode': self.processing_mode,
-                'enrichment_enabled': self.mode_config.show_enrichment,
-                'postback_enabled': self.mode_config.show_postback,
-                **(additional_config or {})
-            }
+            enrichment_config = {
+                'enabled': self.mode_config.show_enrichment,
+                'sources': self.config.get('enrichment', {}).get('sources', [])
+            } if self.mode_config.show_enrichment else None
             
-            return self.db_manager.save_configuration(company_id, config_name, extended_config)
+            postback_config = {
+                'enabled': self.mode_config.show_postback,
+                'handlers': self.config.get('postback', {}).get('handlers', [])
+            } if self.mode_config.show_postback else None
+            
+            # Build configuration description
+            description = additional_config.get('description', '') if additional_config else ''
+            auth_type = additional_config.get('auth_type', 'api_key') if additional_config else 'api_key'
+            bearer_token = additional_config.get('bearer_token') if additional_config else None
+            
+            config_id = self.db_manager.save_brokerage_configuration(
+                brokerage_name=brokerage_name,
+                configuration_name=config_name,
+                field_mappings=field_mapping,
+                api_credentials=api_credentials,
+                description=description,
+                auth_type=auth_type,
+                bearer_token=bearer_token,
+                processing_mode=self.processing_mode,
+                enrichment_config=enrichment_config,
+                postback_config=postback_config
+            )
+            
+            return config_id is not None
         except Exception as e:
             logger.error(f"Error saving configuration: {e}")
             return False
