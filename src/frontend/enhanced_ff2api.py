@@ -362,7 +362,8 @@ def _render_email_automation_sidebar():
             if gmail_setup_complete:
                 # Real OAuth credentials detected
                 user_email = gmail_oauth_credentials.get('user_email', 'Gmail account')
-                st.success(f"✅ Gmail OAuth authenticated ({user_email})")
+                st.success(f"✅ **Gmail Connected**")
+                st.caption(f"📧 {user_email}")
                 
                 # Automatically configure email monitoring with OAuth credentials
                 try:
@@ -472,10 +473,10 @@ def _render_email_automation_sidebar():
                 # st.caption(f"Debug: monitor_running={monitor_running}, gmail_oauth_complete={gmail_setup_complete}")
                 # st.caption(f"Monitor status info: {status_info}")
                 
-                # Show clear status based on OAuth and monitoring state
+                # Show automation status in a clean format
                 if gmail_setup_complete and monitor_running:
-                    st.success("🟢 **Email automation active** - Monitoring Gmail for freight emails")
-                    st.info(f"📧 Monitoring inbox: {gmail_oauth_credentials.get('user_email')}")
+                    st.success("🟢 **Email Automation Active**")
+                    st.caption("Monitoring Gmail for freight emails")
                     
                     # Optional stop button for advanced users
                     with st.expander("⚙️ Advanced Controls", expanded=False):
@@ -488,9 +489,10 @@ def _render_email_automation_sidebar():
                                 st.error(f"Failed to stop monitoring: {e}")
                                 
                 elif gmail_setup_complete:
-                    st.info("🟡 **Gmail OAuth connected** - Email monitoring will start automatically")
+                    st.info("🟡 **Starting Email Automation...**")
                 else:
-                    st.info("🔴 **Email automation inactive** - Gmail authentication required")
+                    st.info("🔴 **Email Automation Inactive**")
+                    st.caption("Gmail authentication required")
                     
                 # Email filters
                 with st.expander("📬 Email Filters", expanded=False):
