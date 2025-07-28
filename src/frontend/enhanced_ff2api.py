@@ -414,8 +414,6 @@ def _render_email_automation_sidebar():
                         sso_configured = False
                     
                     st.write("🔍 DEBUG: SSO check completed successfully")
-                    st.error("🛑 STOPPING AFTER SSO CHECK - Interface should stay visible!")
-                    st.stop()
                     
                     if not sso_configured:
                         st.error("🔧 **Google SSO Configuration Missing**")
@@ -443,6 +441,10 @@ def _render_email_automation_sidebar():
                                 st.write("Error checking secrets:", str(e))
                     else:
                         # Show the actual authentication interface
+                        st.write("🔍 DEBUG: About to call render_google_auth_button...")
+                        st.error("🛑 STOPPING BEFORE GOOGLE AUTH CALL - Interface should stay visible!")
+                        st.stop()
+                        
                         auth_result = streamlit_google_sso.render_google_auth_button(
                             brokerage_name, 
                             "Setup Gmail Authentication"
