@@ -404,10 +404,6 @@ def _render_email_automation_sidebar():
                     st.info("Setting up Gmail authentication for email automation...")
                     st.write("🔍 DEBUG: Interface elements rendered successfully")
                     
-                    # FORCE STOP HERE to prevent anything else from running
-                    st.error("🛑 STOPPING HERE TO TEST - Interface should stay visible!")
-                    st.stop()
-                    
                     # Check if Google SSO is configured
                     st.write("🔍 DEBUG: About to check if Google SSO is configured...")
                     try:
@@ -416,6 +412,10 @@ def _render_email_automation_sidebar():
                     except Exception as e:
                         st.write(f"🔍 DEBUG: Error checking SSO config: {e}")
                         sso_configured = False
+                    
+                    st.write("🔍 DEBUG: SSO check completed successfully")
+                    st.error("🛑 STOPPING AFTER SSO CHECK - Interface should stay visible!")
+                    st.stop()
                     
                     if not sso_configured:
                         st.error("🔧 **Google SSO Configuration Missing**")
