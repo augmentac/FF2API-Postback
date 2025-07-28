@@ -549,10 +549,16 @@ class EmailMonitorService:
             if not attachment_id:
                 return None
             
-            # Only process CSV and JSON files
-            if not (mime_type in ['text/csv', 'application/csv', 'application/json'] or 
-                   filename.lower().endswith(('.csv', '.json'))):
-                logger.info(f"Skipping non-CSV/JSON attachment: {filename}")
+            # Process CSV, JSON, and Excel files
+            excel_mime_types = [
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',  # .xlsx
+                'application/vnd.ms-excel'  # .xls
+            ]
+            supported_extensions = ('.csv', '.json', '.xlsx', '.xls')
+            
+            if not (mime_type in ['text/csv', 'application/csv', 'application/json'] + excel_mime_types or 
+                   filename.lower().endswith(supported_extensions)):
+                logger.info(f"Skipping unsupported attachment: {filename} (type: {mime_type})")
                 return None
             
             # Download attachment
@@ -627,6 +633,8 @@ class EmailMonitorService:
             elif attachment.mime_type == 'application/json':
                 data = json.loads(attachment.content.decode('utf-8'))
                 df = pd.DataFrame(data) if isinstance(data, list) else pd.json_normalize(data)
+            elif attachment.mime_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'] or attachment.filename.lower().endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(io.BytesIO(attachment.content), engine='openpyxl' if attachment.filename.lower().endswith('.xlsx') else None)
             else:
                 logger.warning(f"Unsupported file type: {attachment.mime_type}")
                 return False
