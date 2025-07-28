@@ -93,27 +93,16 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
         Selected manual value or None
     """
     
-    st.write("🔍 **SMART INTERFACE DEBUG**")
-    st.write(f"Field path: {field_path}")
-    st.write(f"Field info: {field_info}")
-    st.write(f"Current value: {current_value}")
-    
     # Extract current manual value if exists
     current_manual = None
     if current_value and str(current_value).startswith("MANUAL_VALUE:"):
         current_manual = str(current_value).replace("MANUAL_VALUE:", "")
-    
-    st.write(f"Extracted manual: {current_manual}")
     
     st.markdown(f"**{field_info.get('description', field_path)}**")
     
     field_type = field_info.get('type', 'string')
     is_enum = bool(field_info.get('enum'))
     is_required = field_info.get('required', False)
-    
-    st.write(f"Field type: {field_type}")
-    st.write(f"Is enum: {is_enum}")
-    st.write(f"Is required: {is_required}")
     
     # Show field type and requirements
     type_indicators = []
@@ -130,17 +119,13 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
     value = None
     
     if is_enum and field_path in COMMON_ENUM_FIELDS:
-        st.write("🎯 **USING ENHANCED ENUM INTERFACE**")
         # Use enhanced enum interface with descriptions
         enum_config = COMMON_ENUM_FIELDS[field_path]
-        st.write(f"Enum config: {enum_config}")
         value = _render_enum_manual_input(field_path, enum_config, current_manual)
         
     elif is_enum:
-        st.write("🔸 **USING BASIC ENUM INTERFACE**")
         # Basic enum interface for fields not in COMMON_ENUM_FIELDS
         enum_values = field_info.get('enum', [])
-        st.write(f"Enum values: {enum_values}")
         options = ["-- Select Option --"] + enum_values
         
         current_index = 0
@@ -157,21 +142,16 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
         value = None if selected == "-- Select Option --" else selected
         
     elif field_type == 'number':
-        st.write("🔢 **USING NUMBER INPUT**")
         # Number input with validation
         value = _render_number_manual_input(field_path, field_info, current_manual)
         
     elif field_type == 'date':
-        st.write("📅 **USING DATE INPUT**")
         # Date input with validation
         value = _render_date_manual_input(field_path, field_info, current_manual)
         
     else:
-        st.write("📝 **USING TEXT INPUT**")
         # Text input
         value = _render_text_manual_input(field_path, field_info, current_manual)
-    
-    st.write(f"Final value: {value}")
     
     # Show validation status
     if value is not None and value != "":
@@ -184,16 +164,8 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
 def _render_enum_manual_input(field_path, enum_config, current_value):
     """Render enhanced enum input with descriptions and alternatives"""
     
-    st.write("🔽 **ENUM RENDER DEBUG**")
-    st.write(f"Field path: {field_path}")
-    st.write(f"Enum config: {enum_config}")
-    st.write(f"Current value: {current_value}")
-    
     enum_values = enum_config['values']
     descriptions = enum_config.get('descriptions', {})
-    
-    st.write(f"Enum values: {enum_values}")
-    st.write(f"Descriptions: {descriptions}")
     
     # Create display options with descriptions
     display_options = ["-- Select Option --"]
@@ -208,9 +180,6 @@ def _render_enum_manual_input(field_path, enum_config, current_value):
         display_options.append(display_text)
         option_mapping[display_text] = value
     
-    st.write(f"Display options: {display_options}")
-    st.write(f"Option mapping: {option_mapping}")
-    
     # Find current selection
     current_index = 0
     if current_value:
@@ -218,8 +187,6 @@ def _render_enum_manual_input(field_path, enum_config, current_value):
             if option_mapping[display_text] == current_value:
                 current_index = i
                 break
-    
-    st.write(f"Current index: {current_index}")
     
     # Render selectbox
     selected_display = st.selectbox(
@@ -230,13 +197,10 @@ def _render_enum_manual_input(field_path, enum_config, current_value):
         help=f"Choose from predefined options for {field_path}"
     )
     
-    st.write(f"Selected display: {selected_display}")
-    
     if selected_display == "-- Select Option --":
         return None
     else:
         selected_value = option_mapping[selected_display]
-        st.write(f"Selected value: {selected_value}")
         
         # Show selected option description
         if selected_value in descriptions:
@@ -2455,14 +2419,19 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                 st.session_state.field_mappings = updated_mappings.copy()
     
     with col3:
-        # Manual value option
-        if st.button("✏️", key=manual_button_key, help="Enter manual value"):
-            manual_value = st.text_input(
-                f"Manual value for {field_info['description']}", 
-                key=manual_input_key,
-                placeholder="Enter value..."
-            )
-            if manual_value:
+        # Manual value button
+        
+        # Smart manual value interface
+        if st.button("📝 Manual", key=manual_button_key, help="Set manual value"):
+            # Get fresh field info from schema to ensure completeness
+            api_schema = get_full_api_schema()
+            fresh_field_info = api_schema.get(field, field_info)
+            
+            # Call smart interface
+            current_value = updated_mappings.get(field)
+            manual_value = create_smart_manual_value_interface(field, fresh_field_info, current_value)
+            
+            if manual_value is not None:
                 updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
                 # Update session state immediately to persist across tab switches
                 if 'field_mappings' not in st.session_state:
@@ -2471,6 +2440,19 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                     # Update only this field, preserving other mappings
                     st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
                 st.success(f"✅ Set manual value: {manual_value}")
+        
+        # Show current manual value if exists
+        current_mapping = updated_mappings.get(field)
+        if current_mapping and current_mapping.startswith('MANUAL_VALUE:'):
+            manual_val = current_mapping.replace('MANUAL_VALUE:', '')
+            st.caption(f"Current: {manual_val}")
+            # Add clear button
+            clear_key = generate_unique_key("clear_manual", "button")
+            if st.button("🗑️", key=clear_key, help="Clear manual value"):
+                del updated_mappings[field]
+                if 'field_mappings' in st.session_state and field in st.session_state.field_mappings:
+                    del st.session_state.field_mappings[field]
+                st.rerun()
 
 def create_learning_analytics_dashboard(db_manager, brokerage_name):
     """Create a dashboard showing learning analytics"""
