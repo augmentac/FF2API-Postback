@@ -1067,7 +1067,8 @@ class DataProcessor:
                 load_payload['brokerage'] = {}
             
             # Apply final API validation fixes after cleaning (for structures that might get cleaned up)
-            self._apply_final_api_fixes(load_payload)
+            if not preview_mode:
+                self._apply_final_api_fixes(load_payload)
             
             api_data.append(load_payload)
         

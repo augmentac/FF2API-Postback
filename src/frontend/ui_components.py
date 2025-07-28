@@ -2572,10 +2572,15 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
         if api_preview_list:
             api_preview = api_preview_list[0]  # Get the first (and only) preview
             
-            # Clean up the preview for display
+            # Clean up the preview for display, but preserve top-level structure
             cleaned_preview = {}
+            required_sections = ['load', 'customer', 'brokerage']
+            
             for key, value in api_preview.items():
-                if value is not None and value != "" and value != {} and value != []:
+                # Always include required sections, even if empty (for structure visibility)
+                if key in required_sections:
+                    cleaned_preview[key] = value if value else {}
+                elif value is not None and value != "" and value != {} and value != []:
                     cleaned_preview[key] = value
             
             return {

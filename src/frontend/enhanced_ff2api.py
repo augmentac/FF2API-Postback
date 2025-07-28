@@ -691,7 +691,8 @@ def _render_data_preview_section():
                 st.success(f"✅ {api_preview_data['message']}")
             
             # Display JSON preview with enhanced formatting
-            if api_preview_data["preview"] and field_mappings:
+            # Always show preview if field mappings exist, even if preview has warnings
+            if field_mappings and api_preview_data.get("preview"):
                 # Show structure overview
                 preview_sections = list(api_preview_data["preview"].keys())
                 if preview_sections:
