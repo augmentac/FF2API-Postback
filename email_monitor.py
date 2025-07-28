@@ -437,8 +437,8 @@ class EmailMonitorService:
             # Only look for emails with attachments
             query_parts.append("has:attachment")
             
-            # Look for recent emails (expanded to 7 days for testing - v2)
-            query_parts.append("newer_than:7d")
+            # Temporarily remove time restriction for testing
+            # query_parts.append("newer_than:7d")
             
             query = " ".join(query_parts)
             logger.info(f"Gmail search query: {query}")
