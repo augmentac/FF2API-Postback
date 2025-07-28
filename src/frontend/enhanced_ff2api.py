@@ -384,15 +384,21 @@ def _render_email_automation_sidebar():
             else:
                 st.warning("⚠️ Gmail automation not configured")
                 
-                # Use session state to manage auth setup flow - with debugging
+                # Debug session state to understand what's happening
                 setup_key = f'show_gmail_setup_{brokerage_name}'
                 if setup_key not in st.session_state:
                     st.session_state[setup_key] = False
+                
+                # Show debug info temporarily
+                st.write(f"DEBUG: setup_key = {setup_key}")
+                st.write(f"DEBUG: session state value = {st.session_state.get(setup_key, 'NOT_FOUND')}")
+                st.write(f"DEBUG: all session keys with 'gmail': {[k for k in st.session_state.keys() if 'gmail' in k.lower()]}")
                 
                 # Show button or auth interface
                 if not st.session_state.get(setup_key, False):
                     if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
                         st.session_state[setup_key] = True
+                        st.write(f"DEBUG: Just set {setup_key} to True")
                         st.rerun()
                 else:
                     # Show authentication interface
@@ -446,6 +452,9 @@ def _render_email_automation_sidebar():
                         
         except Exception as e:
             st.error(f"Email automation error: {e}")
+            st.write(f"DEBUG: Exception occurred: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
             
         # Email delivery configuration
         with st.expander("📤 Email Delivery", expanded=False):
