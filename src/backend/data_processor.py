@@ -45,10 +45,10 @@ class DataProcessor:
                 "DRY_VAN", "FLATBED", "REEFER", "CONTAINER", "OTHER"
             ],
             "load.items.0.packageType": [
-                "PALLET", "PIECE", "CARTON", "TOTE", "SKID"
+                "PALLET", "PIECE", "CARTON", "TOTE", "SKID", "CRATE", "BOX", "DRUM", "BUNDLE", "OTHER"
             ],
             "load.items.0.freightClass": [
-                "50", "55", "60", "65", "70"
+                "50", "55", "60", "65", "70", "77.5", "85", "92.5", "100", "110", "125", "150", "175", "200", "250", "300", "400", "500"
             ],
             "load.route.0.stopActivity": [
                 "PICKUP", "DELIVERY"
@@ -56,11 +56,11 @@ class DataProcessor:
             "load.route.1.stopActivity": [
                 "PICKUP", "DELIVERY"
             ],
-            "trackingEvents.0.eventType": [
+            "load.trackingEvents.0.eventType": [
                 "INFO", "PING", "DRIVER_AT_PICKUP", "DRIVER_AT_DELIVERY",
                 "PICKED_UP", "DELIVERED", "DELAYED"
             ],
-            "trackingEvents.0.eventSource": [
+            "load.trackingEvents.0.eventSource": [
                 "MACROPOINT", "4KITES", "P44", "SMC3", "CARRIER_API", "PHONE_EMAIL", "TEXT", "OTHER"
             ],
             # Contact role fields - FIXED with correct API enum values

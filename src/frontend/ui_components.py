@@ -236,16 +236,16 @@ def _render_text_manual_input(field_path, field_info, current_value):
     return value if value else None
 
 def get_full_api_schema():
-    """Get the complete API schema for validation - aligned with API requirements"""
+    """Get the complete API schema for validation - aligned with reference ff2api-tool repository"""
     return {
-        # Core Required Fields
+        # Core Required Fields (Always Required)
         'load.loadNumber': {'type': 'string', 'required': True, 'description': 'Load Number'},
         'load.mode': {'type': 'string', 'required': True, 'description': 'Load Mode', 'enum': ['FTL', 'LTL', 'DRAYAGE']},
         'load.rateType': {'type': 'string', 'required': True, 'description': 'Rate Type', 'enum': ['SPOT', 'CONTRACT', 'DEDICATED', 'PROJECT']},
         'load.status': {'type': 'string', 'required': True, 'description': 'Load Status', 'enum': ['DRAFT', 'CUSTOMER_CONFIRMED', 'COVERED', 'DISPATCHED', 'AT_PICKUP', 'IN_TRANSIT', 'AT_DELIVERY', 'DELIVERED', 'POD_COLLECTED', 'CANCELED', 'ERROR']},
         
-        # Route Information
-        'load.route.0.sequence': {'type': 'number', 'required': False, 'description': 'Stop Sequence'},
+        # Route Information (Always Required - Pickup Stop)
+        'load.route.0.sequence': {'type': 'number', 'required': True, 'description': 'Stop Sequence'},
         'load.route.0.stopActivity': {'type': 'string', 'required': True, 'description': 'Stop Activity', 'enum': ['PICKUP', 'DELIVERY']},
         'load.route.0.address.street1': {'type': 'string', 'required': True, 'description': 'Address Street'},
         'load.route.0.address.city': {'type': 'string', 'required': True, 'description': 'Address City'},
@@ -255,48 +255,99 @@ def get_full_api_schema():
         'load.route.0.expectedArrivalWindowStart': {'type': 'date', 'required': True, 'description': 'Expected Arrival Start'},
         'load.route.0.expectedArrivalWindowEnd': {'type': 'date', 'required': True, 'description': 'Expected Arrival End'},
         
-        # Delivery Stop Information
-        'load.route.1.sequence': {'type': 'number', 'required': False, 'description': 'Delivery Stop Sequence'},
-        'load.route.1.stopActivity': {'type': 'string', 'required': False, 'description': 'Delivery Stop Activity', 'enum': ['PICKUP', 'DELIVERY']},
-        'load.route.1.address.street1': {'type': 'string', 'required': False, 'description': 'Delivery Address Street'},
-        'load.route.1.address.city': {'type': 'string', 'required': False, 'description': 'Delivery Address City'},
-        'load.route.1.address.stateOrProvince': {'type': 'string', 'required': False, 'description': 'Delivery Address State'},
-        'load.route.1.address.postalCode': {'type': 'string', 'required': False, 'description': 'Delivery Address ZIP'},
-        'load.route.1.address.country': {'type': 'string', 'required': False, 'description': 'Delivery Address Country'},
-        'load.route.1.expectedArrivalWindowStart': {'type': 'date', 'required': False, 'description': 'Delivery Expected Arrival Start'},
-        'load.route.1.expectedArrivalWindowEnd': {'type': 'date', 'required': False, 'description': 'Delivery Expected Arrival End'},
+        # Route Information (Always Required - Delivery Stop)
+        'load.route.1.sequence': {'type': 'number', 'required': True, 'description': 'Delivery Stop Sequence'},
+        'load.route.1.stopActivity': {'type': 'string', 'required': True, 'description': 'Delivery Stop Activity', 'enum': ['PICKUP', 'DELIVERY']},
+        'load.route.1.address.street1': {'type': 'string', 'required': True, 'description': 'Delivery Address Street'},
+        'load.route.1.address.city': {'type': 'string', 'required': True, 'description': 'Delivery Address City'},
+        'load.route.1.address.stateOrProvince': {'type': 'string', 'required': True, 'description': 'Delivery Address State'},
+        'load.route.1.address.postalCode': {'type': 'string', 'required': True, 'description': 'Delivery Address ZIP'},
+        'load.route.1.address.country': {'type': 'string', 'required': True, 'description': 'Delivery Address Country'},
+        'load.route.1.expectedArrivalWindowStart': {'type': 'date', 'required': True, 'description': 'Delivery Expected Arrival Start'},
+        'load.route.1.expectedArrivalWindowEnd': {'type': 'date', 'required': True, 'description': 'Delivery Expected Arrival End'},
         
         # Customer Information
-        'customer.customerId': {'type': 'string', 'required': True, 'description': 'Customer ID'},
+        'customer.customerId': {'type': 'string', 'required': False, 'description': 'Customer ID'},
         'customer.name': {'type': 'string', 'required': True, 'description': 'Customer Name'},
-        
-        # Optional fields
-        'load.items.0.quantity': {'type': 'number', 'required': False, 'description': 'Item Quantity'},
-        'load.items.0.totalWeightLbs': {'type': 'number', 'required': False, 'description': 'Total Weight'},
-        'load.equipment.equipmentType': {'type': 'string', 'required': False, 'description': 'Equipment Type', 'enum': ['DRY_VAN', 'FLATBED', 'REEFER', 'CONTAINER', 'OTHER']},
-        
-        # Bid Criteria
-        'bidCriteria.targetCostUsd': {'type': 'number', 'required': False, 'description': 'Target Cost'},
-        'bidCriteria.equipment': {'type': 'string', 'required': False, 'description': 'Required Equipment', 'enum': ['DRY_VAN', 'FLATBED', 'REEFER', 'CONTAINER', 'OTHER']},
-        'bidCriteria.service': {'type': 'string', 'required': False, 'description': 'Service Type', 'enum': ['STANDARD', 'PARTIAL', 'VOLUME', 'HOTSHOT', 'TIME_CRITICAL']},
-        'bidCriteria.accessorials': {'type': 'string', 'required': False, 'description': 'Load Accessorials'},
-        'bidCriteria.totalWeightLbs': {'type': 'number', 'required': False, 'description': 'Total Weight for Bidding'},
-        'bidCriteria.maxBidAmountUsd': {'type': 'number', 'required': False, 'description': 'Maximum Bid Amount'},
-        
-        # Carrier Information
-        'carrier.name': {'type': 'string', 'required': False, 'description': 'Carrier Name'},
-        'carrier.dotNumber': {'type': 'number', 'required': False, 'description': 'DOT Number'},
-        'carrier.mcNumber': {'type': 'number', 'required': False, 'description': 'MC Number'},
-        'carrier.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Carrier Contact Name'},
-        'carrier.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Carrier Contact Email'},
-        'carrier.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Carrier Contact Phone'},
-        'carrier.contacts.0.role': {'type': 'string', 'required': False, 'description': 'Carrier Contact Role', 'enum': ['DISPATCHER', 'CARRIER_ADMIN']},
         
         # Brokerage Information
         'brokerage.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Broker Contact Name'},
         'brokerage.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Broker Email'},
         'brokerage.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Broker Phone'},
-        'brokerage.contacts.0.role': {'type': 'string', 'required': False, 'description': 'Broker Contact Role', 'enum': ['ACCOUNT_MANAGER', 'OPERATIONS_REP', 'CARRIER_REP', 'CUSTOMER_TEAM']},
+        'brokerage.contacts.0.role': {'type': 'array', 'required': 'conditional', 'description': 'Broker Contact Role', 'enum': ['ACCOUNT_MANAGER', 'OPERATIONS_REP', 'CARRIER_REP', 'CUSTOMER_TEAM']},
+        
+        # Load Items (Conditionally Required)
+        'load.items.0.quantity': {'type': 'number', 'required': 'conditional', 'description': 'Item Quantity'},
+        'load.items.0.packageType': {'type': 'string', 'required': False, 'description': 'Package Type', 'enum': ['PALLET', 'PIECE', 'CARTON', 'TOTE', 'SKID', 'CRATE', 'BOX', 'DRUM', 'BUNDLE', 'OTHER']},
+        'load.items.0.description': {'type': 'string', 'required': False, 'description': 'Item Description'},
+        'load.items.0.totalWeightLbs': {'type': 'number', 'required': 'conditional', 'description': 'Total Weight'},
+        'load.items.0.lengthInches': {'type': 'number', 'required': False, 'description': 'Length in Inches'},
+        'load.items.0.widthInches': {'type': 'number', 'required': False, 'description': 'Width in Inches'},
+        'load.items.0.heightInches': {'type': 'number', 'required': False, 'description': 'Height in Inches'},
+        'load.items.0.freightClass': {'type': 'string', 'required': False, 'description': 'Freight Class', 'enum': ['50', '55', '60', '65', '70', '77.5', '85', '92.5', '100', '110', '125', '150', '175', '200', '250', '300', '400', '500']},
+        'load.items.0.nmfc': {'type': 'string', 'required': False, 'description': 'NMFC Code'},
+        'load.items.0.density': {'type': 'number', 'required': False, 'description': 'Density'},
+        'load.items.0.pickupSequence': {'type': 'number', 'required': False, 'description': 'Pickup Sequence'},
+        'load.items.0.deliverySequence': {'type': 'number', 'required': False, 'description': 'Delivery Sequence'},
+        
+        # Equipment Information (Conditionally Required)
+        'load.equipment.equipmentType': {'type': 'string', 'required': 'conditional', 'description': 'Equipment Type', 'enum': ['DRY_VAN', 'FLATBED', 'REEFER', 'CONTAINER', 'OTHER']},
+        'load.equipment.description': {'type': 'string', 'required': False, 'description': 'Equipment Description'},
+        'load.equipment.minTemperatureF': {'type': 'number', 'required': False, 'description': 'Min Temperature F'},
+        'load.equipment.maxTemperatureF': {'type': 'number', 'required': False, 'description': 'Max Temperature F'},
+        'load.equipment.accessorials': {'type': 'array', 'required': False, 'description': 'Equipment Accessorials'},
+        
+        # Reference Numbers (Conditionally Required)
+        'load.referenceNumbers.0.name': {'type': 'string', 'required': 'conditional', 'description': 'Reference Number Name', 'enum': ['PRO_NUMBER', 'PICKUP_NUMBER', 'PO_NUMBER', 'TRAILER_NUMBER', 'TRUCK_NUMBER', 'SHIPPER_NUMBER', 'CONSIGNEE_NUMBER', 'OTHER']},
+        'load.referenceNumbers.0.value': {'type': 'string', 'required': 'conditional', 'description': 'Reference Number Value'},
+        
+        # Bid Criteria (Conditionally Required)
+        'bidCriteria.equipment': {'type': 'string', 'required': 'conditional', 'description': 'Required Equipment'},
+        'bidCriteria.totalWeightLbs': {'type': 'number', 'required': 'conditional', 'description': 'Total Weight for Bidding'},
+        'bidCriteria.targetCostUsd': {'type': 'number', 'required': 'conditional', 'description': 'Target Cost'},
+        'bidCriteria.maxBidAmountUsd': {'type': 'number', 'required': 'conditional', 'description': 'Maximum Bid Amount'},
+        'bidCriteria.service': {'type': 'string', 'required': False, 'description': 'Service Type', 'enum': ['STANDARD', 'PARTIAL', 'VOLUME', 'HOTSHOT', 'TIME_CRITICAL']},
+        'bidCriteria.accessorials': {'type': 'array', 'required': False, 'description': 'Load Accessorials', 'enum': ['DETENTION', 'DETENTION_LOADING', 'DETENTION_UNLOADING', 'LAYOVER', 'AFTER_HOURS', 'WEEKEND', 'HOLIDAY', 'LUMPER', 'DRIVER_ASSIST', 'DRIVER_COUNT', 'SORT_AND_SEGREGATE', 'INSIDE_DELIVERY', 'INSIDE_PICKUP', 'LIFTGATE', 'FORKLIFT', 'LIMITED_ACCESS', 'RESIDENTIAL', 'CONSTRUCTION_SITE', 'TRADESHOW', 'MILITARY_BASE', 'TEAM_SERVICE', 'TRAILER_CLEANING', 'OVERSIZE', 'OVERWEIGHT', 'LOAD_BAR', 'STRAPS', 'CHAINS', 'TARPS', 'TARGETED_COMMODITY', 'HIGH_VISIBILITY', 'TEMPERATURE_REQUIREMENT', 'HIGH_VALUE', 'RAMPS', 'TONU', 'TWIC', 'TANKER_ENDORSED', 'FOOD_GRADE', 'TRAILER_INTERCHANGE', 'GENERAL_LIABILITY', 'BULK_HEAD', 'HAZMAT', 'E_TRACKING', 'POD_REQUIRED', 'NOTIFY_BEFORE_ARRIVAL', 'DELIVERY_APPOINTMENT', 'PICKUP_APPOINTMENT', 'SIGNATURE_REQUIRED']},
+        'bidCriteria.minTemperatureF': {'type': 'number', 'required': False, 'description': 'Min Temperature F'},
+        'bidCriteria.maxTemperatureF': {'type': 'number', 'required': False, 'description': 'Max Temperature F'},
+        'bidCriteria.bidExpiration': {'type': 'string', 'required': False, 'description': 'Bid Expiration (RFC 3339 date-time)'},
+        'bidCriteria.dimensions.heightInches': {'type': 'number', 'required': 'conditional', 'description': 'Height in Inches'},
+        'bidCriteria.dimensions.lengthInches': {'type': 'number', 'required': 'conditional', 'description': 'Length in Inches'},
+        'bidCriteria.dimensions.widthInches': {'type': 'number', 'required': 'conditional', 'description': 'Width in Inches'},
+        'bidCriteria.flexAttributes.0.name': {'type': 'string', 'required': 'conditional', 'description': 'Flex Attribute Name'},
+        'bidCriteria.flexAttributes.0.value': {'type': 'string', 'required': 'conditional', 'description': 'Flex Attribute Value'},
+        
+        # Carrier Information (Optional object)
+        'carrier.carrierId': {'type': 'string', 'required': False, 'description': 'Carrier ID'},
+        'carrier.name': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Name'},
+        'carrier.dotNumber': {'type': 'number', 'required': 'conditional', 'description': 'DOT Number'},
+        'carrier.mcNumber': {'type': 'number', 'required': False, 'description': 'MC Number'},
+        'carrier.scac': {'type': 'string', 'required': False, 'description': 'SCAC Code'},
+        'carrier.address.street1': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address Street'},
+        'carrier.address.street2': {'type': 'string', 'required': False, 'description': 'Carrier Address Street 2'},
+        'carrier.address.city': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address City'},
+        'carrier.address.stateOrProvince': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address State'},
+        'carrier.address.postalCode': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address ZIP'},
+        'carrier.address.country': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address Country'},
+        'carrier.contacts.0.id': {'type': 'string', 'required': False, 'description': 'Carrier Contact ID'},
+        'carrier.contacts.0.name': {'type': 'string', 'required': False, 'description': 'Carrier Contact Name'},
+        'carrier.contacts.0.email': {'type': 'string', 'required': False, 'description': 'Carrier Contact Email'},
+        'carrier.contacts.0.phone': {'type': 'string', 'required': False, 'description': 'Carrier Contact Phone'},
+        'carrier.contacts.0.role': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Contact Role', 'enum': ['DISPATCHER', 'CARRIER_ADMIN']},
+        'carrier.drivers.0.id': {'type': 'string', 'required': False, 'description': 'Driver ID'},
+        'carrier.drivers.0.name': {'type': 'string', 'required': False, 'description': 'Driver Name'},
+        'carrier.drivers.0.phone': {'type': 'string', 'required': 'conditional', 'description': 'Driver Phone'},
+        
+        # Tracking Events (Conditionally Required)
+        'load.trackingEvents.0.eventType': {'type': 'string', 'required': 'conditional', 'description': 'Event Type', 'enum': ['INFO', 'PING', 'DRIVER_AT_PICKUP', 'DRIVER_AT_DELIVERY', 'PICKED_UP', 'DELIVERED', 'DELAYED']},
+        'load.trackingEvents.0.eventSource': {'type': 'string', 'required': 'conditional', 'description': 'Event Source', 'enum': ['MACROPOINT', '4KITES', 'P44', 'SMC3', 'CARRIER_API', 'PHONE_EMAIL', 'TEXT', 'OTHER']},
+        'load.trackingEvents.0.eventUtc': {'type': 'string', 'required': 'conditional', 'description': 'Event UTC (RFC 3339 date-time)'},
+        'load.trackingEvents.0.city': {'type': 'string', 'required': False, 'description': 'Event City'},
+        'load.trackingEvents.0.stateOrProvince': {'type': 'string', 'required': False, 'description': 'Event State'},
+        'load.trackingEvents.0.latitude': {'type': 'number', 'required': False, 'description': 'Event Latitude'},
+        'load.trackingEvents.0.longitude': {'type': 'number', 'required': False, 'description': 'Event Longitude'},
+        'load.trackingEvents.0.temperatureF': {'type': 'number', 'required': False, 'description': 'Event Temperature'},
+        'load.trackingEvents.0.notes': {'type': 'string', 'required': False, 'description': 'Event Notes'},
     }
 
 def load_custom_css():
