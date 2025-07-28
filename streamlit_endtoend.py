@@ -559,14 +559,17 @@ def main():
             st.markdown("---")
             st.subheader("Validation")
             
-            # Simple validation
-            has_load_id = 'load_id' in df.columns
+            # Simple validation - check for load number fields
+            load_number_fields = ['load_number', 'load', 'loadNumber', 'load_num', 'LoadNumber']
+            has_load_number = any(field in df.columns for field in load_number_fields)
+            load_number_field = next((field for field in load_number_fields if field in df.columns), None)
             
-            if not has_load_id:
-                st.error("Missing 'load_id' field")
-                st.info("💡 This workflow creates NEW loads. For existing loads, use 'Postback & Enrichment System'.")
+            if not has_load_number:
+                st.error("Missing load number field")
+                st.info("💡 Required field: 'load_number', 'load', 'loadNumber', or 'load_num'")
+                st.info("💡 This workflow retrieves load IDs from FF2API using load numbers.")
             else:
-                st.success("Ready for processing")
+                st.success(f"Ready for processing (using '{load_number_field}' field)")
                 
                 # Show recommended fields status
                 recommended = ['carrier', 'PRO', 'customer_code', 'origin_zip', 'dest_zip']
@@ -576,13 +579,13 @@ def main():
             
             st.markdown("---")
             # Simple process button
-            if has_load_id and (send_email and email_recipient or not send_email):
+            if has_load_number and (send_email and email_recipient or not send_email):
                 if st.button("Process New Loads", type="primary", use_container_width=True):
                     process_endtoend_simple(df, brokerage_key, add_tracking, output_format, 
                                           send_email, email_recipient, api_timeout, retry_count)
             else:
-                if not has_load_id:
-                    st.button("Process New Loads", disabled=True, help="Missing 'load_id' field")
+                if not has_load_number:
+                    st.button("Process New Loads", disabled=True, help="Missing load number field")
                 elif send_email and not email_recipient:
                     st.button("Process New Loads", disabled=True, help="Enter email address")
 
