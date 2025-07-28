@@ -2558,18 +2558,13 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
         # Get the first row for preview
         first_row_df = df.head(1).copy()
         
-        # Apply field mappings to the first row
-        mapped_df, mapping_errors = data_processor.apply_mapping(first_row_df, field_mappings)
+        # Apply field mappings to the first row (use preview mode to skip missing columns)
+        mapped_df, mapping_errors = data_processor.apply_mapping(first_row_df, field_mappings, preview_mode=True)
         
+        # For preview, continue even if some mappings failed
+        warning_message = ""
         if mapping_errors:
-            return {
-                "message": f"Mapping errors found: {', '.join(mapping_errors)}",
-                "preview": {
-                    "load": {},
-                    "customer": {},
-                    "brokerage": {}
-                }
-            }
+            warning_message = f" (Note: Some mappings skipped - {', '.join(mapping_errors)})"
         
         # Format the mapped data for API preview (skip validation fixes)
         api_preview_list = data_processor.format_for_api(mapped_df, preview_mode=True)
@@ -2584,7 +2579,7 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
                     cleaned_preview[key] = value
             
             return {
-                "message": "Sample API preview generated from first row",
+                "message": f"Sample API preview generated from first row{warning_message}",
                 "preview": cleaned_preview,
                 "mapped_fields": list(field_mappings.keys()),
                 "source_row": first_row_df.iloc[0].to_dict()

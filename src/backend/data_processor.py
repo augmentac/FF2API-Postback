@@ -793,7 +793,7 @@ class DataProcessor:
         
         return enhanced_suggestions
     
-    def apply_mapping(self, df: pd.DataFrame, field_mappings: Dict[str, str]) -> Tuple[pd.DataFrame, List[str]]:
+    def apply_mapping(self, df: pd.DataFrame, field_mappings: Dict[str, str], preview_mode: bool = False) -> Tuple[pd.DataFrame, List[str]]:
         """Apply field mappings to DataFrame"""
         errors = []
         mapped_df = pd.DataFrame()
@@ -810,6 +810,7 @@ class DataProcessor:
             elif csv_column in df.columns:
                 mapped_df[api_field] = df[csv_column]
             else:
+                # Report missing columns but in preview mode, continue processing
                 errors.append(f"Column '{csv_column}' not found in uploaded file")
         
         # Auto-generate sequence numbers for route stops
