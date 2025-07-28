@@ -437,20 +437,16 @@ def _render_enhanced_landing_page():
         "Choose your processing workflow:",
         [
             "🔧 Standard FF2API",
-            "⚡ FF2API + Load ID Mapping", 
-            "🔍 FF2API + Load ID + Enrichment",
-            "📤 FF2API + Load ID + Enrichment + Postback"
+            "📤 Full End-to-End Processing"
         ],
         index=0,
-        help="Select the level of processing you want after FF2API success"
+        help="Select standard FF2API or complete end-to-end workflow with enrichment and delivery"
     )
     
     # Store processing mode in session state
     mode_mapping = {
         "🔧 Standard FF2API": "standard",
-        "⚡ FF2API + Load ID Mapping": "loadid",
-        "🔍 FF2API + Load ID + Enrichment": "enrichment", 
-        "📤 FF2API + Load ID + Enrichment + Postback": "full_endtoend"
+        "📤 Full End-to-End Processing": "full_endtoend"
     }
     
     st.session_state.enhanced_processing_mode = mode_mapping[processing_mode]
@@ -458,9 +454,7 @@ def _render_enhanced_landing_page():
     # Show mode description
     mode_descriptions = {
         "standard": "Process data through FF2API only - original functionality",
-        "loadid": "After FF2API success, retrieve internal load IDs for each load",
-        "enrichment": "Add tracking data and Snowflake enrichment to your results",
-        "full_endtoend": "Complete workflow with multiple output formats and email delivery"
+        "full_endtoend": "Complete workflow with load ID mapping, data enrichment, multiple output formats, and email delivery"
     }
     
     st.info(f"**Selected**: {mode_descriptions[st.session_state.enhanced_processing_mode]}")
@@ -610,9 +604,7 @@ def _render_enhanced_workflow_with_progress(db_manager, data_processor):
     processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
     mode_names = {
         'standard': '🔧 Standard FF2API',
-        'loadid': '⚡ FF2API + Load ID Mapping',
-        'enrichment': '🔍 FF2API + Load ID + Enrichment', 
-        'full_endtoend': '📤 FF2API + Load ID + Enrichment + Postback'
+        'full_endtoend': '📤 Full End-to-End Processing'
     }
     
     st.info(f"**Processing Mode**: {mode_names.get(processing_mode, 'Standard')}")
@@ -895,17 +887,6 @@ def _show_processing_preview(processing_mode):
             "1. Send data to FF2API",
             "2. Display results and success/failure rates"
         ],
-        'loadid': [
-            "1. Send data to FF2API", 
-            "2. Retrieve internal load IDs for successful loads",
-            "3. Display enhanced results with load mappings"
-        ],
-        'enrichment': [
-            "1. Send data to FF2API",
-            "2. Retrieve internal load IDs for successful loads", 
-            "3. Enrich data with tracking and Snowflake information",
-            "4. Display enriched results"
-        ],
         'full_endtoend': [
             "1. Send data to FF2API",
             "2. Retrieve internal load IDs for successful loads",
@@ -944,8 +925,6 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
     # Initialize progress tracking
     mode_steps = {
         'standard': 2,
-        'loadid': 3, 
-        'enrichment': 4,
         'full_endtoend': 6
     }
     
@@ -972,7 +951,7 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             }
             
             # Step 2: Load ID Mapping (if enabled)
-            if processing_mode in ['loadid', 'enrichment', 'full_endtoend']:
+            if processing_mode == 'full_endtoend':
                 status_text.text("Step 2: Retrieving load IDs...")
                 progress_bar.progress(2/total_steps)
                 
@@ -980,7 +959,7 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
                 result['load_id_mappings'] = load_mappings
             
             # Step 3: Data Enrichment (if enabled)
-            if processing_mode in ['enrichment', 'full_endtoend']:
+            if processing_mode == 'full_endtoend':
                 status_text.text("Step 3: Enriching data...")
                 progress_bar.progress(3/total_steps)
                 
@@ -1213,14 +1192,14 @@ def _display_enhanced_results(result, processing_mode):
         st.metric("Processing Mode", processing_mode.title())
     
     # Load ID Mappings (if enabled)
-    if processing_mode in ['loadid', 'enrichment', 'full_endtoend']:
+    if processing_mode == 'full_endtoend':
         load_mappings = result.get('load_id_mappings', [])
         if load_mappings:
             st.subheader("🔗 Load ID Mappings")
             st.metric("Load IDs Retrieved", len([lm for lm in load_mappings if lm.internal_load_id]))
     
     # Enriched Data (if enabled)
-    if processing_mode in ['enrichment', 'full_endtoend']:
+    if processing_mode == 'full_endtoend':
         enriched_data = result.get('enriched_data', [])
         if enriched_data:
             st.subheader("🔍 Data Enrichment")
@@ -1276,7 +1255,7 @@ def _render_enhanced_download_options(result, processing_mode):
     
     # Load ID mappings (if available)
     with col2:
-        if processing_mode in ['loadid', 'enrichment', 'full_endtoend'] and result.get('load_id_mappings'):
+        if processing_mode == 'full_endtoend' and result.get('load_id_mappings'):
             if st.button("🔗 Download Load ID Mappings", use_container_width=True): 
                 mappings_data = [{
                     'csv_row_index': lm.csv_row_index,
@@ -1297,7 +1276,7 @@ def _render_enhanced_download_options(result, processing_mode):
     
     # Enriched data (if available)
     with col3:
-        if processing_mode in ['enrichment', 'full_endtoend'] and result.get('enriched_data'):
+        if processing_mode == 'full_endtoend' and result.get('enriched_data'):
             if st.button("🔍 Download Enriched Data", use_container_width=True):
                 enriched_df = pd.DataFrame(result.get('enriched_data', []))
                 csv_data = enriched_df.to_csv(index=False)
