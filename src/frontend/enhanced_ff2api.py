@@ -905,6 +905,7 @@ def _render_enhanced_workflow_with_progress(db_manager, data_processor):
     # Original workflow sections
     _render_current_file_info()
     _render_field_mapping_section(db_manager, data_processor)
+    _render_carrier_configuration_section(db_manager)
     _render_validation_section(data_processor)
     _render_enhanced_processing_section(db_manager, data_processor)
     _render_enhanced_results_section()
@@ -1156,6 +1157,28 @@ def _render_field_mapping_section(db_manager, data_processor):
             _save_configuration(db_manager, field_mappings, st.session_state.file_headers)
         except Exception as e:
             logger.error(f"Error auto-saving configuration: {e}")
+
+def _render_carrier_configuration_section(db_manager):
+    """Render carrier configuration section"""
+    if not st.session_state.get('field_mappings') or not st.session_state.get('brokerage_name'):
+        return
+    
+    # Check if we have any carrier-related fields in the mapping to show the section
+    field_mappings = st.session_state.get('field_mappings', {})
+    carrier_fields = [field for field in field_mappings.keys() if 'carrier' in field.lower()]
+    
+    if not carrier_fields:
+        return
+    
+    with st.expander("🚛 Carrier Configuration", expanded=False):
+        st.markdown("**Automatic Carrier Mapping**")
+        st.caption("Configure automatic population of carrier information based on carrier name detection in your data files.")
+        
+        # Import and render the carrier mapping interface
+        from src.frontend.ui_components import create_carrier_mapping_interface
+        
+        brokerage_name = st.session_state.brokerage_name
+        create_carrier_mapping_interface(db_manager, brokerage_name)
 
 def _render_validation_section(data_processor):
     """Render validation section - exactly like original"""

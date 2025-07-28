@@ -2330,6 +2330,11 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             st.session_state.processing_in_progress = False  # Clear processing flag on early failure
             return
         
+        # Apply automatic carrier mapping if enabled
+        update_progress("Applying carrier mappings", 2.5, "Auto-mapping carrier information...")
+        with st.spinner("Applying carrier mappings..."):
+            mapped_df = data_processor.apply_carrier_mapping(mapped_df, brokerage_name, db_manager)
+        
         # Step 3: Data validation
         update_progress("Validating data", 3, "Checking data quality and format compliance...")
         

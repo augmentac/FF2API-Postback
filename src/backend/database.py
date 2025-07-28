@@ -173,6 +173,39 @@ class DatabaseManager:
             )
         ''')
         
+        # Brokerage-specific carrier mappings table
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS brokerage_carrier_mappings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brokerage_name TEXT NOT NULL,
+                carrier_identifier TEXT NOT NULL,
+                carrier_name TEXT NOT NULL,
+                carrier_mc_number TEXT,
+                carrier_dot_number TEXT,
+                carrier_scac TEXT,
+                carrier_email TEXT,
+                carrier_phone TEXT,
+                carrier_contact_name TEXT,
+                carrier_contact_email TEXT,
+                carrier_contact_phone TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(brokerage_name, carrier_identifier)
+            )
+        ''')
+        
+        # Brokerage carrier mapping configuration
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS brokerage_carrier_config (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                brokerage_name TEXT NOT NULL UNIQUE,
+                enable_auto_carrier_mapping BOOLEAN DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         conn.commit()
         
         # Migrate existing databases to new schema
@@ -1862,5 +1895,155 @@ class DatabaseManager:
             conn.rollback()
             logging.error(f"Error importing learning data: {e}")
             raise
+        finally:
+            conn.close()
+    
+    # Carrier Mapping Management Methods
+    
+    def get_carrier_mapping_config(self, brokerage_name):
+        """Get carrier mapping configuration for a brokerage."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT enable_auto_carrier_mapping
+            FROM brokerage_carrier_config
+            WHERE brokerage_name = ?
+        ''', (brokerage_name,))
+        
+        result = cursor.fetchone()
+        conn.close()
+        
+        if result:
+            return {'enable_auto_carrier_mapping': bool(result[0])}
+        else:
+            return {'enable_auto_carrier_mapping': False}
+    
+    def set_carrier_mapping_config(self, brokerage_name, enable_auto_carrier_mapping):
+        """Set carrier mapping configuration for a brokerage."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO brokerage_carrier_config
+            (brokerage_name, enable_auto_carrier_mapping, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (brokerage_name, enable_auto_carrier_mapping))
+        
+        conn.commit()
+        conn.close()
+    
+    def get_carrier_mappings(self, brokerage_name):
+        """Get all carrier mappings for a brokerage."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT carrier_identifier, carrier_name, carrier_mc_number, carrier_dot_number,
+                   carrier_scac, carrier_email, carrier_phone, carrier_contact_name,
+                   carrier_contact_email, carrier_contact_phone, is_active
+            FROM brokerage_carrier_mappings
+            WHERE brokerage_name = ? AND is_active = 1
+            ORDER BY carrier_name
+        ''', (brokerage_name,))
+        
+        results = cursor.fetchall()
+        conn.close()
+        
+        mappings = {}
+        for row in results:
+            carrier_identifier = row[0]
+            mappings[carrier_identifier] = {
+                'carrier_name': row[1],
+                'carrier_mc_number': row[2],
+                'carrier_dot_number': row[3],
+                'carrier_scac': row[4],
+                'carrier_email': row[5],
+                'carrier_phone': row[6],
+                'carrier_contact_name': row[7],
+                'carrier_contact_email': row[8],
+                'carrier_contact_phone': row[9]
+            }
+        
+        return mappings
+    
+    def save_carrier_mapping(self, brokerage_name, carrier_identifier, carrier_data):
+        """Save or update a carrier mapping for a brokerage."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT OR REPLACE INTO brokerage_carrier_mappings
+            (brokerage_name, carrier_identifier, carrier_name, carrier_mc_number,
+             carrier_dot_number, carrier_scac, carrier_email, carrier_phone,
+             carrier_contact_name, carrier_contact_email, carrier_contact_phone,
+             is_active, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (
+            brokerage_name,
+            carrier_identifier,
+            carrier_data.get('carrier_name', ''),
+            carrier_data.get('carrier_mc_number', ''),
+            carrier_data.get('carrier_dot_number', ''),
+            carrier_data.get('carrier_scac', ''),
+            carrier_data.get('carrier_email', ''),
+            carrier_data.get('carrier_phone', ''),
+            carrier_data.get('carrier_contact_name', ''),
+            carrier_data.get('carrier_contact_email', ''),
+            carrier_data.get('carrier_contact_phone', ''),
+            True
+        ))
+        
+        conn.commit()
+        conn.close()
+    
+    def delete_carrier_mapping(self, brokerage_name, carrier_identifier):
+        """Delete a carrier mapping for a brokerage."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            UPDATE brokerage_carrier_mappings
+            SET is_active = 0, updated_at = CURRENT_TIMESTAMP
+            WHERE brokerage_name = ? AND carrier_identifier = ?
+        ''', (brokerage_name, carrier_identifier))
+        
+        conn.commit()
+        conn.close()
+    
+    def import_carrier_template(self, brokerage_name, carrier_mappings):
+        """Import carrier mappings from a template for a brokerage."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            for carrier_identifier, carrier_data in carrier_mappings.items():
+                cursor.execute('''
+                    INSERT OR REPLACE INTO brokerage_carrier_mappings
+                    (brokerage_name, carrier_identifier, carrier_name, carrier_mc_number,
+                     carrier_dot_number, carrier_scac, carrier_email, carrier_phone,
+                     carrier_contact_name, carrier_contact_email, carrier_contact_phone,
+                     is_active, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', (
+                    brokerage_name,
+                    carrier_identifier,
+                    carrier_data.get('carrier_name', ''),
+                    carrier_data.get('carrier_mc_number', ''),
+                    carrier_data.get('carrier_dot_number', ''),
+                    carrier_data.get('carrier_scac', ''),
+                    carrier_data.get('carrier_email', ''),
+                    carrier_data.get('carrier_phone', ''),
+                    carrier_data.get('carrier_contact_name', ''),
+                    carrier_data.get('carrier_contact_email', ''),
+                    carrier_data.get('carrier_contact_phone', ''),
+                    True
+                ))
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
         finally:
             conn.close() 

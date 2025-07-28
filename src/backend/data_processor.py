@@ -818,6 +818,86 @@ class DataProcessor:
         
         return mapped_df, errors
     
+    def apply_carrier_mapping(self, df: pd.DataFrame, brokerage_name: str, db_manager=None) -> pd.DataFrame:
+        """
+        Apply automatic carrier mapping to DataFrame based on brokerage configuration.
+        
+        Args:
+            df: DataFrame to process
+            brokerage_name: Name of the brokerage
+            db_manager: Database manager instance
+            
+        Returns:
+            DataFrame with carrier fields populated
+        """
+        if not db_manager:
+            return df
+        
+        try:
+            # Check if auto-mapping is enabled
+            config = db_manager.get_carrier_mapping_config(brokerage_name)
+            if not config.get('enable_auto_carrier_mapping', False):
+                return df
+            
+            # Get carrier mappings
+            carrier_mappings = db_manager.get_carrier_mappings(brokerage_name)
+            if not carrier_mappings:
+                return df
+            
+            # Import carrier config parser for fuzzy matching
+            import sys
+            import os
+            sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+            from carrier_config_parser import carrier_config_parser
+            
+            # Create a copy to avoid modifying original
+            df_copy = df.copy()
+            
+            # Track auto-mapped carriers for logging
+            auto_mapped_count = 0
+            
+            for index, row in df_copy.iterrows():
+                carrier_match = None
+                
+                # Look for carrier identifier in various columns
+                potential_carrier_columns = [
+                    'carrier_name', 'carrier', 'scac', 'carrier_scac', 
+                    'Carrier', 'Carrier Name', 'SCAC', 'Carrier SCAC'
+                ]
+                
+                for col in potential_carrier_columns:
+                    if col in df_copy.columns and pd.notna(row.get(col)):
+                        carrier_value = str(row[col]).strip()
+                        if carrier_value:
+                            # Use fuzzy matching to find best carrier match
+                            carrier_match = carrier_config_parser.find_best_carrier_match(
+                                carrier_value, 
+                                list(carrier_mappings.keys())
+                            )
+                            if carrier_match:
+                                break
+                
+                # Apply carrier mapping if match found
+                if carrier_match and carrier_match in carrier_mappings:
+                    carrier_data = carrier_mappings[carrier_match]
+                    
+                    # Apply all carrier fields to this row
+                    for api_field, value in carrier_data.items():
+                        if value:  # Only apply non-empty values
+                            df_copy.loc[index, api_field] = value
+                    
+                    auto_mapped_count += 1
+                    self.logger.info(f"Auto-mapped carrier '{carrier_match}' for row {index}")
+            
+            if auto_mapped_count > 0:
+                self.logger.info(f"Applied automatic carrier mapping to {auto_mapped_count} rows for brokerage '{brokerage_name}'")
+            
+            return df_copy
+            
+        except Exception as e:
+            self.logger.error(f"Error applying carrier mapping: {e}")
+            return df
+    
     def _add_auto_generated_fields(self, df: pd.DataFrame) -> None:
         """Add auto-generated fields like sequence numbers"""
         # Auto-generate route sequences

@@ -1919,6 +1919,21 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
         required_indicator = "⭐" if required else "📄"
         color = "#dc2626" if required else "#64748b"
         
+        # Check for carrier auto-mapping
+        carrier_auto_mapping_text = ""
+        if 'carrier' in field.lower():
+            # Check if brokerage has carrier auto-mapping enabled
+            brokerage_name = st.session_state.get('brokerage_name')
+            if brokerage_name:
+                try:
+                    from src.backend.database import DatabaseManager
+                    db_manager = DatabaseManager()
+                    config = db_manager.get_carrier_mapping_config(brokerage_name)
+                    if config.get('enable_auto_carrier_mapping', False):
+                        carrier_auto_mapping_text = " 🚛 Auto-mapped"
+                except:
+                    pass
+        
         # Check if this field's mapping might be affected by header changes
         current_mapping = updated_mappings.get(field)
         change_indicator_text = ""
@@ -1956,7 +1971,7 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
                 transition: all 0.2s ease;
             ">
                 <div style="font-weight: 500; color: {color}; font-size: 0.95rem; margin-bottom: 0.25rem;">
-                    {required_indicator} {description}{required_text}{change_indicator_text}
+                    {required_indicator} {description}{required_text}{change_indicator_text}{carrier_auto_mapping_text}
                 </div>
                 <div style="font-size: 0.75rem; color: #64748b; margin-bottom: 0.25rem;">
                     <code style="font-size: 0.7rem; background: rgba(0,0,0,0.05); padding: 0.1rem 0.3rem; border-radius: 0.2rem;">{field}</code>
@@ -2740,3 +2755,341 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
                 "brokerage": {}
             }
         }
+
+def create_carrier_mapping_interface(db_manager: DatabaseManager, brokerage_name: str):
+    """
+    Create carrier mapping management interface for a brokerage.
+    
+    Args:
+        db_manager: Database manager instance
+        brokerage_name: Name of the brokerage
+    """
+    st.markdown("### 🚛 Carrier Mapping Configuration")
+    
+    # Import carrier config parser
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+    from carrier_config_parser import carrier_config_parser
+    
+    # Get current configuration
+    config = db_manager.get_carrier_mapping_config(brokerage_name)
+    current_mappings = db_manager.get_carrier_mappings(brokerage_name)
+    
+    # Configuration toggle
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        st.markdown("**Automatic Carrier Mapping**")
+        st.caption("When enabled, carrier information will be automatically populated based on carrier name detection in your data files.")
+    
+    with col2:
+        enable_auto_mapping = st.toggle(
+            "Enable",
+            value=config.get('enable_auto_carrier_mapping', False),
+            key="enable_carrier_mapping"
+        )
+    
+    # Save configuration if changed
+    if enable_auto_mapping != config.get('enable_auto_carrier_mapping', False):
+        db_manager.set_carrier_mapping_config(brokerage_name, enable_auto_mapping)
+        st.success("✅ Configuration updated!")
+        st.rerun()
+    
+    if enable_auto_mapping:
+        st.success("🟢 **Auto-mapping enabled** - Carrier fields will be populated automatically")
+        
+        # Display current mappings
+        st.markdown("---")
+        st.markdown("#### Current Carrier Mappings")
+        
+        if current_mappings:
+            # Create DataFrame for display
+            mapping_data = []
+            for carrier_id, data in current_mappings.items():
+                mapping_data.append({
+                    'Carrier Name': data['carrier_name'],
+                    'SCAC': data['carrier_scac'],
+                    'MC Number': data['carrier_mc_number'],
+                    'Phone': data['carrier_phone'],
+                    'Email': data['carrier_email'][:30] + '...' if len(data['carrier_email']) > 30 else data['carrier_email']
+                })
+            
+            df_display = pd.DataFrame(mapping_data)
+            st.dataframe(df_display, use_container_width=True)
+            
+            # Management buttons
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                if st.button("📥 Import Template", use_container_width=True):
+                    st.session_state.show_import_template = True
+            
+            with col2:
+                if st.button("➕ Add Carrier", use_container_width=True):
+                    st.session_state.show_add_carrier = True
+            
+            with col3:
+                if st.button("✏️ Edit Carrier", use_container_width=True):
+                    st.session_state.show_edit_carrier = True
+            
+            with col4:
+                if st.button("🗑️ Remove Carrier", use_container_width=True):
+                    st.session_state.show_remove_carrier = True
+        
+        else:
+            st.info("📋 **No carrier mappings configured yet**")
+            st.markdown("Get started by importing the carrier template or adding carriers manually.")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📥 Import Carrier Template", use_container_width=True):
+                    st.session_state.show_import_template = True
+            
+            with col2:
+                if st.button("➕ Add Carrier Manually", use_container_width=True):
+                    st.session_state.show_add_carrier = True
+        
+        # Handle different UI states
+        if st.session_state.get('show_import_template'):
+            _render_import_template_dialog(db_manager, brokerage_name, carrier_config_parser)
+        
+        if st.session_state.get('show_add_carrier'):
+            _render_add_carrier_dialog(db_manager, brokerage_name)
+        
+        if st.session_state.get('show_edit_carrier'):
+            _render_edit_carrier_dialog(db_manager, brokerage_name, current_mappings)
+        
+        if st.session_state.get('show_remove_carrier'):
+            _render_remove_carrier_dialog(db_manager, brokerage_name, current_mappings)
+    
+    else:
+        st.info("ℹ️ **Auto-mapping disabled** - Carrier fields will need to be mapped manually")
+
+def _render_import_template_dialog(db_manager: DatabaseManager, brokerage_name: str, parser):
+    """Render import template dialog."""
+    st.markdown("---")
+    st.markdown("#### 📥 Import Carrier Template")
+    
+    available_carriers = parser.get_carrier_list()
+    
+    with st.expander("📋 Available Carriers", expanded=True):
+        st.markdown(f"**{len(available_carriers)} carriers available in template**")
+        
+        # Show carriers in columns
+        cols = st.columns(3)
+        for i, carrier in enumerate(available_carriers[:15]):  # Show first 15
+            with cols[i % 3]:
+                st.caption(f"• {carrier}")
+        
+        if len(available_carriers) > 15:
+            st.caption(f"... and {len(available_carriers) - 15} more")
+    
+    # Import options
+    import_option = st.radio(
+        "Import options:",
+        ["Import all carriers", "Select specific carriers"],
+        key="import_option"
+    )
+    
+    if import_option == "Select specific carriers":
+        selected_carriers = st.multiselect(
+            "Choose carriers to import:",
+            available_carriers,
+            key="selected_carriers"
+        )
+    else:
+        selected_carriers = available_carriers
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("✅ Import Selected", type="primary", use_container_width=True):
+            if selected_carriers:
+                try:
+                    # Get template for selected carriers
+                    template = parser.get_brokerage_template(selected_carriers)
+                    
+                    # Import to database
+                    db_manager.import_carrier_template(brokerage_name, template)
+                    
+                    st.success(f"✅ Imported {len(selected_carriers)} carriers successfully!")
+                    st.session_state.show_import_template = False
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Import failed: {str(e)}")
+            else:
+                st.warning("Please select at least one carrier to import.")
+    
+    with col2:
+        if st.button("❌ Cancel", use_container_width=True):
+            st.session_state.show_import_template = False
+            st.rerun()
+
+def _render_add_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str):
+    """Render add carrier dialog."""
+    st.markdown("---")
+    st.markdown("#### ➕ Add New Carrier")
+    
+    with st.form("add_carrier_form"):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            carrier_name = st.text_input("Carrier Name*", placeholder="e.g., ACME Freight")
+            carrier_scac = st.text_input("SCAC Code", placeholder="e.g., ACME")
+            carrier_mc = st.text_input("MC Number", placeholder="e.g., 123456")
+            carrier_phone = st.text_input("Phone Number", placeholder="e.g., +1-800-555-0123")
+        
+        with col2:
+            carrier_email = st.text_input("Email", placeholder="e.g., dispatch@acme.com")
+            carrier_dot = st.text_input("DOT Number", placeholder="e.g., 654321")
+            contact_name = st.text_input("Contact Name", placeholder="e.g., Dispatch Team")
+            contact_phone = st.text_input("Contact Phone", placeholder="e.g., +1-800-555-0124")
+        
+        contact_email = st.text_input("Contact Email", placeholder="e.g., support@acme.com")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.form_submit_button("✅ Add Carrier", type="primary", use_container_width=True):
+                if carrier_name:
+                    try:
+                        carrier_data = {
+                            'carrier_name': carrier_name,
+                            'carrier_scac': carrier_scac,
+                            'carrier_mc_number': carrier_mc,
+                            'carrier_dot_number': carrier_dot,
+                            'carrier_email': carrier_email,
+                            'carrier_phone': carrier_phone,
+                            'carrier_contact_name': contact_name,
+                            'carrier_contact_email': contact_email,
+                            'carrier_contact_phone': contact_phone
+                        }
+                        
+                        # Use carrier name as identifier
+                        db_manager.save_carrier_mapping(brokerage_name, carrier_name, carrier_data)
+                        
+                        st.success(f"✅ Added carrier '{carrier_name}' successfully!")
+                        st.session_state.show_add_carrier = False
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"❌ Failed to add carrier: {str(e)}")
+                else:
+                    st.error("Carrier name is required.")
+        
+        with col2:
+            if st.form_submit_button("❌ Cancel", use_container_width=True):
+                st.session_state.show_add_carrier = False
+                st.rerun()
+
+def _render_edit_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str, current_mappings: dict):
+    """Render edit carrier dialog."""
+    st.markdown("---")
+    st.markdown("#### ✏️ Edit Carrier")
+    
+    if not current_mappings:
+        st.warning("No carriers available to edit.")
+        if st.button("❌ Close"):
+            st.session_state.show_edit_carrier = False
+            st.rerun()
+        return
+    
+    # Select carrier to edit
+    carrier_names = list(current_mappings.keys())
+    selected_carrier = st.selectbox("Select carrier to edit:", carrier_names, key="edit_carrier_select")
+    
+    if selected_carrier:
+        carrier_data = current_mappings[selected_carrier]
+        
+        with st.form("edit_carrier_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                carrier_name = st.text_input("Carrier Name*", value=carrier_data.get('carrier_name', ''))
+                carrier_scac = st.text_input("SCAC Code", value=carrier_data.get('carrier_scac', ''))
+                carrier_mc = st.text_input("MC Number", value=carrier_data.get('carrier_mc_number', ''))
+                carrier_phone = st.text_input("Phone Number", value=carrier_data.get('carrier_phone', ''))
+            
+            with col2:
+                carrier_email = st.text_input("Email", value=carrier_data.get('carrier_email', ''))
+                carrier_dot = st.text_input("DOT Number", value=carrier_data.get('carrier_dot_number', ''))
+                contact_name = st.text_input("Contact Name", value=carrier_data.get('carrier_contact_name', ''))
+                contact_phone = st.text_input("Contact Phone", value=carrier_data.get('carrier_contact_phone', ''))
+            
+            contact_email = st.text_input("Contact Email", value=carrier_data.get('carrier_contact_email', ''))
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.form_submit_button("✅ Save Changes", type="primary", use_container_width=True):
+                    if carrier_name:
+                        try:
+                            updated_data = {
+                                'carrier_name': carrier_name,
+                                'carrier_scac': carrier_scac,
+                                'carrier_mc_number': carrier_mc,
+                                'carrier_dot_number': carrier_dot,
+                                'carrier_email': carrier_email,
+                                'carrier_phone': carrier_phone,
+                                'carrier_contact_name': contact_name,
+                                'carrier_contact_email': contact_email,
+                                'carrier_contact_phone': contact_phone
+                            }
+                            
+                            db_manager.save_carrier_mapping(brokerage_name, selected_carrier, updated_data)
+                            
+                            st.success(f"✅ Updated carrier '{carrier_name}' successfully!")
+                            st.session_state.show_edit_carrier = False
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Failed to update carrier: {str(e)}")
+                    else:
+                        st.error("Carrier name is required.")
+            
+            with col2:
+                if st.form_submit_button("❌ Cancel", use_container_width=True):
+                    st.session_state.show_edit_carrier = False
+                    st.rerun()
+
+def _render_remove_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str, current_mappings: dict):
+    """Render remove carrier dialog."""
+    st.markdown("---")
+    st.markdown("#### 🗑️ Remove Carrier")
+    
+    if not current_mappings:
+        st.warning("No carriers available to remove.")
+        if st.button("❌ Close"):
+            st.session_state.show_remove_carrier = False
+            st.rerun()
+        return
+    
+    # Select carrier to remove
+    carrier_names = list(current_mappings.keys())
+    selected_carrier = st.selectbox("Select carrier to remove:", carrier_names, key="remove_carrier_select")
+    
+    if selected_carrier:
+        carrier_data = current_mappings[selected_carrier]
+        
+        st.warning(f"⚠️ **Are you sure you want to remove '{carrier_data['carrier_name']}'?**")
+        st.caption("This action cannot be undone. The carrier mapping will be permanently deleted.")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🗑️ Yes, Remove", type="primary", use_container_width=True):
+                try:
+                    db_manager.delete_carrier_mapping(brokerage_name, selected_carrier)
+                    st.success(f"✅ Removed carrier '{carrier_data['carrier_name']}' successfully!")
+                    st.session_state.show_remove_carrier = False
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Failed to remove carrier: {str(e)}")
+        
+        with col2:
+            if st.button("❌ Cancel", use_container_width=True):
+                st.session_state.show_remove_carrier = False
+                st.rerun()
