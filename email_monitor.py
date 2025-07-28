@@ -648,28 +648,34 @@ class EmailMonitorService:
     def _store_processed_data(self, df: pd.DataFrame, attachment: EmailAttachment, brokerage_key: str, config: Dict[str, Any]):
         """Store processed data for main application pickup."""
         try:
-            # Use Streamlit session state to store processed data
-            if 'email_processed_data' not in st.session_state:
-                st.session_state.email_processed_data = []
-            
-            processed_item = {
-                'brokerage_key': brokerage_key,
-                'filename': attachment.filename,
-                'sender': attachment.sender,
-                'subject': attachment.subject,
-                'received_time': attachment.received_time,
-                'processed_time': datetime.now(),
-                'dataframe': df,
-                'record_count': len(df)
-            }
-            
-            st.session_state.email_processed_data.append(processed_item)
-            
-            # Keep only recent items (last 50)
-            if len(st.session_state.email_processed_data) > 50:
-                st.session_state.email_processed_data = st.session_state.email_processed_data[-50:]
-            
-            logger.info(f"Stored processed data for {attachment.filename}")
+            # Only access session state if available (not during import)
+            import streamlit as st
+            if hasattr(st, 'session_state') and st.session_state is not None:
+                # Use Streamlit session state to store processed data
+                if 'email_processed_data' not in st.session_state:
+                    st.session_state.email_processed_data = []
+                
+                processed_item = {
+                    'brokerage_key': brokerage_key,
+                    'filename': attachment.filename,
+                    'sender': attachment.sender,
+                    'subject': attachment.subject,
+                    'received_time': attachment.received_time,
+                    'processed_time': datetime.now(),
+                    'dataframe': df,
+                    'record_count': len(df)
+                }
+                
+                st.session_state.email_processed_data.append(processed_item)
+                
+                # Keep only recent items (last 50)
+                if len(st.session_state.email_processed_data) > 50:
+                    st.session_state.email_processed_data = st.session_state.email_processed_data[-50:]
+                
+                logger.info(f"Stored processed data for {attachment.filename}")
+            else:
+                # Session state not available - store in memory for now
+                logger.info(f"Session state not available - processed data for {attachment.filename} not stored")
             
         except Exception as e:
             logger.error(f"Error storing processed data: {e}")

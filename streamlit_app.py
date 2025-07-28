@@ -19,8 +19,9 @@ try:
     from credential_manager import credential_manager
     from email_monitor import email_monitor
     email_monitor.credential_manager = credential_manager
-except ImportError as e:
+except (ImportError, KeyError, Exception) as e:
     st.error(f"Failed to import required modules: {e}")
+    st.error("This is usually caused by missing configuration. Please check your secrets configuration.")
     st.stop()
 
 def main():
