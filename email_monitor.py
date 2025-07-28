@@ -437,7 +437,7 @@ class EmailMonitorService:
             # Only look for emails with attachments
             query_parts.append("has:attachment")
             
-            # Look for recent emails (last 7 days for testing)
+            # Look for recent emails (expanded to 7 days for testing - v2)
             query_parts.append("newer_than:7d")
             
             query = " ".join(query_parts)
