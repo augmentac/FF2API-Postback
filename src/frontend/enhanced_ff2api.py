@@ -501,13 +501,29 @@ def _render_email_automation_sidebar():
                                     st.error(f"❌ Error checking inbox: {e}")
                         
                         with col2:
-                            if st.button("⏹️ Stop Monitoring", key="stop_email_monitor"):
+                            if st.button("🔄 Reconnect Gmail", key="reconnect_gmail"):
                                 try:
-                                    email_monitor.stop_monitoring()
-                                    st.success("Email monitoring stopped")
+                                    # Clear OAuth credentials to force reconnection
+                                    auth_key = f'gmail_auth_{brokerage_name.replace("-", "_")}'
+                                    if auth_key in st.session_state:
+                                        del st.session_state[auth_key]
+                                    
+                                    # Clear from streamlit_google_sso
+                                    streamlit_google_sso._clear_stored_auth(brokerage_name)
+                                    
+                                    st.success("OAuth credentials cleared - page will refresh for reconnection")
                                     st.rerun()
                                 except Exception as e:
-                                    st.error(f"Failed to stop monitoring: {e}")
+                                    st.error(f"Failed to clear credentials: {e}")
+                        
+                        # Stop monitoring in a separate row
+                        if st.button("⏹️ Stop Email Monitoring", key="stop_email_monitor", use_container_width=True):
+                            try:
+                                email_monitor.stop_monitoring()
+                                st.success("Email monitoring stopped")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to stop monitoring: {e}")
                                 
                 elif gmail_setup_complete:
                     st.info("🟡 **Starting Email Automation...**")

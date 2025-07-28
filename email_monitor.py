@@ -239,7 +239,7 @@ class EmailMonitorService:
             if not gmail_headers:
                 return ProcessingResult(
                     success=False,
-                    message="Failed to connect to Gmail with OAuth credentials",
+                    message="Failed to connect to Gmail - OAuth token may be expired or invalid. Try disconnecting and reconnecting Gmail.",
                     processed_count=0
                 )
             
@@ -356,7 +356,35 @@ class EmailMonitorService:
             Gmail service headers or None
         """
         try:
-            # Use OAuth credentials stored in this service
+            # First try to get OAuth credentials from streamlit_google_sso
+            try:
+                from streamlit_google_sso import streamlit_google_sso
+                auth_data = streamlit_google_sso._get_stored_auth(brokerage_key)
+                
+                if auth_data and auth_data.get('access_token'):
+                    access_token = auth_data.get('access_token')
+                    logger.info(f"Using OAuth access token from streamlit_google_sso for {brokerage_key}")
+                    
+                    # Test the token by making a simple API call
+                    test_headers = {
+                        'Authorization': f'Bearer {access_token}',
+                        'Content-Type': 'application/json'
+                    }
+                    
+                    # Quick test to verify token works
+                    test_url = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
+                    test_response = requests.get(test_url, headers=test_headers)
+                    
+                    if test_response.status_code == 200:
+                        logger.info("OAuth token verified successfully")
+                        return test_headers
+                    else:
+                        logger.warning(f"OAuth token test failed: {test_response.status_code}")
+                        
+            except Exception as e:
+                logger.warning(f"Could not get OAuth token from streamlit_google_sso: {e}")
+            
+            # Fallback to stored OAuth credentials in this service
             oauth_creds = self.oauth_credentials.get(brokerage_key)
             if not oauth_creds:
                 logger.error(f"No OAuth credentials found for {brokerage_key}")
@@ -364,14 +392,17 @@ class EmailMonitorService:
             
             access_token = oauth_creds.get('access_token')
             if not access_token:
-                logger.error(f"No access token found for {brokerage_key}")
+                logger.error(f"No access token found in stored credentials for {brokerage_key}")
                 return None
             
             # Return headers for Gmail API calls
-            return {
+            headers = {
                 'Authorization': f'Bearer {access_token}',
                 'Content-Type': 'application/json'
             }
+            
+            logger.info(f"Using stored OAuth access token for {brokerage_key}")
+            return headers
             
         except Exception as e:
             logger.error(f"Failed to get Gmail service for {brokerage_key}: {e}")
