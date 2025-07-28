@@ -375,9 +375,17 @@ def _render_email_automation_sidebar():
                         # Transfer OAuth credentials to email monitor automatically
                         st.info("🔄 Configuring email monitoring with OAuth credentials...")
                         
+                        # Get real OAuth credentials with access token
+                        real_oauth_creds = streamlit_google_sso._get_stored_auth(brokerage_name)
+                        if real_oauth_creds:
+                            # Merge session state info with real OAuth tokens
+                            full_oauth_creds = {**gmail_oauth_credentials, **real_oauth_creds}
+                        else:
+                            full_oauth_creds = gmail_oauth_credentials
+                        
                         config_result = email_monitor.configure_oauth_monitoring(
                             brokerage_key=brokerage_name,
-                            oauth_credentials=gmail_oauth_credentials,
+                            oauth_credentials=full_oauth_creds,
                             email_filters={
                                 'sender_filter': st.session_state.get('email_sender_filter', ''),
                                 'subject_filter': st.session_state.get('email_subject_filter', '')
@@ -489,13 +497,14 @@ def _render_email_automation_sidebar():
                                         # Quick test with direct Gmail API call
                                         st.info("🧪 Testing direct Gmail API access...")
                                         
-                                        # Get OAuth headers directly
+                                        # Get OAuth headers directly from streamlit_google_sso
                                         try:
-                                            oauth_creds = email_monitor.oauth_credentials.get(brokerage_name, {})
-                                            if oauth_creds and oauth_creds.get('access_token'):
+                                            # Try to get real OAuth token from streamlit_google_sso
+                                            auth_data = streamlit_google_sso._get_stored_auth(brokerage_name)
+                                            if auth_data and auth_data.get('access_token'):
                                                 import requests
                                                 headers = {
-                                                    'Authorization': f"Bearer {oauth_creds.get('access_token')}",
+                                                    'Authorization': f"Bearer {auth_data.get('access_token')}",
                                                     'Content-Type': 'application/json'
                                                 }
                                                 
