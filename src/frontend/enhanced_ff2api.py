@@ -323,11 +323,21 @@ def _render_email_automation_sidebar():
         st.markdown("---")
         st.markdown("### 📧 Email Automation")
         
-        # Gmail OAuth status
+        # Check email automation status through credential manager
+        brokerage_name = st.session_state.get('brokerage_name', 'default')
+        
         try:
-            auth_info = streamlit_google_sso.get_auth_info()
-            if auth_info and auth_info.get('email'):
-                st.success(f"✅ Gmail: {auth_info['email']}")
+            # Check if email automation is configured for this brokerage
+            cred_status = credential_manager.validate_credentials(brokerage_name)
+            
+            if cred_status.email_automation_available:
+                st.success("✅ Gmail automation configured")
+                
+                # Show automation status
+                if cred_status.email_automation_active:
+                    st.info("🟢 Email automation active")
+                else:
+                    st.info("🔴 Email automation inactive")
                 
                 # Email monitoring controls
                 col1, col2 = st.columns(2)
@@ -346,12 +356,6 @@ def _render_email_automation_sidebar():
                             st.info("Email monitoring stopped")
                         except Exception as e:
                             st.error(f"Failed to stop monitoring: {e}")
-                
-                # Show monitoring status
-                if hasattr(email_monitor, 'is_monitoring') and email_monitor.is_monitoring():
-                    st.info("🟢 Email monitoring active")
-                else:
-                    st.info("🔴 Email monitoring inactive")
                     
                 # Email filters
                 with st.expander("📬 Email Filters", expanded=False):
@@ -377,21 +381,18 @@ def _render_email_automation_sidebar():
                         st.success("Email filters updated")
                         
             else:
-                st.warning("⚠️ Gmail not connected")
-                if st.button("🔐 Connect Gmail", key="connect_gmail", use_container_width=True):
-                    try:
-                        # Initialize Gmail OAuth flow
-                        auth_result = streamlit_google_sso.authenticate(
-                            scopes=[
-                                'https://www.googleapis.com/auth/gmail.readonly',
-                                'https://www.googleapis.com/auth/gmail.send'
-                            ]
-                        )
-                        if auth_result:
-                            st.success("Gmail connected successfully!")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Gmail connection failed: {e}")
+                st.warning("⚠️ Gmail automation not configured")
+                
+                # Use the Google SSO authentication interface
+                if st.button("🔐 Setup Gmail Auth", key="setup_gmail", use_container_width=True):
+                    auth_result = streamlit_google_sso.render_google_auth_button(
+                        brokerage_name, 
+                        "Setup Gmail Authentication"
+                    )
+                    
+                    if auth_result.get('authenticated'):
+                        st.success("Gmail authentication successful!")
+                        st.rerun()
                         
         except Exception as e:
             st.error(f"Email automation error: {e}")
