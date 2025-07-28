@@ -478,15 +478,36 @@ def _render_email_automation_sidebar():
                     st.success("🟢 **Email Automation Active**")
                     st.caption("Monitoring Gmail for freight emails")
                     
-                    # Optional stop button for advanced users
+                    # Optional controls for testing and advanced users
                     with st.expander("⚙️ Advanced Controls", expanded=False):
-                        if st.button("⏹️ Stop Email Monitoring", key="stop_email_monitor"):
-                            try:
-                                email_monitor.stop_monitoring()
-                                st.success("Email monitoring stopped")
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Failed to stop monitoring: {e}")
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            if st.button("📨 Check Inbox Now", key="check_inbox_now"):
+                                try:
+                                    with st.spinner("🔍 Checking Gmail inbox..."):
+                                        result = email_monitor.check_inbox_now(brokerage_name)
+                                        
+                                        if result.success:
+                                            if result.processed_count > 0:
+                                                st.success(f"✅ Processed {result.processed_count} files")
+                                            else:
+                                                st.info("📭 No new emails with attachments found")
+                                            st.info(f"📝 {result.message}")
+                                        else:
+                                            st.error(f"❌ {result.message}")
+                                            
+                                except Exception as e:
+                                    st.error(f"❌ Error checking inbox: {e}")
+                        
+                        with col2:
+                            if st.button("⏹️ Stop Monitoring", key="stop_email_monitor"):
+                                try:
+                                    email_monitor.stop_monitoring()
+                                    st.success("Email monitoring stopped")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to stop monitoring: {e}")
                                 
                 elif gmail_setup_complete:
                     st.info("🟡 **Starting Email Automation...**")
@@ -496,11 +517,13 @@ def _render_email_automation_sidebar():
                     
                 # Email filters
                 with st.expander("📬 Email Filters", expanded=False):
+                    st.info("💡 **Tip:** Leave filters empty to process ALL emails with attachments")
+                    
                     sender_filter = st.text_input(
                         "Sender filter:",
                         value=st.session_state.get('email_sender_filter', ''),
-                        placeholder="ops@company.com",
-                        help="Filter emails by sender",
+                        placeholder="ops@company.com (optional)",
+                        help="Filter emails by sender - leave empty to accept all senders",
                         key="email_sender_filter_input"
                     )
                     st.session_state.email_sender_filter = sender_filter
@@ -508,14 +531,35 @@ def _render_email_automation_sidebar():
                     subject_filter = st.text_input(
                         "Subject filter:",
                         value=st.session_state.get('email_subject_filter', ''),
-                        placeholder="Load Data",
-                        help="Filter emails by subject keywords",
+                        placeholder="Load Data (optional)",
+                        help="Filter emails by subject keywords - leave empty to accept all subjects",
                         key="email_subject_filter_input"
                     )
                     st.session_state.email_subject_filter = subject_filter
                     
+                    # Show current filter status
+                    if sender_filter or subject_filter:
+                        st.caption(f"🔍 **Active filters:** {f'from:{sender_filter}' if sender_filter else ''} {f'subject:{subject_filter}' if subject_filter else ''}".strip())
+                    else:
+                        st.caption("🔍 **No filters** - processing all emails with attachments")
+                    
                     if st.button("🔄 Update Filters", key="update_email_filters", use_container_width=True):
-                        st.success("Email filters updated")
+                        # Update filters in email monitor
+                        if gmail_setup_complete:
+                            try:
+                                email_monitor.configure_oauth_monitoring(
+                                    brokerage_key=brokerage_name,
+                                    oauth_credentials=gmail_oauth_credentials,
+                                    email_filters={
+                                        'sender_filter': sender_filter,
+                                        'subject_filter': subject_filter
+                                    }
+                                )
+                                st.success("✅ Email filters updated")
+                            except Exception as e:
+                                st.error(f"❌ Failed to update filters: {e}")
+                        else:
+                            st.success("✅ Filters saved (will apply when OAuth is configured)")
                         
             else:
                 st.warning("⚠️ Gmail automation not configured")
