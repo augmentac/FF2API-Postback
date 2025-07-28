@@ -55,6 +55,9 @@ from enrichment.manager import EnrichmentManager
 from postback.router import PostbackRouter
 from credential_manager import credential_manager
 from streamlit_google_sso import streamlit_google_sso
+from email_monitor import email_monitor
+# Initialize email monitor with credential manager
+email_monitor.credential_manager = credential_manager
 
 # Create logs directory if it doesn't exist
 os.makedirs('data/logs', exist_ok=True)
@@ -280,6 +283,9 @@ def main():
     with st.sidebar:
         show_contextual_information(db_manager)
         
+        # Add email automation configuration for full end-to-end mode
+        _render_email_automation_sidebar()
+        
         # Show logout option at bottom of sidebar
         show_logout_option()
 
@@ -306,6 +312,119 @@ def enhanced_main_workflow(db_manager, data_processor):
     else:
         # === ENHANCED WORKFLOW WITH END-TO-END OPTIONS ===
         _render_enhanced_workflow_with_progress(db_manager, data_processor)
+
+def _render_email_automation_sidebar():
+    """Render email automation configuration in sidebar for full end-to-end mode"""
+    
+    processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
+    
+    # Only show email automation for full end-to-end mode
+    if processing_mode == 'full_endtoend':
+        st.markdown("---")
+        st.markdown("### 📧 Email Automation")
+        
+        # Gmail OAuth status
+        try:
+            auth_info = streamlit_google_sso.get_auth_info()
+            if auth_info and auth_info.get('email'):
+                st.success(f"✅ Gmail: {auth_info['email']}")
+                
+                # Email monitoring controls
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("▶️ Start Monitor", key="start_email_monitor", use_container_width=True):
+                        try:
+                            email_monitor.start_monitoring()
+                            st.success("Email monitoring started")
+                        except Exception as e:
+                            st.error(f"Failed to start monitoring: {e}")
+                
+                with col2:
+                    if st.button("⏹️ Stop Monitor", key="stop_email_monitor", use_container_width=True):
+                        try:
+                            email_monitor.stop_monitoring()
+                            st.info("Email monitoring stopped")
+                        except Exception as e:
+                            st.error(f"Failed to stop monitoring: {e}")
+                
+                # Show monitoring status
+                if hasattr(email_monitor, 'is_monitoring') and email_monitor.is_monitoring():
+                    st.info("🟢 Email monitoring active")
+                else:
+                    st.info("🔴 Email monitoring inactive")
+                    
+                # Email filters
+                with st.expander("📬 Email Filters", expanded=False):
+                    sender_filter = st.text_input(
+                        "Sender filter:",
+                        value=st.session_state.get('email_sender_filter', ''),
+                        placeholder="ops@company.com",
+                        help="Filter emails by sender",
+                        key="email_sender_filter_input"
+                    )
+                    st.session_state.email_sender_filter = sender_filter
+                    
+                    subject_filter = st.text_input(
+                        "Subject filter:",
+                        value=st.session_state.get('email_subject_filter', ''),
+                        placeholder="Load Data",
+                        help="Filter emails by subject keywords",
+                        key="email_subject_filter_input"
+                    )
+                    st.session_state.email_subject_filter = subject_filter
+                    
+                    if st.button("🔄 Update Filters", key="update_email_filters", use_container_width=True):
+                        st.success("Email filters updated")
+                        
+            else:
+                st.warning("⚠️ Gmail not connected")
+                if st.button("🔐 Connect Gmail", key="connect_gmail", use_container_width=True):
+                    try:
+                        # Initialize Gmail OAuth flow
+                        auth_result = streamlit_google_sso.authenticate(
+                            scopes=[
+                                'https://www.googleapis.com/auth/gmail.readonly',
+                                'https://www.googleapis.com/auth/gmail.send'
+                            ]
+                        )
+                        if auth_result:
+                            st.success("Gmail connected successfully!")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Gmail connection failed: {e}")
+                        
+        except Exception as e:
+            st.error(f"Email automation error: {e}")
+            
+        # Email delivery configuration
+        with st.expander("📤 Email Delivery", expanded=False):
+            send_email = st.checkbox(
+                "Send results via email",
+                value=st.session_state.get('send_email', False),
+                help="Email the processing results when complete",
+                key="sidebar_send_email"
+            )
+            st.session_state.send_email = send_email
+            
+            if send_email:
+                email_recipient = st.text_input(
+                    "Email recipient:",
+                    value=st.session_state.get('email_recipient', ''),
+                    placeholder="ops@company.com",
+                    help="Enter the email address to receive the results",
+                    key="sidebar_email_recipient"
+                )
+                st.session_state.email_recipient = email_recipient
+                
+                # Email format options
+                email_formats = st.multiselect(
+                    "Include formats:",
+                    ["CSV", "Excel", "JSON", "Summary Report"],
+                    default=st.session_state.get('email_formats', ["CSV", "Summary Report"]),
+                    help="Select which formats to include in email",
+                    key="sidebar_email_formats"
+                )
+                st.session_state.email_formats = email_formats
 
 def _render_enhanced_landing_page():
     """Enhanced landing page - original FF2API + processing mode selection"""
@@ -344,6 +463,29 @@ def _render_enhanced_landing_page():
     }
     
     st.info(f"**Selected**: {mode_descriptions[st.session_state.enhanced_processing_mode]}")
+    
+    # Email configuration for full end-to-end mode
+    if st.session_state.enhanced_processing_mode == 'full_endtoend':
+        st.markdown("---")
+        st.subheader("📧 Email Configuration")
+        
+        send_email = st.checkbox(
+            "Send results via email",
+            value=st.session_state.get('send_email', False),
+            help="Email the processing results when complete"
+        )
+        st.session_state.send_email = send_email
+        
+        if send_email:
+            email_recipient = st.text_input(
+                "Email recipient:",
+                value=st.session_state.get('email_recipient', ''),
+                placeholder="ops@company.com",
+                help="Enter the email address to receive the results"
+            )
+            st.session_state.email_recipient = email_recipient
+        else:
+            st.session_state.email_recipient = ''
     
     # Original FF2API file upload section
     st.markdown("---")
@@ -1011,16 +1153,30 @@ def _process_email_delivery(result, brokerage_key):
         if not cred_status.email_automation_available:
             return {'email_sent': False, 'reason': 'Email automation not configured'}
         
-        # Build email configuration
+        # Check if email sending is enabled and recipient is configured
+        send_email = st.session_state.get('send_email', False)
+        email_recipient = st.session_state.get('email_recipient', '')
+        email_formats = st.session_state.get('email_formats', ['CSV', 'Summary Report'])
+        
+        if not send_email or not email_recipient:
+            return {'email_sent': False, 'reason': 'Email delivery not configured'}
+        
+        # Build attachments based on selected formats
+        attachments = []
+        if 'CSV' in email_formats:
+            attachments.append('/tmp/enhanced_results.csv')
+        if 'Excel' in email_formats:
+            attachments.append('/tmp/enhanced_results.xlsx')
+        if 'JSON' in email_formats:
+            attachments.append('/tmp/enhanced_results.json')
+            
+        # Build email configuration with user settings
         email_config = [{
             'type': 'email',
-            'recipient': 'ops@company.com',  # This would come from configuration
+            'recipient': email_recipient,
             'subject': 'Enhanced FF2API Processing Results',
-            'attachments': [
-                '/tmp/enhanced_results.csv',
-                '/tmp/enhanced_results.xlsx',
-                '/tmp/enhanced_results.json'
-            ]
+            'attachments': attachments,
+            'include_summary': 'Summary Report' in email_formats
         }]
         
         # Process email delivery
