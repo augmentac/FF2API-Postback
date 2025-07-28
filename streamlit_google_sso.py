@@ -251,6 +251,28 @@ client_secret = "your-universal-client-secret"
             try:
                 url_params = st.query_params
                 auto_code = url_params.get('code', '')
+                oauth_state = url_params.get('state', '')
+                
+                # Restore session state from OAuth state parameter
+                if oauth_state and auto_code:
+                    try:
+                        decoded_state = json.loads(base64.urlsafe_b64decode(oauth_state.encode()).decode())
+                        
+                        # Restore critical session state
+                        if decoded_state.get('brokerage_name'):
+                            st.session_state.brokerage_name = decoded_state['brokerage_name']
+                        if decoded_state.get('enhanced_processing_mode'):
+                            st.session_state.enhanced_processing_mode = decoded_state['enhanced_processing_mode']
+                        if decoded_state.get('uploaded_file_name'):
+                            st.session_state.uploaded_file_name = decoded_state['uploaded_file_name']
+                        if decoded_state.get('configuration_type'):
+                            st.session_state.configuration_type = decoded_state['configuration_type']
+                            
+                        st.info("🔄 Session state restored from OAuth redirect")
+                        
+                    except Exception as e:
+                        logger.warning(f"Could not restore session state: {e}")
+                
                 # Check if we already processed this code
                 processed_code_key = f'processed_code_{brokerage_key}'
                 if auto_code and st.session_state.get(processed_code_key) != auto_code:
@@ -305,20 +327,26 @@ client_secret = "your-universal-client-secret"
         return {'success': False, 'authenticated': False, 'manual_flow': True}
     
     def _generate_auth_url(self, brokerage_key: str, email_hint: str = None) -> Optional[str]:
-        """Generate Google OAuth2 authentication URL."""
+        """Generate Google OAuth2 authentication URL with state preservation."""
         try:
             from urllib.parse import urlencode
             
-            # Create state parameter for security
-            state_data = {
+            # Preserve current application state in the OAuth state parameter
+            current_state = {
                 'brokerage_key': brokerage_key,
                 'timestamp': datetime.now().isoformat(),
-                'type': 'gmail_sso'
+                'type': 'gmail_sso',
+                # Preserve critical session state
+                'brokerage_name': st.session_state.get('brokerage_name'),
+                'enhanced_processing_mode': st.session_state.get('enhanced_processing_mode'),
+                'uploaded_file_name': st.session_state.get('uploaded_file_name'),
+                'configuration_type': st.session_state.get('configuration_type')
             }
-            state = base64.urlsafe_b64encode(json.dumps(state_data).encode()).decode()
             
-            # Use the app URL for redirect, but we'll handle it manually
-            # Check both top-level and google_sso section for app_url
+            # Encode state securely
+            state = base64.urlsafe_b64encode(json.dumps(current_state).encode()).decode()
+            
+            # Use the app URL for redirect
             app_url = st.secrets.get('app_url')
             if not app_url:
                 google_sso = st.secrets.get("google_sso", {})
