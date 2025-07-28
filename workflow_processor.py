@@ -325,6 +325,18 @@ class EndToEndWorkflowProcessor:
                     enrichment_config.append(enriched_source)
                 else:
                     logger.warning("Snowflake credentials not available - skipping Snowflake enrichment")
+            elif source.get('type') == 'tracking_api':
+                # Add tracking API credentials and configuration
+                tracking_creds = credential_manager.get_tracking_api_credentials()
+                if tracking_creds:
+                    enriched_source = {
+                        **source,
+                        **tracking_creds,  # Add API endpoint and credentials
+                        'brokerage_key': self.brokerage_key  # Add brokerage context
+                    }
+                    enrichment_config.append(enriched_source)
+                else:
+                    logger.warning("Tracking API credentials not available - skipping tracking API enrichment")
             else:
                 # Other enrichment sources pass through unchanged
                 enrichment_config.append(source)

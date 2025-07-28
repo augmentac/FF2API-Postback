@@ -28,6 +28,7 @@ class CredentialCapabilities:
     email_available: bool
     email_automation_available: bool
     email_automation_active: bool
+    tracking_api_available: bool
     capabilities: List[str]
     brokerage_key: str
 
@@ -95,6 +96,33 @@ class CredentialManager:
         """Get SMTP email credentials for result delivery."""
         return self.email_creds
     
+    def get_tracking_api_credentials(self) -> Optional[Dict[str, Any]]:
+        """Get tracking API credentials for shipment tracking enrichment."""
+        try:
+            tracking_config = st.secrets.get("tracking_api", {})
+            if not tracking_config:
+                logger.info("No tracking API configuration found - tracking features disabled")
+                return None
+                
+            # Check for required api_endpoint field
+            if 'api_endpoint' not in tracking_config:
+                logger.warning("Tracking API endpoint not configured - tracking features disabled")
+                return None
+            
+            # Set defaults for optional fields
+            config = {
+                'api_endpoint': tracking_config['api_endpoint'],
+                'timeout': tracking_config.get('timeout', 30),
+                'max_retries': tracking_config.get('max_retries', 3)
+            }
+            
+            logger.info("Tracking API credentials loaded successfully")
+            return config
+            
+        except Exception as e:
+            logger.error(f"Error loading tracking API credentials: {e}")
+            return None
+    
     def validate_credentials(self, brokerage_key: str) -> CredentialCapabilities:
         """
         Comprehensive validation of available credentials and capabilities.
@@ -108,6 +136,7 @@ class CredentialManager:
         api_available = bool(self.get_brokerage_api_key(brokerage_key))
         snowflake_available = bool(self.snowflake_creds)
         email_available = bool(self.email_creds)
+        tracking_api_available = bool(self.get_tracking_api_credentials())
         
         # Check for email automation configuration
         email_automation_config = self._get_email_automation_config(brokerage_key)
@@ -120,12 +149,16 @@ class CredentialManager:
             capabilities.extend(['load_id_mapping', 'api_enrichment'])
         if snowflake_available:
             capabilities.extend(['data_enrichment', 'warehouse_queries'])
+        if tracking_api_available:
+            capabilities.append('tracking_enrichment')
         if email_available:
             capabilities.append('email_delivery')
         if email_automation_available:
             capabilities.append('email_automation')
         if api_available and snowflake_available:
             capabilities.append('end_to_end_workflow')
+        if api_available and tracking_api_available:
+            capabilities.append('tracking_workflow')
             
         return CredentialCapabilities(
             api_available=api_available,
@@ -133,6 +166,7 @@ class CredentialManager:
             email_available=email_available,
             email_automation_available=email_automation_available,
             email_automation_active=email_automation_active,
+            tracking_api_available=tracking_api_available,
             capabilities=capabilities,
             brokerage_key=brokerage_key
         )

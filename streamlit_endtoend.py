@@ -32,7 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send_email, email_recipient, snowflake_options, api_timeout, retry_count):
+def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send_email, email_recipient, api_timeout, retry_count):
     """Simplified end-to-end processing with minimal UI."""
     
     with st.spinner("Processing new loads..."):
@@ -47,22 +47,11 @@ def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send
             
             # Add enrichment if enabled
             if add_tracking:
-                sf_enrichments = []
-                if "Load Tracking" in snowflake_options:
-                    sf_enrichments.append("tracking")
-                if "Customer Info" in snowflake_options:
-                    sf_enrichments.append("customer")
-                if "Carrier Details" in snowflake_options:
-                    sf_enrichments.append("carrier")
-                if "Lane Performance" in snowflake_options:
-                    sf_enrichments.append("lane")
-                
+                # Use tracking API for enrichment instead of Snowflake
                 config['enrichment']['sources'] = [{
-                    'type': 'snowflake_augment',
-                    'database': 'AUGMENT_DW',
-                    'schema': 'MARTS',
-                    'enrichments': sf_enrichments,
-                    'use_load_ids': True
+                    'type': 'tracking_api',
+                    'pro_column': 'PRO',
+                    'carrier_column': 'carrier'
                 }]
             
             # Set output
@@ -506,7 +495,7 @@ def main():
                         st.info("👆 Connect your Gmail account above to configure email automation.")
         
         # Essential options only
-        add_tracking = st.checkbox("Add warehouse data", value=True)
+        add_tracking = st.checkbox("Add tracking data", value=True)
         send_email = st.checkbox("Email results")
         
         if send_email:
@@ -518,14 +507,6 @@ def main():
         with st.expander("Advanced"):
             api_timeout = st.slider("API timeout (seconds)", 10, 120, 30)
             retry_count = st.slider("Retry count", 1, 5, 3)
-            if add_tracking:
-                snowflake_options = st.multiselect(
-                    "Warehouse data:",
-                    ["Load Tracking", "Customer Info", "Carrier Details", "Lane Performance"],
-                    default=["Load Tracking", "Customer Info"]
-                )
-            else:
-                snowflake_options = []
     
     # Check for auto-processed files first
     if 'email_processed_data' in st.session_state:
@@ -598,8 +579,7 @@ def main():
             if has_load_id and (send_email and email_recipient or not send_email):
                 if st.button("Process New Loads", type="primary", use_container_width=True):
                     process_endtoend_simple(df, brokerage_key, add_tracking, output_format, 
-                                          send_email, email_recipient, snowflake_options,
-                                          api_timeout, retry_count)
+                                          send_email, email_recipient, api_timeout, retry_count)
             else:
                 if not has_load_id:
                     st.button("Process New Loads", disabled=True, help="Missing 'load_id' field")

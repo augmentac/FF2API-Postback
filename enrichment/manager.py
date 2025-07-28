@@ -5,6 +5,7 @@ import logging
 from .base import EnrichmentSource
 from .mock_tracking import MockTrackingEnrichmentSource
 from .snowflake_augment import SnowflakeAugmentEnrichmentSource
+from .tracking_api import TrackingAPIEnricher
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +16,7 @@ class EnrichmentManager:
     SOURCE_TYPES: Dict[str, Type[EnrichmentSource]] = {
         'mock_tracking': MockTrackingEnrichmentSource,
         'snowflake_augment': SnowflakeAugmentEnrichmentSource,
+        'tracking_api': TrackingAPIEnricher,
     }
     
     def __init__(self, source_configs: List[Dict[str, Any]]):
