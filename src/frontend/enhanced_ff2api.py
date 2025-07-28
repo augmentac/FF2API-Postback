@@ -338,14 +338,15 @@ def _render_email_automation_sidebar():
             auth_key = f'gmail_auth_{brokerage_name.replace("-", "_")}'
             gmail_setup_complete = st.session_state.get(auth_key, {}).get('authenticated', False)
             
+            # Debug the condition
+            st.caption(f"Debug condition: email_automation_available={cred_status.email_automation_available}, gmail_setup_complete={gmail_setup_complete}")
+            
             if cred_status.email_automation_available or gmail_setup_complete:
                 if cred_status.email_automation_available:
                     st.success("✅ Gmail automation configured (via secrets)")
                 elif gmail_setup_complete:
                     user_email = st.session_state[auth_key].get('user_email', 'Gmail account')
                     st.success(f"✅ Gmail automation active ({user_email})")
-                else:
-                    st.success("✅ Gmail authentication available (via Google OAuth)")
                 
                 # Show automation status - check both credential status and actual monitor status
                 try:
