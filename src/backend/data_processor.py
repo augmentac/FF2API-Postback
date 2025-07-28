@@ -1139,39 +1139,42 @@ class DataProcessor:
                         
                         # Ensure arrival window fields exist
                         if 'expectedArrivalWindowStart' not in stop or not stop['expectedArrivalWindowStart']:
-                            # For second stop and beyond, ensure arrival windows exist
-                            if i > 0:  # Second stop (route.$1)
+                            if i == 0:  # First stop (route.$0 - pickup)
+                                # Set default pickup time
+                                stop['expectedArrivalWindowStart'] = '2024-01-01T08:00:00.000Z'
+                            else:  # Second stop and beyond (route.$1+ - delivery)
                                 # Use first stop's arrival window as base and add a day
                                 if len(load_obj['route']) > 0 and 'expectedArrivalWindowStart' in load_obj['route'][0]:
                                     try:
                                         first_start = pd.to_datetime(load_obj['route'][0]['expectedArrivalWindowStart'])
                                         # Check if parsing was successful
                                         if pd.isna(first_start):
-                                            stop['expectedArrivalWindowStart'] = '2024-01-01T08:00:00.000Z'
+                                            stop['expectedArrivalWindowStart'] = '2024-01-01T17:00:00.000Z'
                                         else:
                                             # Add one day for delivery
                                             second_start = first_start + pd.Timedelta(days=1)
                                             stop['expectedArrivalWindowStart'] = second_start.strftime('%Y-%m-%dT%H:%M:%S.000Z')
                                     except (ValueError, TypeError, pd.errors.ParserError) as date_error:
                                         self.logger.warning(f"Could not parse delivery start time: {date_error}")
-                                        stop['expectedArrivalWindowStart'] = '2024-01-01T08:00:00.000Z'
+                                        stop['expectedArrivalWindowStart'] = '2024-01-01T17:00:00.000Z'
                                 else:
-                                    stop['expectedArrivalWindowStart'] = '2024-01-01T08:00:00.000Z'
+                                    stop['expectedArrivalWindowStart'] = '2024-01-01T17:00:00.000Z'
                         
                         if 'expectedArrivalWindowEnd' not in stop or not stop['expectedArrivalWindowEnd']:
-                            # Generate end time from start time
-                            try:
-                                start_time = pd.to_datetime(stop['expectedArrivalWindowStart'])
-                                end_time = start_time + pd.Timedelta(hours=2)
-                                # Try to format the end time
-                                stop['expectedArrivalWindowEnd'] = end_time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-                            except (ValueError, TypeError, pd.errors.ParserError, AttributeError) as date_error:
-                                self.logger.warning(f"Could not generate arrival window end time: {date_error}")
-                                # Fallback to copying start time if it exists and is valid
-                                if 'expectedArrivalWindowStart' in stop and stop['expectedArrivalWindowStart']:
+                            # Generate end time from start time - ensure start time exists first
+                            if 'expectedArrivalWindowStart' in stop and stop['expectedArrivalWindowStart']:
+                                try:
+                                    start_time = pd.to_datetime(stop['expectedArrivalWindowStart'])
+                                    end_time = start_time + pd.Timedelta(hours=2)
+                                    # Try to format the end time
+                                    stop['expectedArrivalWindowEnd'] = end_time.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                                except (ValueError, TypeError, pd.errors.ParserError, AttributeError) as date_error:
+                                    self.logger.warning(f"Could not generate arrival window end time: {date_error}")
+                                    # Fallback to copying start time if it exists and is valid
                                     stop['expectedArrivalWindowEnd'] = stop['expectedArrivalWindowStart']
-                                else:
-                                    stop['expectedArrivalWindowEnd'] = '2024-01-01T17:00:00.000Z'
+                            else:
+                                # No start time available, set default end time
+                                stop['expectedArrivalWindowEnd'] = '2024-01-01T17:00:00.000Z'
                 
                 # Fix 2.5: Ensure proper sequence numbers (must start from 1 and be unique)
                 for i, stop in enumerate(load_obj['route']):

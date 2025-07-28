@@ -2600,8 +2600,16 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
             }
             
     except Exception as e:
+        logger.error(f"Error generating API preview: {str(e)}")
+        # Provide more specific error guidance
+        error_msg = str(e)
+        if "expectedArrivalWindowStart" in error_msg:
+            error_msg = "Missing required arrival window dates. Please map pickup and delivery date/time fields."
+        elif "KeyError" in error_msg:
+            error_msg = f"Missing required field in data processing: {error_msg}"
+        
         return {
-            "message": f"Error generating API preview: {str(e)}",
+            "message": f"Error generating API preview: {error_msg}",
             "preview": {
                 "load": {},
                 "customer": {},
