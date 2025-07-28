@@ -367,22 +367,33 @@ def _render_email_automation_sidebar():
                 with col1:
                     if st.button("▶️ Start Monitor", key="start_email_monitor", use_container_width=True):
                         try:
-                            # Add debugging to see what happens during start
-                            st.info("🔄 Attempting to start email monitoring...")
-                            result = email_monitor.start_monitoring()
+                            st.info("🔄 Configuring email monitoring for this brokerage...")
                             
-                            # Check status immediately after starting
-                            post_start_status = email_monitor.get_monitoring_status()
-                            st.write(f"Debug: Status after start: {post_start_status}")
-                            
-                            if post_start_status.get('monitoring_active'):
-                                st.success("✅ Email monitoring started successfully")
+                            # Configure the email monitor with current brokerage and OAuth credentials
+                            if google_oauth_available:
+                                st.info(f"📧 Setting up monitoring for brokerage: {brokerage_name}")
+                                
+                                # Check if the monitor can be configured with OAuth credentials
+                                # For now, show what needs to be done
+                                st.info("🔧 Email monitoring requires:")
+                                st.write("✅ Google OAuth credentials (available)")
+                                st.write("✅ Brokerage configuration (current: " + brokerage_name + ")")
+                                st.write("🔄 Gmail API connection setup")
+                                st.write("📬 Email filters and processing rules")
+                                
+                                # The actual implementation would need to:
+                                # 1. Get OAuth tokens from the session/Google SSO
+                                # 2. Configure email monitor with those credentials  
+                                # 3. Add the current brokerage to monitored_brokerages
+                                # 4. Set up email filters for this brokerage
+                                
+                                st.warning("💡 **Next Step:** The email monitor needs to be connected to your Gmail OAuth credentials and configured for this specific brokerage.")
+                                st.info("📝 This would typically involve exchanging OAuth tokens and setting up brokerage-specific email filters.")
                             else:
-                                st.warning("⚠️ Monitoring start command sent, but monitoring not active")
-                                st.info("💡 This may be due to missing authentication or brokerage configuration")
+                                st.error("❌ Cannot start monitoring: Google OAuth credentials not available")
                                 
                         except Exception as e:
-                            st.error(f"❌ Failed to start monitoring: {e}")
+                            st.error(f"❌ Failed to configure monitoring: {e}")
                             import traceback
                             st.code(traceback.format_exc())
                 
