@@ -494,66 +494,30 @@ def _render_email_automation_sidebar():
                             if st.button("📨 Check Inbox Now", key="check_inbox_now"):
                                 try:
                                     with st.spinner("🔍 Checking Gmail inbox..."):
-                                        # Quick test with direct Gmail API call
-                                        st.info("🧪 Testing direct Gmail API access...")
-                                        
-                                        # Get OAuth headers directly from streamlit_google_sso
-                                        try:
-                                            # Try to get real OAuth token from streamlit_google_sso
-                                            auth_data = streamlit_google_sso._get_stored_auth(brokerage_name)
-                                            if auth_data and auth_data.get('access_token'):
-                                                import requests
-                                                headers = {
-                                                    'Authorization': f"Bearer {auth_data.get('access_token')}",
-                                                    'Content-Type': 'application/json'
-                                                }
-                                                
-                                                # Test simple search without time restrictions
-                                                test_query = "has:attachment"
-                                                test_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={test_query}&maxResults=10"
-                                                response = requests.get(test_url, headers=headers)
-                                                
-                                                if response.status_code == 200:
-                                                    data = response.json()
-                                                    messages = data.get('messages', [])
-                                                    st.success(f"✅ Direct API test: Found {len(messages)} emails with attachments")
-                                                    
-                                                    if messages:
-                                                        st.info("📧 Your Gmail has emails with attachments - the issue is likely in the search filtering")
-                                                    else:
-                                                        st.warning("📭 No emails with attachments found in your Gmail account")
-                                                else:
-                                                    st.error(f"❌ Gmail API error: {response.status_code} - {response.text}")
-                                            else:
-                                                st.error("❌ No OAuth access token available")
-                                        except Exception as e:
-                                            st.error(f"❌ Direct API test failed: {e}")
-                                        
-                                        # Also run the normal check
                                         result = email_monitor.check_inbox_now(brokerage_name)
                                         
                                         if result.success:
                                             if result.processed_count > 0:
-                                                st.success(f"✅ Processed {result.processed_count} files")
+                                                st.success(f"✅ Processed {result.processed_count} file(s)")
+                                                st.success(f"📝 {result.message}")
                                             else:
                                                 st.info("📭 No new emails with attachments found")
                                                 
-                                                # Show search criteria being used
-                                                current_filters = email_monitor.oauth_credentials.get(brokerage_name, {}).get('email_filters', {})
-                                                sender_filter = current_filters.get('sender_filter', '')
-                                                subject_filter = current_filters.get('subject_filter', '')
-                                                
-                                                search_terms = []
-                                                if sender_filter:
-                                                    search_terms.append(f"from:{sender_filter}")
-                                                if subject_filter:
-                                                    search_terms.append(f"subject:{subject_filter}")
-                                                search_terms.extend(["has:attachment", "newer_than:1d"])
-                                                
-                                                st.caption(f"🔍 **Search criteria:** {' '.join(search_terms)}")
-                                                st.caption("💡 **Tip:** Try clearing email filters if your test email isn't found")
-                                                
-                                            st.info(f"📝 {result.message}")
+                                                # Show helpful info for troubleshooting
+                                                with st.expander("🔍 Search Details", expanded=False):
+                                                    current_filters = email_monitor.oauth_credentials.get(brokerage_name, {}).get('email_filters', {})
+                                                    sender_filter = current_filters.get('sender_filter', '')
+                                                    subject_filter = current_filters.get('subject_filter', '')
+                                                    
+                                                    if sender_filter or subject_filter:
+                                                        st.caption("**Current email filters:**")
+                                                        if sender_filter:
+                                                            st.caption(f"• From: {sender_filter}")
+                                                        if subject_filter:
+                                                            st.caption(f"• Subject contains: {subject_filter}")
+                                                        st.caption("💡 Try clearing filters if your test email isn't being found")
+                                                    else:
+                                                        st.caption("**Searching:** All emails with attachments")
                                         else:
                                             st.error(f"❌ {result.message}")
                                             
