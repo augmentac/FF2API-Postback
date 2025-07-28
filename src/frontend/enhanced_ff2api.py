@@ -340,8 +340,16 @@ def _render_email_automation_sidebar():
                 else:
                     st.success("✅ Gmail authentication available (via Google OAuth)")
                 
-                # Show automation status
-                if cred_status.email_automation_active:
+                # Show automation status - check both credential status and actual monitor status
+                try:
+                    monitor_running = email_monitor.is_monitoring_active() if hasattr(email_monitor, 'is_monitoring_active') else False
+                except Exception as e:
+                    monitor_running = False
+                
+                # Debug the status
+                st.caption(f"Debug: cred_status.email_automation_active={cred_status.email_automation_active}, monitor_running={monitor_running}")
+                
+                if cred_status.email_automation_active or monitor_running:
                     st.info("🟢 Email automation active")
                 else:
                     st.info("🔴 Email automation inactive")
