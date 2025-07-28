@@ -245,26 +245,43 @@ client_secret = "your-universal-client-secret"
                 auto_code = url_params.get('code', '')
                 if auto_code:
                     st.success("✅ Authorization code detected from redirect!")
-            except:
+                    # Automatically process the authorization code
+                    with st.spinner("🔄 Automatically processing authorization code..."):
+                        result = self._handle_manual_auth_code(brokerage_key, auto_code)
+                        
+                        if result['success']:
+                            st.success(f"✅ Successfully authenticated as: {result['user_email']}")
+                            # Clear the code from URL parameters to prevent reprocessing
+                            st.query_params.clear()
+                            st.rerun()
+                            return result
+                        else:
+                            st.error(f"❌ Automatic authentication failed: {result['message']}")
+                            # Fall through to manual input on failure
+                            auto_code = ''
+            except Exception as e:
                 auto_code = ''
+                st.warning(f"⚠️ Could not auto-process redirect: {str(e)}")
             
-            auth_code = st.text_input(
-                "Authorization code:",
-                value=auto_code,
-                placeholder="Code should auto-fill from redirect, or paste manually",
-                key=f"manual_auth_code_{brokerage_key}"
-            )
-            
-            if auth_code and st.button("Complete Authentication", key=f"complete_manual_{brokerage_key}"):
-                with st.spinner("Processing authentication..."):
-                    result = self._handle_manual_auth_code(brokerage_key, auth_code)
-                    
-                    if result['success']:
-                        st.success(f"✅ Successfully authenticated as: {result['user_email']}")
-                        st.rerun()
-                        return result
-                    else:
-                        st.error(f"❌ Authentication failed: {result['message']}")
+            # Only show manual input if auto-processing didn't succeed
+            if not auto_code:
+                auth_code = st.text_input(
+                    "Authorization code:",
+                    value='',
+                    placeholder="Paste authorization code manually",
+                    key=f"manual_auth_code_{brokerage_key}"
+                )
+                
+                if auth_code and st.button("Complete Authentication", key=f"complete_manual_{brokerage_key}"):
+                    with st.spinner("Processing authentication..."):
+                        result = self._handle_manual_auth_code(brokerage_key, auth_code)
+                        
+                        if result['success']:
+                            st.success(f"✅ Successfully authenticated as: {result['user_email']}")
+                            st.rerun()
+                            return result
+                        else:
+                            st.error(f"❌ Authentication failed: {result['message']}")
         
         return {'success': False, 'authenticated': False, 'manual_flow': True}
     
