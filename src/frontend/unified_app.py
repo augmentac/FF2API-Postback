@@ -175,7 +175,9 @@ def render_enhanced_sidebar(processor: Optional[UnifiedLoadProcessor], db_manage
         
         # Get configurations using correct method
         try:
-            saved_configs = db_manager.get_brokerage_configurations(brokerage_key)
+            all_configs = db_manager.get_brokerage_configurations(brokerage_key)
+            # Filter out placeholder configurations
+            saved_configs = [cfg for cfg in all_configs if cfg.get('name') != '_initial_placeholder']
         except Exception as e:
             logger.error(f"Error getting configurations: {e}")
             saved_configs = []
@@ -326,15 +328,19 @@ def render_brokerage_selection(db_manager: DatabaseManager) -> Optional[str]:
         else:
             return None
     else:
-        # No brokerages exist - show creation form
+        # No brokerages exist - show creation option
         st.info("💡 Create your first brokerage")
         if st.button("➕ Create Brokerage", use_container_width=True):
             st.session_state.show_brokerage_form = True
+            st.rerun()
+        
+        # Always check for brokerage form after button click
+        if st.session_state.get('show_brokerage_form'):
+            created_brokerage = render_brokerage_form()
+            if created_brokerage:
+                return created_brokerage
+        
         return None
-    
-    # Show brokerage creation form
-    if st.session_state.get('show_brokerage_form'):
-        return render_brokerage_form()
 
 
 def render_brokerage_form() -> Optional[str]:
@@ -342,20 +348,53 @@ def render_brokerage_form() -> Optional[str]:
     st.markdown("---")
     st.subheader("➕ New Brokerage")
     
+    # Use session state to persist form input
+    if 'brokerage_form_name' not in st.session_state:
+        st.session_state.brokerage_form_name = ""
+    
     new_brokerage = st.text_input(
         "Brokerage Name",
+        value=st.session_state.brokerage_form_name,
         placeholder="Enter your brokerage name",
-        help="This will be used to organize your configurations"
+        help="This will be used to organize your configurations",
+        key="new_brokerage_name"
     )
+    
+    # Update session state
+    st.session_state.brokerage_form_name = new_brokerage
     
     col1, col2 = st.columns(2)
     
     with col1:
         if st.button("✅ Create", type="primary", use_container_width=True):
             if new_brokerage.strip():
-                st.session_state.show_brokerage_form = False
-                st.success(f"✅ Created brokerage: {new_brokerage.strip()}")
-                return new_brokerage.strip()
+                try:
+                    # Create a placeholder configuration to establish the brokerage in the database
+                    db_manager = DatabaseManager()
+                    placeholder_config = db_manager.save_brokerage_configuration(
+                        brokerage_name=new_brokerage.strip(),
+                        configuration_name="_initial_placeholder",
+                        field_mappings={"_status": "brokerage_created", "_created_at": str(datetime.now())},
+                        api_credentials={"_placeholder": True},
+                        description="Initial brokerage creation - create your first configuration",
+                        auth_type='api_key',
+                        processing_mode='manual'
+                    )
+                    
+                    if placeholder_config:
+                        st.success(f"✅ Created brokerage: {new_brokerage.strip()}")
+                        st.session_state.brokerage_form_name = ""  # Clear form
+                        st.session_state.show_brokerage_form = False
+                        st.rerun()  # Rerun to refresh the brokerage list
+                        return new_brokerage.strip()
+                    else:
+                        st.error("Failed to create brokerage - database error")
+                        return None
+                        
+                except Exception as e:
+                    st.error(f"Error creating brokerage: {str(e)}")
+                    logger.error(f"Brokerage creation error: {e}")
+                    return None
             else:
                 st.error("Please enter a brokerage name")
                 return None
@@ -363,6 +402,7 @@ def render_brokerage_form() -> Optional[str]:
     with col2:
         if st.button("❌ Cancel", use_container_width=True):
             st.session_state.show_brokerage_form = False
+            st.session_state.brokerage_form_name = ""  # Clear form
             st.rerun()
     
     return None
