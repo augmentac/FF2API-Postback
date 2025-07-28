@@ -47,7 +47,7 @@ from src.frontend.ui_components import (
     update_learning_with_processing_results,
     get_full_api_schema
 )
-from src.frontend.ui_components import COMMON_ENUM_FIELDS
+# Removed COMMON_ENUM_FIELDS import - using schema-based enums directly
 
 # Import end-to-end workflow components
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -759,12 +759,8 @@ def _render_data_preview_section():
                         # Manual value
                         manual_value = mapping_value.replace('MANUAL_VALUE:', '')
                         
-                        # Show enum description if available
+                        # Show manual value as-is (schema-based enum values)
                         display_value = str(manual_value)
-                        if field_info.get('enum') and api_field in COMMON_ENUM_FIELDS:
-                            enum_desc = COMMON_ENUM_FIELDS[api_field]['descriptions'].get(manual_value, '')
-                            if enum_desc:
-                                display_value = f"{manual_value} - {enum_desc[:50]}..."
                         
                         config_data.append({
                             "API Field": api_field,

@@ -19,66 +19,7 @@ import time
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Aligned enum definitions with reference repository
-COMMON_ENUM_FIELDS = {
-    'load.mode': {
-        'values': ['FTL', 'LTL', 'DRAYAGE'],
-        'descriptions': {
-            'FTL': 'Full Truckload - Single shipper uses entire truck',
-            'LTL': 'Less Than Truckload - Shared truck space',
-            'DRAYAGE': 'Short-distance transport (port/rail to warehouse)'
-        },
-        'common_alternatives': {
-            'full truckload': 'FTL', 'ftl': 'FTL', 'full': 'FTL',
-            'less than truckload': 'LTL', 'ltl': 'LTL', 'partial': 'LTL',
-            'drayage': 'DRAYAGE', 'port': 'DRAYAGE'
-        }
-    },
-    'load.rateType': {
-        'values': ['SPOT', 'CONTRACT', 'DEDICATED', 'PROJECT'],
-        'descriptions': {
-            'SPOT': 'One-time market rate shipment',
-            'CONTRACT': 'Pre-negotiated rates and terms',
-            'DEDICATED': 'Reserved carrier capacity',
-            'PROJECT': 'Specialized project shipping'
-        },
-        'common_alternatives': {
-            'spot': 'SPOT', 'one-time': 'SPOT', 'market': 'SPOT',
-            'contract': 'CONTRACT', 'contracted': 'CONTRACT',
-            'dedicated': 'DEDICATED', 'reserved': 'DEDICATED',
-            'project': 'PROJECT', 'special': 'PROJECT'
-        }
-    },
-    'load.status': {
-        'values': ['DRAFT', 'CUSTOMER_CONFIRMED', 'COVERED', 'DISPATCHED', 'AT_PICKUP', 'IN_TRANSIT', 'AT_DELIVERY', 'DELIVERED', 'POD_COLLECTED', 'CANCELED', 'ERROR'],
-        'descriptions': {
-            'DRAFT': 'Load created but not confirmed',
-            'CUSTOMER_CONFIRMED': 'Customer has confirmed the load',
-            'COVERED': 'Carrier assigned to load',
-            'DISPATCHED': 'Load dispatched to carrier',
-            'AT_PICKUP': 'Driver arrived at pickup location',
-            'IN_TRANSIT': 'Load is en route to destination',
-            'AT_DELIVERY': 'Driver arrived at delivery location',
-            'DELIVERED': 'Load successfully delivered',
-            'POD_COLLECTED': 'Proof of delivery collected',
-            'CANCELED': 'Load has been canceled',
-            'ERROR': 'Error occurred during processing'
-        },
-        'common_alternatives': {
-            'draft': 'DRAFT', 'new': 'DRAFT',
-            'confirmed': 'CUSTOMER_CONFIRMED', 'approved': 'CUSTOMER_CONFIRMED',
-            'covered': 'COVERED', 'assigned': 'COVERED',
-            'dispatched': 'DISPATCHED', 'sent': 'DISPATCHED',
-            'pickup': 'AT_PICKUP', 'at pickup': 'AT_PICKUP',
-            'transit': 'IN_TRANSIT', 'in transit': 'IN_TRANSIT',
-            'delivery': 'AT_DELIVERY', 'at delivery': 'AT_DELIVERY',
-            'delivered': 'DELIVERED', 'complete': 'DELIVERED',
-            'pod': 'POD_COLLECTED', 'pod collected': 'POD_COLLECTED',
-            'canceled': 'CANCELED', 'cancelled': 'CANCELED',
-            'error': 'ERROR', 'failed': 'ERROR'
-        }
-    }
-}
+# Remove COMMON_ENUM_FIELDS since we're using schema-based enums directly
 
 def create_smart_manual_value_interface(field_path, field_info, current_value=None):
     """
@@ -118,13 +59,8 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
     
     value = None
     
-    if is_enum and field_path in COMMON_ENUM_FIELDS:
-        # Use enhanced enum interface with descriptions
-        enum_config = COMMON_ENUM_FIELDS[field_path]
-        value = _render_enum_manual_input(field_path, enum_config, current_manual)
-        
-    elif is_enum:
-        # Basic enum interface for fields not in COMMON_ENUM_FIELDS
+    if is_enum:
+        # Use schema-based enum interface - show actual API values
         enum_values = field_info.get('enum', [])
         options = ["-- Select Option --"] + enum_values
         
@@ -153,7 +89,7 @@ def create_smart_manual_value_interface(field_path, field_info, current_value=No
         # Text input
         value = _render_text_manual_input(field_path, field_info, current_manual)
     
-    # Show validation status
+    # Only show validation status if we have a value, but always return the value
     if value is not None and value != "":
         st.success("✅ Manual value set")
     elif is_required:
@@ -2421,25 +2357,74 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
     with col3:
         # Manual value button
         
-        # Smart manual value interface
+        # Manual value interface - toggle visibility
+        manual_mode_key = generate_unique_key("manual_mode", "toggle")
+        if f"manual_mode_{field}" not in st.session_state:
+            st.session_state[f"manual_mode_{field}"] = False
+            
         if st.button("📝 Manual", key=manual_button_key, help="Set manual value"):
+            st.session_state[f"manual_mode_{field}"] = not st.session_state[f"manual_mode_{field}"]
+            
+        # Show manual value interface if enabled
+        if st.session_state[f"manual_mode_{field}"]:
             # Get fresh field info from schema to ensure completeness
             api_schema = get_full_api_schema()
             fresh_field_info = api_schema.get(field, field_info)
             
-            # Call smart interface
+            # Get current manual value if exists
             current_value = updated_mappings.get(field)
-            manual_value = create_smart_manual_value_interface(field, fresh_field_info, current_value)
+            current_manual = None
+            if current_value and str(current_value).startswith("MANUAL_VALUE:"):
+                current_manual = str(current_value).replace("MANUAL_VALUE:", "")
             
-            if manual_value is not None:
-                updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
-                # Update session state immediately to persist across tab switches
-                if 'field_mappings' not in st.session_state:
-                    st.session_state.field_mappings = updated_mappings.copy()
-                else:
-                    # Update only this field, preserving other mappings
-                    st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
-                st.success(f"✅ Set manual value: {manual_value}")
+            # Show appropriate input based on field type
+            if fresh_field_info.get('enum'):
+                # Enum dropdown
+                enum_values = fresh_field_info.get('enum', [])
+                options = ["-- Select Option --"] + enum_values
+                
+                current_index = 0
+                if current_manual and current_manual in enum_values:
+                    current_index = enum_values.index(current_manual) + 1
+                    
+                selected = st.selectbox(
+                    f"Select value for {field}:",
+                    options=options,
+                    index=current_index,
+                    key=manual_input_key
+                )
+                
+                if selected != "-- Select Option --":
+                    updated_mappings[field] = f"MANUAL_VALUE:{selected}"
+                    if 'field_mappings' not in st.session_state:
+                        st.session_state.field_mappings = updated_mappings.copy()
+                    else:
+                        st.session_state.field_mappings[field] = f"MANUAL_VALUE:{selected}"
+                elif field in updated_mappings and updated_mappings[field].startswith('MANUAL_VALUE:'):
+                    # Clear manual value if "-- Select Option --" is chosen
+                    del updated_mappings[field]
+                    if 'field_mappings' in st.session_state and field in st.session_state.field_mappings:
+                        del st.session_state.field_mappings[field]
+            else:
+                # Text input for non-enum fields
+                manual_value = st.text_input(
+                    f"Manual value for {fresh_field_info.get('description', field)}:",
+                    value=current_manual or "",
+                    key=manual_input_key,
+                    placeholder="Enter value..."
+                )
+                
+                if manual_value:
+                    updated_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                    if 'field_mappings' not in st.session_state:
+                        st.session_state.field_mappings = updated_mappings.copy()
+                    else:
+                        st.session_state.field_mappings[field] = f"MANUAL_VALUE:{manual_value}"
+                elif field in updated_mappings and updated_mappings[field].startswith('MANUAL_VALUE:'):
+                    # Clear manual value if input is empty
+                    del updated_mappings[field]
+                    if 'field_mappings' in st.session_state and field in st.session_state.field_mappings:
+                        del st.session_state.field_mappings[field]
         
         # Show current manual value if exists
         current_mapping = updated_mappings.get(field)
