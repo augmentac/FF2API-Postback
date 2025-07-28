@@ -328,17 +328,22 @@ def _render_email_automation_sidebar():
         brokerage_name = st.session_state.get('brokerage_name', 'default')
         
         try:
-            # Check if email automation is configured for this brokerage
-            cred_status = credential_manager.validate_credentials(brokerage_name)
-            
-            # Check both credential manager and Google OAuth availability
+            # Check Google OAuth availability
             google_oauth_available = streamlit_google_sso.is_configured()
             
-            # Check if user has completed Gmail setup for this brokerage
+            # Check if user has completed REAL Gmail OAuth setup for this brokerage
             auth_key = f'gmail_auth_{brokerage_name.replace("-", "_")}'
-            gmail_setup_complete = st.session_state.get(auth_key, {}).get('authenticated', False)
+            gmail_oauth_credentials = st.session_state.get(auth_key, {})
             
-            # Get monitor status first
+            # Only consider it "setup complete" if we have real OAuth credentials (not simulated)
+            gmail_setup_complete = (
+                gmail_oauth_credentials.get('authenticated', False) and 
+                gmail_oauth_credentials.get('oauth_active', False) and
+                'user_email' in gmail_oauth_credentials and
+                gmail_oauth_credentials.get('user_email') != 'user@gmail.com'  # Exclude simulated credentials
+            )
+            
+            # Get monitor status
             try:
                 monitor_running = getattr(email_monitor, 'monitoring_active', False)
                 if hasattr(email_monitor, 'get_monitoring_status'):
@@ -349,15 +354,15 @@ def _render_email_automation_sidebar():
                 monitor_running = False
                 status_info = {}
             
-            # Debug the condition
-            st.caption(f"Debug condition: email_automation_available={cred_status.email_automation_available}, gmail_setup_complete={gmail_setup_complete}")
+            # Debug the actual OAuth credentials (not credential manager fake detection)
+            st.caption(f"Debug OAuth: gmail_setup_complete={gmail_setup_complete}, google_oauth_available={google_oauth_available}")
+            if gmail_oauth_credentials:
+                st.caption(f"OAuth details: user={gmail_oauth_credentials.get('user_email', 'none')}, oauth_active={gmail_oauth_credentials.get('oauth_active', False)}")
             
-            if cred_status.email_automation_available or gmail_setup_complete:
-                if cred_status.email_automation_available:
-                    st.success("✅ Gmail automation configured (via secrets)")
-                elif gmail_setup_complete:
-                    user_email = st.session_state[auth_key].get('user_email', 'Gmail account')
-                    st.success(f"✅ Gmail automation active ({user_email})")
+            if gmail_setup_complete:
+                # Real OAuth credentials detected
+                user_email = gmail_oauth_credentials.get('user_email', 'Gmail account')
+                st.success(f"✅ Gmail OAuth authenticated ({user_email})")
                 
                 # Add troubleshooting when configured but not working
                 if not monitor_running and status_info.get('monitoring_active') == False:
@@ -371,15 +376,45 @@ def _render_email_automation_sidebar():
                         col1, col2 = st.columns(2)
                         with col1:
                             if st.button("🔄 Reset & Reconfigure", key="reset_gmail_config"):
-                                # Clear session state
-                                if auth_key in st.session_state:
-                                    del st.session_state[auth_key]
-                                st.success("Session cleared - refresh page to reconfigure")
+                                # Clear all OAuth-related session state for this brokerage
+                                keys_to_clear = [
+                                    auth_key,
+                                    f'gmail_auth_success_{brokerage_name}',
+                                    f'processed_code_{brokerage_name}',
+                                    'google_sso_auth'
+                                ]
+                                
+                                for key in keys_to_clear:
+                                    if key in st.session_state:
+                                        del st.session_state[key]
+                                
+                                # Also clear any stored credentials in streamlit_google_sso
+                                try:
+                                    streamlit_google_sso._clear_stored_auth(brokerage_name)
+                                except:
+                                    pass
+                                
+                                st.success("All Gmail credentials cleared - refresh page to reconfigure")
                                 st.rerun()
                         with col2:
                             if st.button("🧪 Test Connection", key="test_gmail_connection"):
-                                st.info("Testing Gmail API connection...")
-                                st.info("This would test the actual Gmail connection")
+                                # Test real OAuth credentials instead of simulation
+                                with st.spinner("Testing Gmail OAuth credentials..."):
+                                    try:
+                                        # Use streamlit_google_sso to test the credentials
+                                        test_result = streamlit_google_sso._test_gmail_connection(brokerage_name, gmail_oauth_credentials)
+                                        
+                                        if test_result.get('success'):
+                                            st.success(f"✅ Gmail connection successful!")
+                                            if 'total_messages' in test_result:
+                                                st.info(f"📧 Gmail inbox accessible: {test_result['total_messages']} messages")
+                                        else:
+                                            st.error(f"❌ Gmail connection failed: {test_result.get('message', 'Unknown error')}")
+                                            st.info("💡 Try disconnecting and reconnecting your Gmail account")
+                                            
+                                    except Exception as e:
+                                        st.error(f"❌ Test failed: {e}")
+                                        st.info("This indicates the OAuth credentials may be invalid or expired")
                 
                 # Show automation status - check both credential status and actual monitor status
                 try:
@@ -394,11 +429,12 @@ def _render_email_automation_sidebar():
                     monitor_running = False
                     status_info = f"Error: {e}"
                 
-                # Debug the status and email monitor
-                st.caption(f"Debug: cred_status.email_automation_active={cred_status.email_automation_active}, monitor_running={monitor_running}")
+                # Debug the status and email monitor (only real status, no fake credentials)
+                st.caption(f"Debug: monitor_running={monitor_running}, gmail_oauth_complete={gmail_setup_complete}")
                 st.caption(f"Monitor status info: {status_info}")
                 
-                if cred_status.email_automation_active or monitor_running or gmail_setup_complete:
+                # Only show as active if we have real OAuth AND monitoring is actually running
+                if gmail_setup_complete and monitor_running:
                     st.info("🟢 Email automation active")
                 else:
                     st.info("🔴 Email automation inactive")
@@ -408,33 +444,71 @@ def _render_email_automation_sidebar():
                 with col1:
                     if st.button("▶️ Start Monitor", key="start_email_monitor", use_container_width=True):
                         try:
-                            st.info("🔄 Configuring email monitoring for this brokerage...")
+                            if not gmail_setup_complete:
+                                st.error("❌ Gmail OAuth authentication required first")
+                                st.info("Please complete Gmail authentication before starting email monitoring")
+                                return
                             
-                            # Configure the email monitor with current brokerage and OAuth credentials
-                            if google_oauth_available:
-                                st.info(f"📧 Setting up monitoring for brokerage: {brokerage_name}")
-                                
-                                # Check if the monitor can be configured with OAuth credentials
-                                # For now, show what needs to be done
-                                st.info("🔧 Email monitoring requires:")
-                                st.write("✅ Google OAuth credentials (available)")
-                                st.write("✅ Brokerage configuration (current: " + brokerage_name + ")")
-                                st.write("🔄 Gmail API connection setup")
-                                st.write("📬 Email filters and processing rules")
-                                
-                                # The actual implementation would need to:
-                                # 1. Get OAuth tokens from the session/Google SSO
-                                # 2. Configure email monitor with those credentials  
-                                # 3. Add the current brokerage to monitored_brokerages
-                                # 4. Set up email filters for this brokerage
-                                
-                                st.warning("💡 **Next Step:** The email monitor needs to be connected to your Gmail OAuth credentials and configured for this specific brokerage.")
-                                st.info("📝 This would typically involve exchanging OAuth tokens and setting up brokerage-specific email filters.")
-                            else:
-                                st.error("❌ Cannot start monitoring: Google OAuth credentials not available")
-                                
+                            st.info("🔄 Starting email monitoring with OAuth credentials...")
+                            
+                            # Get OAuth credentials from session state
+                            oauth_creds = gmail_oauth_credentials
+                            user_email = oauth_creds.get('user_email')
+                            
+                            with st.spinner(f"Configuring email monitoring for {brokerage_name}..."):
+                                # Connect OAuth credentials to email monitor
+                                try:
+                                    # Check if email monitor has the required methods
+                                    if not hasattr(email_monitor, 'configure_oauth_monitoring'):
+                                        st.error("❌ Email monitor service doesn't support OAuth integration yet")
+                                        st.info("This requires implementing `configure_oauth_monitoring` in the email_monitor service")
+                                        return
+                                    
+                                    # Configure email monitoring with real OAuth credentials
+                                    config_result = email_monitor.configure_oauth_monitoring(
+                                        brokerage_key=brokerage_name,
+                                        oauth_credentials=oauth_creds,
+                                        email_filters={
+                                            'sender_filter': st.session_state.get('email_sender_filter', ''),
+                                            'subject_filter': st.session_state.get('email_subject_filter', '')
+                                        }
+                                    )
+                                    
+                                    if config_result.get('success'):
+                                        # Start monitoring
+                                        start_result = email_monitor.start_monitoring()
+                                        
+                                        if start_result.get('success'):
+                                            st.success(f"✅ Email monitoring started for {user_email}")
+                                            st.success(f"📧 Monitoring emails for brokerage: {brokerage_name}")
+                                            st.rerun()  # Refresh to update status
+                                        else:
+                                            st.error(f"❌ Failed to start monitoring: {start_result.get('message', 'Unknown error')}")
+                                    else:
+                                        st.error(f"❌ Failed to configure monitoring: {config_result.get('message', 'Unknown error')}")
+                                        
+                                except AttributeError:
+                                    # Email monitor doesn't have OAuth support yet - show what needs to be implemented
+                                    st.warning("🚧 **Email Monitor OAuth Integration Required**")
+                                    st.info("The email_monitor service needs OAuth integration implementation:")
+                                    st.code("""
+# Required methods in email_monitor:
+def configure_oauth_monitoring(brokerage_key, oauth_credentials, email_filters):
+    # 1. Store OAuth credentials for Gmail API access
+    # 2. Configure email filters for this brokerage
+    # 3. Add brokerage to monitored_brokerages list
+    # 4. Return success/failure status
+
+def start_monitoring():
+    # 1. Start email monitoring service
+    # 2. Connect to Gmail API using stored OAuth credentials
+    # 3. Begin polling for new emails
+    # 4. Return success/failure status
+                                    """)
+                                    st.error("❌ Email monitoring OAuth integration not yet implemented")
+                                    
                         except Exception as e:
-                            st.error(f"❌ Failed to configure monitoring: {e}")
+                            st.error(f"❌ Failed to start monitoring: {e}")
                             import traceback
                             st.code(traceback.format_exc())
                 
