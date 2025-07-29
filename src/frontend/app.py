@@ -542,8 +542,9 @@ def show_contextual_information(db_manager):
         with st.expander("🔧 Session Details", expanded=False):
             _render_session_details()
     
-    # Database management section
-    render_database_management_section()
+    # Database backup status dashboard
+    from db_manager import render_backup_status_dashboard
+    render_backup_status_dashboard()
     
     # Learning analytics section
     # Learning Analytics section removed - not currently being used

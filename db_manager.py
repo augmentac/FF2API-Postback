@@ -378,6 +378,168 @@ def cleanup_temp_files():
     except Exception as e:
         print(f"[db_manager] WARNING: Failed to cleanup temp files: {e}")
 
+# Backup status monitoring functions
+
+def get_backup_status() -> dict:
+    """Get comprehensive backup system status including database size and health"""
+    import sqlite3
+    from datetime import datetime
+    
+    status = {
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'database_exists': False,
+        'database_size_mb': 0,
+        'record_count': 0,
+        'tables': {},
+        'google_drive_connected': False,
+        'last_backup_hash': None,
+        'backup_needed': False,
+        'system_health': 'Unknown'
+    }
+    
+    try:
+        # Check if database exists and get size
+        if os.path.exists(SQLITE_FILE):
+            status['database_exists'] = True
+            status['database_size_mb'] = round(os.path.getsize(SQLITE_FILE) / (1024 * 1024), 2)
+            
+            # Get table info and record counts
+            try:
+                conn = sqlite3.connect(SQLITE_FILE)
+                cursor = conn.cursor()
+                
+                # Get table names
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
+                
+                total_records = 0
+                for (table_name,) in tables:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    count = cursor.fetchone()[0]
+                    status['tables'][table_name] = count
+                    total_records += count
+                
+                status['record_count'] = total_records
+                conn.close()
+                
+            except Exception as e:
+                print(f"[db_manager] WARNING: Failed to query database tables: {e}")
+        
+        # Check Google Drive connection
+        drive_manager = _get_drive_manager()
+        status['google_drive_connected'] = drive_manager.authenticated
+        
+        # Check backup status
+        if status['database_exists']:
+            current_hash = _calculate_file_hash(SQLITE_FILE)
+            last_hash = _get_last_hash()
+            status['last_backup_hash'] = last_hash[:8] + '...' if last_hash else 'None'
+            status['backup_needed'] = current_hash != last_hash
+        
+        # Determine system health
+        if status['google_drive_connected'] and status['database_exists']:
+            if status['backup_needed']:
+                status['system_health'] = 'Backup Pending'
+            else:
+                status['system_health'] = 'Healthy'
+        elif status['database_exists']:
+            status['system_health'] = 'Drive Disconnected'
+        else:
+            status['system_health'] = 'No Database'
+            
+    except Exception as e:
+        print(f"[db_manager] ERROR: Failed to get backup status: {e}")
+        status['system_health'] = 'Error'
+    
+    return status
+
+def render_backup_status_dashboard():
+    """Render the backup status dashboard in Streamlit"""
+    st.subheader("🔄 Database Backup Status")
+    
+    status = get_backup_status()
+    
+    # Status overview with metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        health_color = {
+            'Healthy': '🟢',
+            'Backup Pending': '🟡',
+            'Drive Disconnected': '🟠',
+            'No Database': '⚪',
+            'Error': '🔴',
+            'Unknown': '⚫'
+        }
+        st.metric(
+            "System Health",
+            f"{health_color.get(status['system_health'], '⚫')} {status['system_health']}"
+        )
+    
+    with col2:
+        st.metric(
+            "Database Size",
+            f"{status['database_size_mb']} MB" if status['database_exists'] else "No DB",
+            help="Current SQLite database file size"
+        )
+    
+    with col3:
+        st.metric(
+            "Total Records",
+            f"{status['record_count']:,}" if status['database_exists'] else "0",
+            help="Total records across all database tables"
+        )
+    
+    with col4:
+        drive_status = "✅ Connected" if status['google_drive_connected'] else "❌ Disconnected"
+        st.metric(
+            "Google Drive",
+            drive_status,
+            help="Google Drive backup connection status"
+        )
+    
+    # Detailed information
+    with st.expander("📊 Database Details", expanded=False):
+        if status['database_exists']:
+            st.write("**Database Tables:**")
+            for table, count in status['tables'].items():
+                st.write(f"• {table}: {count:,} records")
+            
+            col_a, col_b = st.columns(2)
+            with col_a:
+                st.write(f"**Last Backup Hash:** `{status['last_backup_hash']}`")
+            with col_b:
+                backup_status_text = "⚠️ Needed" if status['backup_needed'] else "✅ Up to date"
+                st.write(f"**Backup Status:** {backup_status_text}")
+        else:
+            st.info("No database file found. Database will be created when data is processed.")
+    
+    # Action buttons
+    col_x, col_y = st.columns(2)
+    
+    with col_x:
+        if st.button("🔄 Force Backup Now", disabled=not status['database_exists'] or not status['google_drive_connected']):
+            with st.spinner("Uploading database to Google Drive..."):
+                upload_sqlite_if_changed()
+                st.success("Backup completed!")
+                st.rerun()
+    
+    with col_y:
+        if st.button("📥 Restore from Drive", disabled=not status['google_drive_connected']):
+            with st.spinner("Restoring database from Google Drive..."):
+                # Backup current DB if it exists
+                if status['database_exists']:
+                    backup_name = f"ff_backup_{int(time.time())}.sqlite"
+                    os.rename(SQLITE_FILE, backup_name)
+                    st.info(f"Current database backed up as {backup_name}")
+                
+                restore_sqlite_if_missing()
+                st.success("Database restored from Google Drive!")
+                st.rerun()
+    
+    # Status timestamp
+    st.caption(f"Last updated: {status['timestamp']}")
+
 # Auto-cleanup on module import (optional)
 import atexit
 atexit.register(cleanup_temp_files)

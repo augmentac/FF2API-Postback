@@ -236,8 +236,7 @@ from src.frontend.app import (
     _handle_save_configuration,
     _render_compact_brokerage_config_display,
     _render_consolidated_status,
-    _has_session_data,
-    render_database_management_section
+    _has_session_data
 )
 
 def main():
