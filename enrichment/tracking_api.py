@@ -159,6 +159,14 @@ class TrackingAPIEnricher(EnrichmentSource):
                 response.raise_for_status()
                 
                 data = response.json()
+                
+                # Ensure data is a dictionary before calling .get()
+                if not isinstance(data, dict):
+                    logger.warning(f"Unexpected response format from tracking API for {carrier} PRO {pro_number}: {type(data)} - {data}")
+                    # Cache the failure to avoid repeated attempts
+                    self._tracking_cache[cache_key] = None
+                    return None
+                
                 result = data.get('completedBrowserTask', {}).get('result', {})
                 
                 if not result:
