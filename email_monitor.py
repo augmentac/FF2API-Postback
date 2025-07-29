@@ -48,6 +48,8 @@ class ProcessingResult:
     processed_count: int
     error_details: Optional[str] = None
     file_info: Optional[Dict[str, Any]] = None
+    processed_files: Optional[List[Dict[str, Any]]] = None
+    processing_summary: Optional[Dict[str, Any]] = None
 
 class EmailMonitorService:
     """Gmail monitoring service for automatic load processing."""
@@ -260,16 +262,41 @@ class EmailMonitorService:
                     processed_count=0
                 )
             
-            # Process attachments
+            # Process attachments with detailed results
             processed_count = 0
+            processed_files = []
+            total_records = 0
+            processing_errors = []
+            
             for attachment in attachments:
-                if self._process_attachment(attachment, brokerage_key, config):
-                    processed_count += 1
+                try:
+                    file_result = self._process_attachment_detailed(attachment, brokerage_key, config)
+                    if file_result['success']:
+                        processed_count += 1
+                        processed_files.append(file_result)
+                        total_records += file_result.get('record_count', 0)
+                    else:
+                        processing_errors.append(f"{attachment.filename}: {file_result.get('error', 'Unknown error')}")
+                except Exception as e:
+                    processing_errors.append(f"{attachment.filename}: {str(e)}")
+            
+            # Calculate processing summary
+            processing_summary = {
+                'total_records': total_records,
+                'success_rate': (processed_count / len(attachments) * 100) if attachments else 0,
+                'processing_time': datetime.now().isoformat(),
+                'total_files': len(attachments),
+                'successful_files': processed_count,
+                'failed_files': len(attachments) - processed_count
+            }
             
             return ProcessingResult(
                 success=True,
                 message=f"Processed {processed_count} files from {oauth_creds.get('user_email')}",
-                processed_count=processed_count
+                processed_count=processed_count,
+                processed_files=processed_files,
+                processing_summary=processing_summary,
+                error_details='; '.join(processing_errors) if processing_errors else None
             )
             
         except Exception as e:
@@ -712,6 +739,121 @@ class EmailMonitorService:
             
         except Exception as e:
             logger.error(f"Error storing processed data: {e}")
+    
+    def _process_attachment_detailed(self, attachment: EmailAttachment, brokerage_key: str, config: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process email attachment with detailed results capture.
+        
+        Args:
+            attachment: EmailAttachment to process
+            brokerage_key: Brokerage identifier
+            config: Email automation configuration
+            
+        Returns:
+            Dictionary with detailed processing results
+        """
+        try:
+            logger.info(f"Processing attachment with detailed results: {attachment.filename} from {attachment.sender}")
+            
+            # Parse file content
+            df = None
+            if attachment.mime_type in ['text/csv', 'application/csv']:
+                df = pd.read_csv(io.BytesIO(attachment.content))
+            elif attachment.mime_type == 'application/json':
+                data = json.loads(attachment.content.decode('utf-8'))
+                df = pd.DataFrame(data) if isinstance(data, list) else pd.json_normalize(data)
+            elif attachment.mime_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'] or attachment.filename.lower().endswith(('.xlsx', '.xls')):
+                df = pd.read_excel(io.BytesIO(attachment.content), engine='openpyxl' if attachment.filename.lower().endswith('.xlsx') else None)
+            else:
+                return {
+                    'success': False,
+                    'error': f"Unsupported file type: {attachment.mime_type}",
+                    'filename': attachment.filename,
+                    'sender': attachment.sender,
+                    'received_time': attachment.received_time.isoformat()
+                }
+            
+            if df is None or df.empty:
+                return {
+                    'success': False,
+                    'error': "Failed to parse file or file is empty",
+                    'filename': attachment.filename,
+                    'sender': attachment.sender,
+                    'received_time': attachment.received_time.isoformat()
+                }
+            
+            # Get saved field mappings for this brokerage
+            try:
+                from src.backend.database import DatabaseManager
+                from src.backend.data_processor import DataProcessor
+                
+                db_manager = DatabaseManager()
+                data_processor = DataProcessor()
+                
+                # Get the most recent configuration for this brokerage
+                configurations = db_manager.get_all_brokerage_configurations()
+                brokerage_configs = [c for c in configurations if c['brokerage_name'] == brokerage_key]
+                
+                if brokerage_configs:
+                    # Use the most recent configuration
+                    recent_config = max(brokerage_configs, key=lambda x: x.get('updated_at', ''))
+                    field_mappings = json.loads(recent_config['field_mappings'])
+                else:
+                    field_mappings = {}
+                
+                # Apply field mappings if available
+                mapping_errors = []
+                if field_mappings:
+                    mapped_df, mapping_errors = data_processor.apply_mapping(df, field_mappings)
+                    
+                    # Apply carrier auto-mapping
+                    mapped_df = data_processor.apply_carrier_mapping(mapped_df, brokerage_key, db_manager)
+                else:
+                    mapped_df = df.copy()
+                
+                # Store processed data for pickup by main application
+                self._store_processed_data(mapped_df, attachment, brokerage_key, config)
+                
+                # Prepare detailed result
+                result = {
+                    'success': True,
+                    'filename': attachment.filename,
+                    'sender': attachment.sender,
+                    'subject': attachment.subject,
+                    'received_time': attachment.received_time.isoformat(),
+                    'processed_time': datetime.now().isoformat(),
+                    'record_count': len(df),
+                    'original_columns': list(df.columns),
+                    'mapped_columns': list(mapped_df.columns) if field_mappings else list(df.columns),
+                    'field_mappings_applied': len(field_mappings),
+                    'mapping_errors': mapping_errors,
+                    'processing_status': 'success' if not mapping_errors else 'partial',
+                    'data_preview': mapped_df.head(3).to_dict('records') if len(mapped_df) > 0 else []
+                }
+                
+                logger.info(f"Successfully processed {attachment.filename} - {len(df)} records with detailed tracking")
+                return result
+                
+            except Exception as e:
+                logger.error(f"Error during detailed processing: {e}")
+                return {
+                    'success': False,
+                    'error': f"Processing error: {str(e)}",
+                    'filename': attachment.filename,
+                    'sender': attachment.sender,
+                    'received_time': attachment.received_time.isoformat(),
+                    'record_count': len(df) if df is not None else 0
+                }
+            
+        except Exception as e:
+            logger.error(f"Error in detailed processing for {attachment.filename}: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'filename': attachment.filename,
+                'sender': attachment.sender if hasattr(attachment, 'sender') else 'Unknown',
+                'received_time': attachment.received_time.isoformat() if hasattr(attachment, 'received_time') else datetime.now().isoformat()
+            }
     
     def _refresh_oauth_token(self, brokerage_key: str, current_auth: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """

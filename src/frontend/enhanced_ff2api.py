@@ -497,8 +497,20 @@ def _render_email_automation_sidebar():
                                         
                                         if result.success:
                                             if result.processed_count > 0:
-                                                st.success(f"✅ Processed {result.processed_count} file(s)")
-                                                st.success(f"📝 {result.message}")
+                                                # Store detailed results in session state
+                                                st.session_state.email_processing_results = {
+                                                    'success': True,
+                                                    'processed_files': result.processed_files or [],
+                                                    'processing_summary': result.processing_summary or {},
+                                                    'timestamp': datetime.now(),
+                                                    'source': 'email_automation',
+                                                    'error_details': result.error_details
+                                                }
+                                                
+                                                # Trigger dashboard view
+                                                st.session_state.show_email_results_dashboard = True
+                                                st.success(f"✅ Processed {result.processed_count} file(s) - View details below")
+                                                st.rerun()
                                             else:
                                                 st.info("📭 No new emails with attachments found")
                                                 
@@ -908,6 +920,7 @@ def _render_enhanced_workflow_with_progress(db_manager, data_processor):
     _render_carrier_configuration_section(db_manager)
     _render_validation_section(data_processor)
     _render_enhanced_processing_section(db_manager, data_processor)
+    _render_email_results_dashboard()
     _render_enhanced_results_section()
 
 def _render_current_file_info():
@@ -1271,6 +1284,131 @@ def _show_processing_preview(processing_mode):
         steps = mode_steps.get(processing_mode, mode_steps['standard'])
         for step in steps:
             st.write(step)
+
+def _render_email_results_dashboard():
+    """Render email processing results dashboard similar to manual upload results."""
+    
+    if not st.session_state.get('show_email_results_dashboard'):
+        return
+    
+    results = st.session_state.get('email_processing_results')
+    if not results:
+        return
+    
+    st.markdown("---")
+    st.markdown("### 📧 Email Processing Results")
+    
+    # Summary metrics (same as manual upload)
+    col1, col2, col3, col4 = st.columns(4)
+    summary = results.get('processing_summary', {})
+    
+    with col1:
+        st.metric("Files Processed", summary.get('successful_files', 0))
+    with col2:
+        st.metric("Total Records", summary.get('total_records', 0))
+    with col3:
+        success_rate = summary.get('success_rate', 0)
+        st.metric("Success Rate", f"{success_rate:.1f}%")
+    with col4:
+        st.metric("Source", "📧 Email")
+    
+    # Processing timestamp
+    processing_time = results.get('timestamp', datetime.now())
+    if isinstance(processing_time, str):
+        try:
+            processing_time = datetime.fromisoformat(processing_time)
+        except:
+            processing_time = datetime.now()
+    
+    st.caption(f"⏱️ Processed at: {processing_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Detailed results for each file
+    processed_files = results.get('processed_files', [])
+    
+    if processed_files:
+        st.markdown("#### 📁 File Processing Details")
+        
+        for file_result in processed_files:
+            status_icon = "✅" if file_result.get('processing_status') == 'success' else "⚠️"
+            
+            with st.expander(f"{status_icon} {file_result.get('filename', 'Unknown')} - {file_result.get('record_count', 0)} records"):
+                
+                # File metadata
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Sender:** {file_result.get('sender', 'N/A')}")
+                    st.write(f"**Received:** {file_result.get('received_time', 'N/A')}")
+                    st.write(f"**Subject:** {file_result.get('subject', 'N/A')}")
+                with col2:
+                    st.write(f"**Records:** {file_result.get('record_count', 0)}")
+                    st.write(f"**Status:** {status_icon} {file_result.get('processing_status', 'Unknown')}")
+                    st.write(f"**Mappings Applied:** {file_result.get('field_mappings_applied', 0)}")
+                
+                # Show column mapping information
+                if file_result.get('original_columns') and file_result.get('mapped_columns'):
+                    st.markdown("**Column Processing:**")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.caption(f"Original columns: {len(file_result['original_columns'])}")
+                        with st.expander("View original columns"):
+                            for col in file_result['original_columns']:
+                                st.caption(f"• {col}")
+                    with col2:
+                        st.caption(f"Mapped columns: {len(file_result['mapped_columns'])}")
+                        with st.expander("View mapped columns"):
+                            for col in file_result['mapped_columns']:
+                                st.caption(f"• {col}")
+                
+                # Show mapping errors if any
+                mapping_errors = file_result.get('mapping_errors', [])
+                if mapping_errors:
+                    st.markdown("**⚠️ Mapping Issues:**")
+                    for error in mapping_errors:
+                        st.warning(f"• {error}")
+                
+                # Show data preview
+                data_preview = file_result.get('data_preview', [])
+                if data_preview:
+                    st.markdown("**📊 Data Preview (First 3 rows):**")
+                    preview_df = pd.DataFrame(data_preview)
+                    st.dataframe(preview_df, use_container_width=True)
+                
+                # Processing details
+                if file_result.get('processed_time'):
+                    st.caption(f"🕒 Processed: {file_result['processed_time']}")
+    
+    # Error summary if any
+    if results.get('error_details'):
+        st.markdown("#### ❌ Processing Errors")
+        st.error(results['error_details'])
+    
+    # Action buttons
+    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if st.button("🔄 Check Inbox Again", use_container_width=True):
+            st.session_state.show_email_results_dashboard = False
+            st.session_state.email_processing_results = None
+            st.rerun()
+    
+    with col2:
+        if st.button("📂 Process Another File", use_container_width=True):
+            st.session_state.show_email_results_dashboard = False
+            st.session_state.email_processing_results = None
+            # Clear uploaded file to start fresh
+            if 'uploaded_df' in st.session_state:
+                del st.session_state.uploaded_df
+            if 'uploaded_file_name' in st.session_state:
+                del st.session_state.uploaded_file_name
+            st.rerun()
+    
+    with col3:
+        if st.button("❌ Close Results", use_container_width=True):
+            st.session_state.show_email_results_dashboard = False
+            st.session_state.email_processing_results = None
+            st.rerun()
+
 
 def _render_enhanced_results_section():
     """Enhanced results section with end-to-end capabilities"""
