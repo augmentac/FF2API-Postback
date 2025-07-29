@@ -77,16 +77,19 @@ class GoogleDriveManager:
                 self.authenticated = True
                 print("[db_manager] Google Drive authentication successful")
                 
-            except AttributeError as e:
-                if "'_module'" in str(e):
+            except Exception as e:
+                error_str = str(e)
+                if "'_module'" in error_str or "AttributeError" in error_str:
                     # Known PyDrive2 + Streamlit compatibility issue
-                    print("[db_manager] PyDrive2 Streamlit compatibility issue detected")
+                    print(f"[db_manager] PyDrive2 Streamlit compatibility issue detected: {e}")
                     print("[db_manager] Attempting alternative authentication method...")
                     
                     # Try direct credential creation
                     self._try_direct_auth()
                 else:
-                    raise e
+                    print(f"[db_manager] Unexpected PyDrive2 error: {e}")
+                    # Try direct auth anyway as fallback
+                    self._try_direct_auth()
             
         except Exception as e:
             print(f"[db_manager] ERROR: Failed to initialize Google Drive: {e}")
