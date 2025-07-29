@@ -816,126 +816,78 @@ def get_backup_status() -> dict:
     return status
 
 def render_backup_status_dashboard():
-    """Render the backup status dashboard in Streamlit"""
-    st.subheader("🔄 Database Backup Status")
-    
-    # Debug button for troubleshooting
-    if st.button("🔍 Debug Google Drive Connection"):
-        drive_manager = _get_drive_manager()
-        st.write("**Secrets Check:**")
-        st.write(f"- Secrets available: {drive_manager._check_secrets_available()}")
-        
-        google_secrets = st.secrets.get("google", {})
-        st.write(f"- Has client_id: {'client_id' in google_secrets}")
-        st.write(f"- Has client_secret: {'client_secret' in google_secrets}")
-        st.write(f"- Has access_token: {'access_token' in google_secrets}")
-        st.write(f"- Has refresh_token: {'refresh_token' in google_secrets}")
-        st.write(f"- Has encryption key: {'token_encryption_key' in google_secrets}")
-        
-        st.write("**Authentication Status:**")
-        st.write(f"- Authenticated: {drive_manager.authenticated}")
-        
-        # Try to get stored tokens
-        stored_tokens = drive_manager._get_stored_tokens()
-        st.write(f"- Has stored tokens: {stored_tokens is not None}")
-        
-        if stored_tokens:
-            st.write(f"- Stored tokens expire at: {stored_tokens.get('expires_at', 'Unknown')}")
-        
-        return
+    """Render the backup status dashboard in Streamlit - sidebar optimized"""
+    st.markdown("### 🔄 Backup Status")
     
     status = get_backup_status()
     
-    # Status overview with metrics
-    col1, col2, col3, col4 = st.columns(4)
+    # Compact status overview
+    health_color = {
+        'Healthy': '🟢',
+        'Backup Pending': '🟡', 
+        'Drive Disconnected': '🟠',
+        'No Database': '⚪',
+        'Error': '🔴',
+        'Unknown': '⚫'
+    }
     
-    with col1:
-        health_color = {
-            'Healthy': '🟢',
-            'Backup Pending': '🟡',
-            'Drive Disconnected': '🟠',
-            'No Database': '⚪',
-            'Error': '🔴',
-            'Unknown': '⚫'
-        }
-        st.metric(
-            "System Health",
-            f"{health_color.get(status['system_health'], '⚫')} {status['system_health']}"
-        )
+    # Main status line
+    health_icon = health_color.get(status['system_health'], '⚫')
+    drive_icon = "✅" if status['google_drive_connected'] else "❌"
     
-    with col2:
-        st.metric(
-            "Database Size",
-            f"{status['database_size_mb']} MB" if status['database_exists'] else "No DB",
-            help="Current SQLite database file size"
-        )
+    st.markdown(f"**Status:** {health_icon} {status['system_health']}")
+    st.markdown(f"**Drive:** {drive_icon} {'Connected' if status['google_drive_connected'] else 'Not Connected'}")
     
-    with col3:
-        st.metric(
-            "Total Records",
-            f"{status['record_count']:,}" if status['database_exists'] else "0",
-            help="Total records across all database tables"
-        )
-    
-    with col4:
-        if status['google_drive_connected']:
-            drive_status = "✅ Connected"
-            drive_help = "Google Drive backup is active"
-        else:
-            drive_status = "❌ Not Configured"
-            drive_help = "Google OAuth credentials needed in Streamlit secrets"
+    # Database info
+    if status['database_exists']:
+        st.markdown(f"**Size:** {status['database_size_mb']} MB")
+        st.markdown(f"**Records:** {status['record_count']:,}")
         
-        st.metric(
-            "Google Drive",
-            drive_status,
-            help=drive_help
-        )
+        # Backup status
+        backup_icon = "✅" if not status['backup_needed'] else "⚠️" 
+        backup_text = "Up to date" if not status['backup_needed'] else "Backup needed"
+        st.markdown(f"**Backup:** {backup_icon} {backup_text}")
+    else:
+        st.markdown("**Database:** No database found")
     
-    # Detailed information
-    with st.expander("📊 Database Details", expanded=False):
-        if status['database_exists']:
-            st.write("**Database Tables:**")
-            for table, count in status['tables'].items():
-                st.write(f"• {table}: {count:,} records")
-            
-            col_a, col_b = st.columns(2)
-            with col_a:
-                st.write(f"**Last Backup Hash:** `{status['last_backup_hash']}`")
-            with col_b:
-                backup_status_text = "⚠️ Needed" if status['backup_needed'] else "✅ Up to date"
-                st.write(f"**Backup Status:** {backup_status_text}")
-        else:
-            st.info("No database file found. Database will be created when data is processed.")
-        
-        # Show Google Drive status (admin info only)
-        if not status['google_drive_connected']:
-            st.info("📋 Google Drive backup is not configured. Contact your administrator to enable automated database backups.")
-    
-    # Action buttons
-    col_x, col_y = st.columns(2)
-    
-    with col_x:
-        if st.button("🔄 Force Backup Now", disabled=not status['database_exists'] or not status['google_drive_connected']):
-            with st.spinner("Uploading database to Google Drive..."):
+    # Action buttons (stacked for sidebar)
+    if status['database_exists'] and status['google_drive_connected']:
+        if st.button("🔄 Backup Now", key="backup_now", use_container_width=True):
+            with st.spinner("Backing up..."):
                 upload_sqlite_if_changed()
-                st.success("Backup completed!")
+                st.success("✅ Backup complete!")
                 st.rerun()
     
-    with col_y:
-        if st.button("📥 Restore from Drive", disabled=not status['google_drive_connected']):
-            with st.spinner("Restoring database from Google Drive..."):
-                # Backup current DB if it exists
+    if status['google_drive_connected']:
+        if st.button("📥 Restore DB", key="restore_db", use_container_width=True):
+            with st.spinner("Restoring..."):
                 if status['database_exists']:
                     backup_name = f"ff_backup_{int(time.time())}.sqlite"
                     os.rename(SQLITE_FILE, backup_name)
-                    st.info(f"Current database backed up as {backup_name}")
                 
                 restore_sqlite_if_missing()
-                st.success("Database restored from Google Drive!")
+                st.success("✅ Database restored!")
                 st.rerun()
     
-    # Status timestamp
-    st.caption(f"Last updated: {status['timestamp']}")
+    # Expandable details for advanced info
+    with st.expander("📊 Details"):
+        if status['database_exists']:
+            st.write("**Tables:**")
+            for table, count in status['tables'].items():
+                st.write(f"• {table}: {count:,}")
+            
+            if status['last_backup_hash']:
+                st.write(f"**Hash:** `{status['last_backup_hash'][:8]}...`")
+        
+        # Debug button (hidden in expandable section)
+        if st.button("🔍 Debug Connection"):
+            drive_manager = _get_drive_manager()
+            st.write(f"Auth: {drive_manager.authenticated}")
+            stored_tokens = drive_manager._get_stored_tokens()
+            st.write(f"Tokens: {stored_tokens is not None}")
+    
+    # Compact timestamp
+    st.caption(f"Updated: {status['timestamp'].split()[1]}")  # Just show time
 
 # Auto-cleanup on module import (optional)
 import atexit
