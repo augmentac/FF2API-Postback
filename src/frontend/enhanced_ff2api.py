@@ -48,6 +48,9 @@ from src.frontend.ui_components import (
 )
 # Removed COMMON_ENUM_FIELDS import - using schema-based enums directly
 
+# Import database backup manager
+from db_manager import restore_sqlite_if_missing, upload_sqlite_if_changed, start_periodic_backup
+
 # Import end-to-end workflow components
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from load_id_mapper import LoadIDMapper, LoadProcessingResult, LoadIDMapping
@@ -268,6 +271,11 @@ def main():
     
     # Initialize components
     db_manager, data_processor = init_components()
+    
+    # Initialize database backup system
+    print("[enhanced_ff2api] Initializing database backup system...")
+    restore_sqlite_if_missing()
+    start_periodic_backup(interval_minutes=15)  # More frequent for active development
     
     # Ensure session ID for learning tracking
     ensure_session_id()

@@ -38,6 +38,9 @@ from src.frontend.ui_components import (
     get_full_api_schema
 )
 
+# Import database backup manager
+from db_manager import restore_sqlite_if_missing, upload_sqlite_if_changed, start_periodic_backup
+
 # Create logs directory if it doesn't exist
 os.makedirs('data/logs', exist_ok=True)
 
@@ -252,6 +255,11 @@ def main():
     
     # Initialize components
     db_manager, data_processor = init_components()
+    
+    # Initialize database backup system
+    print("[app] Initializing database backup system...")
+    restore_sqlite_if_missing()
+    start_periodic_backup(interval_minutes=15)  # More frequent for active development
     
     # Ensure session ID for learning tracking
     ensure_session_id()
