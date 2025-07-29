@@ -1847,6 +1847,10 @@ def _save_configuration(db_manager, field_mappings, file_headers):
         st.session_state.selected_configuration['field_mappings'] = field_mappings
         st.session_state.selected_configuration['field_count'] = len(field_mappings)
         
+        # Trigger database backup after configuration save
+        from db_manager import upload_sqlite_if_changed
+        upload_sqlite_if_changed()
+        
     except Exception as e:
         st.error(f"❌ Failed to save configuration: {str(e)}")
 

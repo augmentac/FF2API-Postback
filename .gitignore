@@ -55,6 +55,14 @@ logs/
 # Streamlit secrets
 .streamlit/secrets.toml
 
+# Google Drive backup files and credentials
+ff.sqlite
+.last_sha
+client_secrets.json
+token.json
+credentials.json
+token.pickle
+
 # Backup files
 *.bak
 *.backup
@@ -105,4 +113,4 @@ processed/
 # Configuration overrides
 config/local_*
 config/dev_*
-config/test_* 
+config/test_* FF2API-Postback ClientID.json

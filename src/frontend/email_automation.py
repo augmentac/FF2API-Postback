@@ -88,6 +88,11 @@ class EmailAutomationManager:
                 )
             
             logger.info(f"Saved email automation config for {self.brokerage_key}")
+            
+            # Trigger database backup after email config save
+            from db_manager import upload_sqlite_if_changed
+            upload_sqlite_if_changed()
+            
             return True
             
         except Exception as e:

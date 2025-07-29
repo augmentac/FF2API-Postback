@@ -20,8 +20,17 @@ from credential_manager import credential_manager
 from email_monitor import email_monitor
 from gmail_auth_service import gmail_auth_service
 from streamlit_google_sso import streamlit_google_sso
+
+# Import database backup manager
+from db_manager import restore_sqlite_if_missing, upload_sqlite_if_changed, start_periodic_backup
+
 # Initialize email monitor with credential manager
 email_monitor.credential_manager = credential_manager
+
+# Initialize database backup system
+print("[streamlit_endtoend] Initializing database backup system...")
+restore_sqlite_if_missing()
+start_periodic_backup(interval_minutes=15)  # More frequent for active development
 
 # Configure logging for Streamlit Cloud
 logging.basicConfig(

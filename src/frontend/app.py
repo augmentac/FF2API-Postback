@@ -2455,6 +2455,10 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             # Save detailed errors for troubleshooting
             if detailed_errors:
                 db_manager.save_processing_errors(upload_id, detailed_errors)
+            
+            # Trigger database backup after processing results save
+            from db_manager import upload_sqlite_if_changed
+            upload_sqlite_if_changed()
         
         # Final progress update
         progress_bar.progress(100)
