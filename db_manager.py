@@ -797,6 +797,31 @@ def render_backup_status_dashboard():
     """Render the backup status dashboard in Streamlit"""
     st.subheader("🔄 Database Backup Status")
     
+    # Debug button for troubleshooting
+    if st.button("🔍 Debug Google Drive Connection"):
+        drive_manager = _get_drive_manager()
+        st.write("**Secrets Check:**")
+        st.write(f"- Secrets available: {drive_manager._check_secrets_available()}")
+        
+        google_secrets = st.secrets.get("google", {})
+        st.write(f"- Has client_id: {'client_id' in google_secrets}")
+        st.write(f"- Has client_secret: {'client_secret' in google_secrets}")
+        st.write(f"- Has access_token: {'access_token' in google_secrets}")
+        st.write(f"- Has refresh_token: {'refresh_token' in google_secrets}")
+        st.write(f"- Has encryption key: {'token_encryption_key' in google_secrets}")
+        
+        st.write("**Authentication Status:**")
+        st.write(f"- Authenticated: {drive_manager.authenticated}")
+        
+        # Try to get stored tokens
+        stored_tokens = drive_manager._get_stored_tokens()
+        st.write(f"- Has stored tokens: {stored_tokens is not None}")
+        
+        if stored_tokens:
+            st.write(f"- Stored tokens expire at: {stored_tokens.get('expires_at', 'Unknown')}")
+        
+        return
+    
     status = get_backup_status()
     
     # Status overview with metrics
