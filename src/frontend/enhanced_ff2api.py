@@ -1454,7 +1454,7 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             result = {
                 'ff2api_results': ff2api_results,
                 'total_rows': len(df),
-                'success_rate': len([r for r in ff2api_results if r.get('success', False)]) / len(df) if df else 0,
+                'success_rate': len([r for r in ff2api_results if r.get('success', False)]) / len(df) if not df.empty else 0,
                 'processing_mode': processing_mode
             }
             
