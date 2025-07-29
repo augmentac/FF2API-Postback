@@ -57,24 +57,36 @@ class GoogleDriveManager:
                 print("[db_manager] No OAuth tokens available - Google Drive backup disabled")
                 return
             
-            # Initialize PyDrive2 authentication
-            gauth = GoogleAuth()
-            gauth.LoadClientConfigFile("client_secrets.json")
-            gauth.LoadCredentialsFile("token.json")
-            
-            if gauth.credentials is None:
-                print("[db_manager] ERROR: No valid credentials found")
-                return
-            elif gauth.access_token_expired:
-                print("[db_manager] Access token expired, refreshing...")
-                gauth.Refresh()
-                self._save_refreshed_token(gauth)
-            else:
-                gauth.Authorize()
-            
-            self.drive = GoogleDrive(gauth)
-            self.authenticated = True
-            print("[db_manager] Google Drive authentication successful")
+            # Initialize PyDrive2 authentication with error handling
+            try:
+                gauth = GoogleAuth()
+                gauth.LoadClientConfigFile("client_secrets.json")
+                gauth.LoadCredentialsFile("token.json")
+                
+                if gauth.credentials is None:
+                    print("[db_manager] ERROR: No valid credentials found")
+                    return
+                elif gauth.access_token_expired:
+                    print("[db_manager] Access token expired, refreshing...")
+                    gauth.Refresh()
+                    self._save_refreshed_token(gauth)
+                else:
+                    gauth.Authorize()
+                
+                self.drive = GoogleDrive(gauth)
+                self.authenticated = True
+                print("[db_manager] Google Drive authentication successful")
+                
+            except AttributeError as e:
+                if "'_module'" in str(e):
+                    # Known PyDrive2 + Streamlit compatibility issue
+                    print("[db_manager] PyDrive2 Streamlit compatibility issue detected")
+                    print("[db_manager] Attempting alternative authentication method...")
+                    
+                    # Try direct credential creation
+                    self._try_direct_auth()
+                else:
+                    raise e
             
         except Exception as e:
             print(f"[db_manager] ERROR: Failed to initialize Google Drive: {e}")
@@ -131,6 +143,58 @@ class GoogleDriveManager:
             # Fallback to generated key
             self._encryption_key = Fernet.generate_key()
             return self._encryption_key
+    
+    def _try_direct_auth(self):
+        """Alternative authentication method for Streamlit compatibility"""
+        try:
+            from oauth2client import client
+            from httplib2 import Http
+            import json
+            
+            # Load token data
+            with open("token.json", "r") as f:
+                token_data = json.load(f)
+            
+            # Create credentials directly
+            credentials = client.OAuth2Credentials(
+                access_token=token_data["access_token"],
+                refresh_token=token_data["refresh_token"],
+                client_id=token_data["client_id"],
+                client_secret=token_data["client_secret"],
+                token_uri=token_data["token_uri"],
+                user_agent=None,
+                revoke_uri=None
+            )
+            
+            # Check if token is expired and refresh if needed
+            if credentials.access_token_expired:
+                print("[db_manager] Access token expired, refreshing with direct method...")
+                http = Http()
+                credentials.refresh(http)
+                
+                # Save refreshed token
+                self._store_tokens(
+                    credentials.access_token, 
+                    credentials.refresh_token
+                )
+                
+                # Update token file
+                token_data["access_token"] = credentials.access_token
+                token_data["refresh_token"] = credentials.refresh_token
+                with open("token.json", "w") as f:
+                    json.dump(token_data, f, indent=2)
+            
+            # Create GoogleAuth with credentials
+            gauth = GoogleAuth()
+            gauth.credentials = credentials
+            
+            self.drive = GoogleDrive(gauth)
+            self.authenticated = True
+            print("[db_manager] Google Drive authentication successful via direct method")
+            
+        except Exception as e:
+            print(f"[db_manager] Direct authentication also failed: {e}")
+            self.authenticated = False
     
     def _encrypt_token(self, token_value):
         """Encrypt a token value"""
