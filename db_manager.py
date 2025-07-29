@@ -164,6 +164,11 @@ class GoogleDriveManager:
             
             # Create credentials directly
             print("[db_manager] Creating OAuth2 credentials...")
+            from datetime import datetime, timedelta
+            
+            # Set token expiry (oauth2client requires this parameter)
+            token_expiry = datetime.utcnow() + timedelta(hours=1)  # Default 1 hour from now
+            
             credentials = client.OAuth2Credentials(
                 access_token=token_data["access_token"],
                 refresh_token=token_data["refresh_token"],
@@ -171,7 +176,8 @@ class GoogleDriveManager:
                 client_secret=token_data["client_secret"],
                 token_uri=token_data["token_uri"],
                 user_agent=None,
-                revoke_uri=None
+                revoke_uri=None,
+                token_expiry=token_expiry
             )
             
             print(f"[db_manager] Credentials created, checking expiration...")
