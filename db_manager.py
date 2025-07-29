@@ -11,6 +11,8 @@ import json
 import tempfile
 from typing import Optional
 import streamlit as st
+from cryptography.fernet import Fernet
+import base64
 
 # Import PyDrive2 components
 try:
@@ -32,6 +34,7 @@ class GoogleDriveManager:
     def __init__(self):
         self.drive = None
         self.authenticated = False
+        self._encryption_key = None  # Cache encryption key
         self._initialize_drive()
     
     def _initialize_drive(self):
@@ -49,10 +52,9 @@ class GoogleDriveManager:
             # Generate client_secrets.json from Streamlit secrets
             self._create_client_secrets()
             
-            # Try to create token file from stored tokens
+            # Try to create token file from stored tokens or secrets
             if not self._create_token_file():
-                print("[db_manager] No stored OAuth tokens - Google Drive setup required")
-                print("[db_manager] Use the backup dashboard to complete OAuth setup")
+                print("[db_manager] No OAuth tokens available - Google Drive backup disabled")
                 return
             
             # Initialize PyDrive2 authentication
@@ -79,9 +81,9 @@ class GoogleDriveManager:
             self.authenticated = False
     
     def _check_secrets_available(self):
-        """Check if required Google OAuth client credentials are available"""
+        """Check if required Google OAuth secrets are available"""
         try:
-            required_keys = ['client_id', 'client_secret']
+            required_keys = ['client_id', 'client_secret', 'access_token', 'refresh_token']
             google_secrets = st.secrets.get("google", {})
             
             for key in required_keys:
@@ -94,6 +96,64 @@ class GoogleDriveManager:
         except Exception as e:
             print(f"[db_manager] Error checking secrets: {e}")
             return False
+    
+    def _get_encryption_key(self):
+        """Get or generate encryption key for token storage"""
+        # Return cached key if available
+        if self._encryption_key:
+            return self._encryption_key
+            
+        try:
+            # Try to get existing key from secrets
+            if 'encryption_key' in st.secrets.get('database', {}):
+                key_string = st.secrets['database']['encryption_key']
+                self._encryption_key = key_string.encode()
+                return self._encryption_key
+            
+            # Try to get from a different secret location
+            if 'token_encryption_key' in st.secrets.get('google', {}):
+                key_string = st.secrets['google']['token_encryption_key']
+                self._encryption_key = key_string.encode()
+                return self._encryption_key
+                
+            # Generate a new key (for first-time setup)
+            print("[db_manager] WARNING: No encryption key found in secrets")
+            print("[db_manager] Add 'token_encryption_key' to google secrets or 'encryption_key' to database secrets")
+            
+            # Generate temporary key for this session (not recommended for production)
+            self._encryption_key = Fernet.generate_key()
+            print(f"[db_manager] Generated temporary encryption key: {self._encryption_key.decode()}")
+            print("[db_manager] WARNING: This key will not persist across app restarts!")
+            return self._encryption_key
+            
+        except Exception as e:
+            print(f"[db_manager] Error getting encryption key: {e}")
+            # Fallback to generated key
+            self._encryption_key = Fernet.generate_key()
+            return self._encryption_key
+    
+    def _encrypt_token(self, token_value):
+        """Encrypt a token value"""
+        try:
+            key = self._get_encryption_key()
+            f = Fernet(key)
+            encrypted_value = f.encrypt(token_value.encode())
+            return base64.b64encode(encrypted_value).decode()
+        except Exception as e:
+            print(f"[db_manager] Error encrypting token: {e}")
+            return None
+    
+    def _decrypt_token(self, encrypted_value):
+        """Decrypt a token value"""
+        try:
+            key = self._get_encryption_key()
+            f = Fernet(key)
+            decoded_value = base64.b64decode(encrypted_value.encode())
+            decrypted_value = f.decrypt(decoded_value)
+            return decrypted_value.decode()
+        except Exception as e:
+            print(f"[db_manager] Error decrypting token: {e}")
+            return None
     
     def _get_stored_tokens(self):
         """Get OAuth tokens from database storage"""
@@ -123,11 +183,19 @@ class GoogleDriveManager:
             conn.close()
             
             if result:
-                return {
-                    'access_token': result[0],
-                    'refresh_token': result[1], 
-                    'expires_at': result[2]
-                }
+                # Decrypt tokens
+                access_token = self._decrypt_token(result[0]) if result[0] else None
+                refresh_token = self._decrypt_token(result[1]) if result[1] else None
+                
+                if access_token and refresh_token:
+                    return {
+                        'access_token': access_token,
+                        'refresh_token': refresh_token, 
+                        'expires_at': result[2]
+                    }
+                else:
+                    print("[db_manager] Failed to decrypt stored tokens")
+                    
             return None
             
         except Exception as e:
@@ -155,7 +223,15 @@ class GoogleDriveManager:
                 )
             """)
             
-            # Store/update tokens
+            # Encrypt tokens before storing
+            encrypted_access_token = self._encrypt_token(access_token)
+            encrypted_refresh_token = self._encrypt_token(refresh_token)
+            
+            if not encrypted_access_token or not encrypted_refresh_token:
+                print("[db_manager] Failed to encrypt tokens")
+                return False
+            
+            # Store/update encrypted tokens
             expires_at = int(time.time()) + expires_in
             created_at = int(time.time())
             
@@ -163,7 +239,7 @@ class GoogleDriveManager:
                 INSERT OR REPLACE INTO oauth_tokens 
                 (service, access_token, refresh_token, expires_at, created_at)
                 VALUES (?, ?, ?, ?, ?)
-            """, ('google_drive', access_token, refresh_token, expires_at, created_at))
+            """, ('google_drive', encrypted_access_token, encrypted_refresh_token, expires_at, created_at))
             
             conn.commit()
             conn.close()
@@ -201,17 +277,32 @@ class GoogleDriveManager:
             raise
     
     def _create_token_file(self):
-        """Create token.json from stored database tokens"""
+        """Create token.json from database storage or secrets"""
         try:
-            # Get tokens from database
+            # First try to get tokens from database (encrypted storage)
             stored_tokens = self._get_stored_tokens()
-            if not stored_tokens:
-                print("[db_manager] No stored tokens found - OAuth setup required")
-                return False
+            
+            if stored_tokens:
+                # Use encrypted tokens from database
+                access_token = stored_tokens["access_token"]
+                refresh_token = stored_tokens["refresh_token"]
+                print("[db_manager] Using encrypted tokens from database")
+            else:
+                # Fallback to secrets for initial setup
+                if not self._check_secrets_available():
+                    print("[db_manager] No stored tokens and no secrets available")
+                    return False
+                    
+                access_token = st.secrets["google"]["access_token"]
+                refresh_token = st.secrets["google"]["refresh_token"]
+                print("[db_manager] Using tokens from secrets (will be encrypted and stored)")
+                
+                # Store these tokens in encrypted database for future use
+                self._store_tokens(access_token, refresh_token)
                 
             token_data = {
-                "access_token": stored_tokens["access_token"],
-                "refresh_token": stored_tokens["refresh_token"],
+                "access_token": access_token,
+                "refresh_token": refresh_token,
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "client_id": st.secrets["google"]["client_id"],
                 "client_secret": st.secrets["google"]["client_secret"],
@@ -221,7 +312,7 @@ class GoogleDriveManager:
             with open("token.json", "w") as f:
                 json.dump(token_data, f, indent=2)
             
-            print("[db_manager] Created token.json from stored tokens")
+            print("[db_manager] Created token.json successfully")
             return True
             
         except Exception as e:
@@ -705,57 +796,9 @@ def render_backup_status_dashboard():
         else:
             st.info("No database file found. Database will be created when data is processed.")
         
-        # Show Google Drive configuration status
+        # Show Google Drive status (admin info only)
         if not status['google_drive_connected']:
-            st.markdown("**Google Drive Setup Required:**")
-            
-            # Check if client secrets are available
-            drive_manager = _get_drive_manager()
-            if drive_manager._check_secrets_available():
-                st.markdown("**Step 1: Authorize Google Drive Access**")
-                
-                # OAuth setup interface
-                auth_url, error = drive_manager.setup_oauth_flow()
-                
-                if error:
-                    st.error(f"Setup error: {error}")
-                else:
-                    st.markdown(f"[🔗 **Click here to authorize**]({auth_url})")
-                    st.markdown("This will open Google's authorization page where you can grant access.")
-                    
-                    # Authorization code input
-                    auth_code = st.text_input(
-                        "Enter the authorization code:",
-                        placeholder="4/0AdQt8qh...",
-                        help="Copy the code from Google's authorization page"
-                    )
-                    
-                    if st.button("✅ Complete Setup"):
-                        if auth_code:
-                            with st.spinner("Setting up Google Drive access..."):
-                                success, message = drive_manager.complete_oauth_flow(auth_code)
-                                if success:
-                                    st.success(message)
-                                    st.rerun()
-                                else:
-                                    st.error(message)
-                        else:
-                            st.error("Please enter the authorization code")
-            else:
-                st.markdown("""
-                **Step 1: Configure Client Credentials**
-                
-                Add these to your Streamlit Cloud app secrets:
-                ```toml
-                [google]
-                client_id = "your-client-id.googleusercontent.com"
-                client_secret = "your-client-secret"
-                ```
-                
-                **Step 2: OAuth Setup**
-                
-                After adding client credentials, restart the app and use the OAuth flow above to automatically generate access tokens.
-                """)
+            st.info("📋 Google Drive backup is not configured. Contact your administrator to enable automated database backups.")
     
     # Action buttons
     col_x, col_y = st.columns(2)
