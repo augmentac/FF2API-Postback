@@ -13,7 +13,7 @@ maxMessageSize = 200
 enableWebsocketCompression = true
 runOnSave = false
 allowRunOnSave = false
-port = $PORT
+port = 8501
 
 [browser]
 # Browser settings

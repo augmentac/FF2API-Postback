@@ -41,6 +41,11 @@ class GoogleDriveManager:
             return
             
         try:
+            # Check if required secrets are available
+            if not self._check_secrets_available():
+                print("[db_manager] Google OAuth secrets not configured - backup system will be disabled")
+                return
+                
             # Generate client_secrets.json from Streamlit secrets
             self._create_client_secrets()
             
@@ -69,6 +74,23 @@ class GoogleDriveManager:
         except Exception as e:
             print(f"[db_manager] ERROR: Failed to initialize Google Drive: {e}")
             self.authenticated = False
+    
+    def _check_secrets_available(self):
+        """Check if required Google OAuth secrets are available"""
+        try:
+            required_keys = ['client_id', 'client_secret', 'access_token', 'refresh_token']
+            google_secrets = st.secrets.get("google", {})
+            
+            for key in required_keys:
+                if not google_secrets.get(key):
+                    print(f"[db_manager] Missing required secret: google.{key}")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            print(f"[db_manager] Error checking secrets: {e}")
+            return False
     
     def _create_client_secrets(self):
         """Create client_secrets.json from Streamlit secrets"""
@@ -491,11 +513,17 @@ def render_backup_status_dashboard():
         )
     
     with col4:
-        drive_status = "✅ Connected" if status['google_drive_connected'] else "❌ Disconnected"
+        if status['google_drive_connected']:
+            drive_status = "✅ Connected"
+            drive_help = "Google Drive backup is active"
+        else:
+            drive_status = "❌ Not Configured"
+            drive_help = "Google OAuth credentials needed in Streamlit secrets"
+        
         st.metric(
             "Google Drive",
             drive_status,
-            help="Google Drive backup connection status"
+            help=drive_help
         )
     
     # Detailed information
@@ -513,6 +541,21 @@ def render_backup_status_dashboard():
                 st.write(f"**Backup Status:** {backup_status_text}")
         else:
             st.info("No database file found. Database will be created when data is processed.")
+        
+        # Show Google Drive configuration status
+        if not status['google_drive_connected']:
+            st.markdown("**Google Drive Setup Required:**")
+            st.markdown("""
+            To enable automatic database backup, configure these secrets in Streamlit Cloud:
+            ```toml
+            [google]
+            client_id = "your-client-id.googleusercontent.com"
+            client_secret = "your-client-secret"  
+            access_token = "your-access-token"
+            refresh_token = "your-refresh-token"
+            ```
+            Use the Google Drive setup page to generate these credentials.
+            """)
     
     # Action buttons
     col_x, col_y = st.columns(2)
