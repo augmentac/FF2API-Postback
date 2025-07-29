@@ -816,12 +816,10 @@ def get_backup_status() -> dict:
     return status
 
 def render_backup_status_dashboard():
-    """Render the backup status dashboard in Streamlit - sidebar optimized"""
-    st.markdown("### 🔄 Backup Status")
-    
+    """Render backup status as concise dropdown in sidebar"""
     status = get_backup_status()
     
-    # Compact status overview
+    # Status icons
     health_color = {
         'Healthy': '🟢',
         'Backup Pending': '🟡', 
@@ -831,63 +829,70 @@ def render_backup_status_dashboard():
         'Unknown': '⚫'
     }
     
-    # Main status line
     health_icon = health_color.get(status['system_health'], '⚫')
     drive_icon = "✅" if status['google_drive_connected'] else "❌"
     
-    st.markdown(f"**Status:** {health_icon} {status['system_health']}")
-    st.markdown(f"**Drive:** {drive_icon} {'Connected' if status['google_drive_connected'] else 'Not Connected'}")
-    
-    # Database info
+    # Concise status summary
     if status['database_exists']:
-        st.markdown(f"**Size:** {status['database_size_mb']} MB")
-        st.markdown(f"**Records:** {status['record_count']:,}")
-        
-        # Backup status
-        backup_icon = "✅" if not status['backup_needed'] else "⚠️" 
-        backup_text = "Up to date" if not status['backup_needed'] else "Backup needed"
-        st.markdown(f"**Backup:** {backup_icon} {backup_text}")
+        summary = f"{health_icon} {status['system_health']} • {drive_icon} Drive • {status['database_size_mb']}MB"
     else:
-        st.markdown("**Database:** No database found")
+        summary = f"{health_icon} No Database • {drive_icon} Drive"
     
-    # Action buttons (stacked for sidebar)
-    if status['database_exists'] and status['google_drive_connected']:
-        if st.button("🔄 Backup Now", key="backup_now", use_container_width=True):
-            with st.spinner("Backing up..."):
-                upload_sqlite_if_changed()
-                st.success("✅ Backup complete!")
-                st.rerun()
-    
-    if status['google_drive_connected']:
-        if st.button("📥 Restore DB", key="restore_db", use_container_width=True):
-            with st.spinner("Restoring..."):
-                if status['database_exists']:
-                    backup_name = f"ff_backup_{int(time.time())}.sqlite"
-                    os.rename(SQLITE_FILE, backup_name)
-                
-                restore_sqlite_if_missing()
-                st.success("✅ Database restored!")
-                st.rerun()
-    
-    # Expandable details for advanced info
-    with st.expander("📊 Details"):
-        if status['database_exists']:
-            st.write("**Tables:**")
-            for table, count in status['tables'].items():
-                st.write(f"• {table}: {count:,}")
-            
-            if status['last_backup_hash']:
-                st.write(f"**Hash:** `{status['last_backup_hash'][:8]}...`")
+    # Dropdown with concise title
+    with st.expander(f"🔄 **Backup:** {summary}"):
         
-        # Debug button (hidden in expandable section)
-        if st.button("🔍 Debug Connection"):
+        # Status details
+        st.markdown(f"**System:** {health_icon} {status['system_health']}")
+        st.markdown(f"**Google Drive:** {drive_icon} {'Connected' if status['google_drive_connected'] else 'Disconnected'}")
+        
+        if status['database_exists']:
+            st.markdown(f"**Database:** {status['database_size_mb']} MB • {status['record_count']:,} records")
+            
+            backup_icon = "✅" if not status['backup_needed'] else "⚠️"
+            backup_text = "Up to date" if not status['backup_needed'] else "Backup needed"
+            st.markdown(f"**Status:** {backup_icon} {backup_text}")
+            
+            # Show tables
+            if status['tables']:
+                tables_text = " • ".join([f"{name}: {count}" for name, count in status['tables'].items()])
+                st.caption(f"Tables: {tables_text}")
+            
+            # Show backup hash if available
+            if status['last_backup_hash'] and status['last_backup_hash'] != 'None':
+                st.caption(f"Hash: {status['last_backup_hash'][:12]}...")
+        
+        st.markdown("---")
+        
+        # Action buttons
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if status['database_exists'] and status['google_drive_connected']:
+                if st.button("🔄 Backup", key="backup_now", use_container_width=True):
+                    with st.spinner("Backing up..."):
+                        upload_sqlite_if_changed()
+                        st.success("✅ Complete!")
+                        st.rerun()
+        
+        with col2:
+            if status['google_drive_connected']:
+                if st.button("📥 Restore", key="restore_db", use_container_width=True):
+                    with st.spinner("Restoring..."):
+                        if status['database_exists']:
+                            backup_name = f"ff_backup_{int(time.time())}.sqlite"
+                            os.rename(SQLITE_FILE, backup_name)
+                        
+                        restore_sqlite_if_missing()
+                        st.success("✅ Restored!")
+                        st.rerun()
+        
+        # Debug option (minimal)
+        if st.checkbox("Debug mode"):
             drive_manager = _get_drive_manager()
-            st.write(f"Auth: {drive_manager.authenticated}")
-            stored_tokens = drive_manager._get_stored_tokens()
-            st.write(f"Tokens: {stored_tokens is not None}")
-    
-    # Compact timestamp
-    st.caption(f"Updated: {status['timestamp'].split()[1]}")  # Just show time
+            st.caption(f"Auth: {drive_manager.authenticated} • Tokens: {drive_manager._get_stored_tokens() is not None}")
+        
+        # Timestamp
+        st.caption(f"Updated: {status['timestamp'].split()[1]}")
 
 # Auto-cleanup on module import (optional)
 import atexit
