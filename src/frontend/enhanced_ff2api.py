@@ -1516,9 +1516,19 @@ def _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
         st.info(f"✅ Processing with {len(manual_values)} manual values applied to all records")
     
     # Process with field mappings (which now include MANUAL_VALUE: prefixed entries)
-    return process_data_enhanced(df, field_mappings, api_credentials, 
-                               st.session_state.brokerage_name, data_processor, 
-                               DatabaseManager(), st.session_state.session_id)
+    try:
+        return process_data_enhanced(df, field_mappings, api_credentials, 
+                                   st.session_state.brokerage_name, data_processor, 
+                                   DatabaseManager(), st.session_state.session_id)
+    except ValueError as e:
+        if "truth value of a DataFrame is ambiguous" in str(e):
+            import traceback
+            logger.error("DataFrame boolean evaluation error in process_data_enhanced:")
+            logger.error(traceback.format_exc())
+            st.error(f"❌ Processing failed: {e}")
+            return []
+        else:
+            raise
 
 def _process_load_id_mapping(ff2api_results, brokerage_key):
     """Process load ID mapping for successful FF2API results"""
