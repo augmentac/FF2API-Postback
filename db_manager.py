@@ -866,25 +866,56 @@ def render_backup_status_dashboard():
         # Action buttons
         col1, col2 = st.columns(2)
         
+        # Show recent action status
+        if 'backup_status_message' in st.session_state:
+            if st.session_state.backup_status_message['type'] == 'success':
+                st.success(st.session_state.backup_status_message['text'])
+            elif st.session_state.backup_status_message['type'] == 'error':
+                st.error(st.session_state.backup_status_message['text'])
+        
         with col1:
             if status['database_exists'] and status['google_drive_connected']:
                 if st.button("🔄 Backup", key="backup_now", use_container_width=True):
                     with st.spinner("Backing up..."):
-                        upload_sqlite_if_changed()
-                        st.success("✅ Complete!")
+                        try:
+                            upload_sqlite_if_changed()
+                            st.session_state.backup_status_message = {
+                                'type': 'success',
+                                'text': '✅ Backup completed successfully!'
+                            }
+                        except Exception as e:
+                            st.session_state.backup_status_message = {
+                                'type': 'error', 
+                                'text': f'❌ Backup failed: {str(e)}'
+                            }
                         st.rerun()
         
         with col2:
             if status['google_drive_connected']:
                 if st.button("📥 Restore", key="restore_db", use_container_width=True):
                     with st.spinner("Restoring..."):
-                        if status['database_exists']:
-                            backup_name = f"ff_backup_{int(time.time())}.sqlite"
-                            os.rename(SQLITE_FILE, backup_name)
-                        
-                        restore_sqlite_if_missing()
-                        st.success("✅ Restored!")
+                        try:
+                            if status['database_exists']:
+                                backup_name = f"ff_backup_{int(time.time())}.sqlite"
+                                os.rename(SQLITE_FILE, backup_name)
+                            
+                            restore_sqlite_if_missing()
+                            st.session_state.backup_status_message = {
+                                'type': 'success',
+                                'text': '✅ Database restored successfully!'
+                            }
+                        except Exception as e:
+                            st.session_state.backup_status_message = {
+                                'type': 'error',
+                                'text': f'❌ Restore failed: {str(e)}'
+                            }
                         st.rerun()
+        
+        # Clear message button
+        if 'backup_status_message' in st.session_state:
+            if st.button("Clear message", key="clear_backup_msg"):
+                del st.session_state.backup_status_message
+                st.rerun()
         
         # Debug option (minimal)
         if st.checkbox("Debug mode"):
