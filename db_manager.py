@@ -49,8 +49,11 @@ class GoogleDriveManager:
             # Generate client_secrets.json from Streamlit secrets
             self._create_client_secrets()
             
-            # Generate token.json from Streamlit secrets
-            self._create_token_file()
+            # Try to create token file from stored tokens
+            if not self._create_token_file():
+                print("[db_manager] No stored OAuth tokens - Google Drive setup required")
+                print("[db_manager] Use the backup dashboard to complete OAuth setup")
+                return
             
             # Initialize PyDrive2 authentication
             gauth = GoogleAuth()
@@ -58,7 +61,7 @@ class GoogleDriveManager:
             gauth.LoadCredentialsFile("token.json")
             
             if gauth.credentials is None:
-                print("[db_manager] ERROR: No valid credentials found in secrets")
+                print("[db_manager] ERROR: No valid credentials found")
                 return
             elif gauth.access_token_expired:
                 print("[db_manager] Access token expired, refreshing...")
@@ -76,9 +79,9 @@ class GoogleDriveManager:
             self.authenticated = False
     
     def _check_secrets_available(self):
-        """Check if required Google OAuth secrets are available"""
+        """Check if required Google OAuth client credentials are available"""
         try:
-            required_keys = ['client_id', 'client_secret', 'access_token', 'refresh_token']
+            required_keys = ['client_id', 'client_secret']
             google_secrets = st.secrets.get("google", {})
             
             for key in required_keys:
@@ -90,6 +93,85 @@ class GoogleDriveManager:
             
         except Exception as e:
             print(f"[db_manager] Error checking secrets: {e}")
+            return False
+    
+    def _get_stored_tokens(self):
+        """Get OAuth tokens from database storage"""
+        try:
+            import sqlite3
+            
+            if not os.path.exists(SQLITE_FILE):
+                return None
+                
+            conn = sqlite3.connect(SQLITE_FILE)
+            cursor = conn.cursor()
+            
+            # Create tokens table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS oauth_tokens (
+                    service TEXT PRIMARY KEY,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    expires_at INTEGER,
+                    created_at INTEGER
+                )
+            """)
+            
+            # Get Google Drive tokens
+            cursor.execute("SELECT access_token, refresh_token, expires_at FROM oauth_tokens WHERE service = ?", ('google_drive',))
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                return {
+                    'access_token': result[0],
+                    'refresh_token': result[1], 
+                    'expires_at': result[2]
+                }
+            return None
+            
+        except Exception as e:
+            print(f"[db_manager] Error getting stored tokens: {e}")
+            return None
+    
+    def _store_tokens(self, access_token, refresh_token, expires_in=3600):
+        """Store OAuth tokens in database"""
+        try:
+            import sqlite3
+            import time
+            
+            # Ensure database exists
+            conn = sqlite3.connect(SQLITE_FILE)
+            cursor = conn.cursor()
+            
+            # Create tokens table if it doesn't exist
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS oauth_tokens (
+                    service TEXT PRIMARY KEY,
+                    access_token TEXT,
+                    refresh_token TEXT,
+                    expires_at INTEGER,
+                    created_at INTEGER
+                )
+            """)
+            
+            # Store/update tokens
+            expires_at = int(time.time()) + expires_in
+            created_at = int(time.time())
+            
+            cursor.execute("""
+                INSERT OR REPLACE INTO oauth_tokens 
+                (service, access_token, refresh_token, expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?)
+            """, ('google_drive', access_token, refresh_token, expires_at, created_at))
+            
+            conn.commit()
+            conn.close()
+            print("[db_manager] OAuth tokens stored successfully")
+            return True
+            
+        except Exception as e:
+            print(f"[db_manager] Error storing tokens: {e}")
             return False
     
     def _create_client_secrets(self):
@@ -119,11 +201,17 @@ class GoogleDriveManager:
             raise
     
     def _create_token_file(self):
-        """Create token.json from Streamlit secrets"""
+        """Create token.json from stored database tokens"""
         try:
+            # Get tokens from database
+            stored_tokens = self._get_stored_tokens()
+            if not stored_tokens:
+                print("[db_manager] No stored tokens found - OAuth setup required")
+                return False
+                
             token_data = {
-                "access_token": st.secrets["google"]["access_token"],
-                "refresh_token": st.secrets["google"]["refresh_token"],
+                "access_token": stored_tokens["access_token"],
+                "refresh_token": stored_tokens["refresh_token"],
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "client_id": st.secrets["google"]["client_id"],
                 "client_secret": st.secrets["google"]["client_secret"],
@@ -133,21 +221,27 @@ class GoogleDriveManager:
             with open("token.json", "w") as f:
                 json.dump(token_data, f, indent=2)
             
-            print("[db_manager] Created token.json from Streamlit secrets")
+            print("[db_manager] Created token.json from stored tokens")
+            return True
             
-        except KeyError as e:
-            print(f"[db_manager] ERROR: Missing required token secret: {e}")
-            raise
         except Exception as e:
             print(f"[db_manager] ERROR: Failed to create token.json: {e}")
-            raise
+            return False
     
     def _save_refreshed_token(self, gauth):
-        """Save refreshed token back to token.json"""
+        """Save refreshed token back to database and token.json"""
         try:
+            access_token = gauth.credentials.access_token
+            refresh_token = gauth.credentials.refresh_token
+            
+            # Store in database
+            expires_in = getattr(gauth.credentials, 'expires_in', 3600)
+            self._store_tokens(access_token, refresh_token, expires_in)
+            
+            # Also update token.json for current session
             token_data = {
-                "access_token": gauth.credentials.access_token,
-                "refresh_token": gauth.credentials.refresh_token,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
                 "token_uri": "https://oauth2.googleapis.com/token",
                 "client_id": st.secrets["google"]["client_id"],
                 "client_secret": st.secrets["google"]["client_secret"],
@@ -157,10 +251,79 @@ class GoogleDriveManager:
             with open("token.json", "w") as f:
                 json.dump(token_data, f, indent=2)
             
-            print("[db_manager] Refreshed token saved successfully")
+            print("[db_manager] Refreshed token saved to database and session")
             
         except Exception as e:
             print(f"[db_manager] WARNING: Failed to save refreshed token: {e}")
+    
+    def setup_oauth_flow(self):
+        """Generate OAuth authorization URL for user setup"""
+        try:
+            if not self._check_secrets_available():
+                return None, "Client credentials not configured in secrets"
+            
+            # Create client secrets for OAuth flow
+            self._create_client_secrets()
+            
+            # Generate authorization URL
+            params = {
+                'client_id': st.secrets["google"]["client_id"],
+                'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob',
+                'scope': 'https://www.googleapis.com/auth/drive.file',
+                'response_type': 'code',
+                'access_type': 'offline',
+                'prompt': 'consent'
+            }
+            
+            import urllib.parse
+            base_url = "https://accounts.google.com/o/oauth2/auth"
+            auth_url = f"{base_url}?{urllib.parse.urlencode(params)}"
+            
+            return auth_url, None
+            
+        except Exception as e:
+            return None, f"Failed to setup OAuth flow: {e}"
+    
+    def complete_oauth_flow(self, authorization_code):
+        """Complete OAuth flow with authorization code"""
+        try:
+            import requests
+            
+            if not self._check_secrets_available():
+                return False, "Client credentials not configured"
+            
+            # Exchange code for tokens
+            token_url = "https://oauth2.googleapis.com/token"
+            data = {
+                'client_id': st.secrets["google"]["client_id"],
+                'client_secret': st.secrets["google"]["client_secret"],
+                'code': authorization_code,
+                'grant_type': 'authorization_code',
+                'redirect_uri': 'urn:ietf:wg:oauth:2.0:oob'
+            }
+            
+            response = requests.post(token_url, data=data)
+            response.raise_for_status()
+            
+            tokens = response.json()
+            access_token = tokens.get('access_token')
+            refresh_token = tokens.get('refresh_token')
+            expires_in = tokens.get('expires_in', 3600)
+            
+            if not access_token or not refresh_token:
+                return False, "Failed to get valid tokens from Google"
+            
+            # Store tokens in database
+            if self._store_tokens(access_token, refresh_token, expires_in):
+                print("[db_manager] OAuth setup completed successfully")
+                # Try to initialize Drive connection
+                self._initialize_drive()
+                return True, "OAuth setup completed successfully"
+            else:
+                return False, "Failed to store tokens"
+            
+        except Exception as e:
+            return False, f"OAuth flow failed: {e}"
     
     def find_sqlite_file(self) -> Optional[str]:
         """Find ff.sqlite file in Google Drive"""
@@ -545,17 +708,54 @@ def render_backup_status_dashboard():
         # Show Google Drive configuration status
         if not status['google_drive_connected']:
             st.markdown("**Google Drive Setup Required:**")
-            st.markdown("""
-            To enable automatic database backup, configure these secrets in Streamlit Cloud:
-            ```toml
-            [google]
-            client_id = "your-client-id.googleusercontent.com"
-            client_secret = "your-client-secret"  
-            access_token = "your-access-token"
-            refresh_token = "your-refresh-token"
-            ```
-            Use the Google Drive setup page to generate these credentials.
-            """)
+            
+            # Check if client secrets are available
+            drive_manager = _get_drive_manager()
+            if drive_manager._check_secrets_available():
+                st.markdown("**Step 1: Authorize Google Drive Access**")
+                
+                # OAuth setup interface
+                auth_url, error = drive_manager.setup_oauth_flow()
+                
+                if error:
+                    st.error(f"Setup error: {error}")
+                else:
+                    st.markdown(f"[🔗 **Click here to authorize**]({auth_url})")
+                    st.markdown("This will open Google's authorization page where you can grant access.")
+                    
+                    # Authorization code input
+                    auth_code = st.text_input(
+                        "Enter the authorization code:",
+                        placeholder="4/0AdQt8qh...",
+                        help="Copy the code from Google's authorization page"
+                    )
+                    
+                    if st.button("✅ Complete Setup"):
+                        if auth_code:
+                            with st.spinner("Setting up Google Drive access..."):
+                                success, message = drive_manager.complete_oauth_flow(auth_code)
+                                if success:
+                                    st.success(message)
+                                    st.rerun()
+                                else:
+                                    st.error(message)
+                        else:
+                            st.error("Please enter the authorization code")
+            else:
+                st.markdown("""
+                **Step 1: Configure Client Credentials**
+                
+                Add these to your Streamlit Cloud app secrets:
+                ```toml
+                [google]
+                client_id = "your-client-id.googleusercontent.com"
+                client_secret = "your-client-secret"
+                ```
+                
+                **Step 2: OAuth Setup**
+                
+                After adding client credentials, restart the app and use the OAuth flow above to automatically generate access tokens.
+                """)
     
     # Action buttons
     col_x, col_y = st.columns(2)
