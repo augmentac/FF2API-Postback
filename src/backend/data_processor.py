@@ -924,13 +924,13 @@ class DataProcessor:
         quantity_cols = [col for col in df.columns if 'quantity' in col.lower() or 'qty' in col.lower()]
         
         # If we have weight or quantity data but no explicit item mapping, create basic items
-        if (weight_cols or quantity_cols) and not any(col.startswith('load.items.') for col in df.columns):
+        if (len(weight_cols) > 0 or len(quantity_cols) > 0) and not any(col.startswith('load.items.') for col in df.columns):
             # Add basic item structure with default quantity if not present
             if not any('load.items.0.quantity' in col for col in df.columns):
                 df['load.items.0.quantity'] = [1] * len(df)  # Default to 1 item
             
             # If weight column exists but not mapped to items, try to use it
-            if weight_cols and not any('load.items.0.totalWeightLbs' in col for col in df.columns):
+            if len(weight_cols) > 0 and not any('load.items.0.totalWeightLbs' in col for col in df.columns):
                 # Use the first weight column found
                 weight_col = weight_cols[0]
                 if weight_col in df.columns:
