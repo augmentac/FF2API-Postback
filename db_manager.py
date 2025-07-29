@@ -150,15 +150,20 @@ class GoogleDriveManager:
     def _try_direct_auth(self):
         """Alternative authentication method for Streamlit compatibility"""
         try:
+            print("[db_manager] Starting direct authentication method...")
             from oauth2client import client
             from httplib2 import Http
             import json
             
             # Load token data
+            print("[db_manager] Loading token data...")
             with open("token.json", "r") as f:
                 token_data = json.load(f)
             
+            print(f"[db_manager] Token data loaded, has access_token: {'access_token' in token_data}")
+            
             # Create credentials directly
+            print("[db_manager] Creating OAuth2 credentials...")
             credentials = client.OAuth2Credentials(
                 access_token=token_data["access_token"],
                 refresh_token=token_data["refresh_token"],
@@ -169,6 +174,7 @@ class GoogleDriveManager:
                 revoke_uri=None
             )
             
+            print(f"[db_manager] Credentials created, checking expiration...")
             # Check if token is expired and refresh if needed
             if credentials.access_token_expired:
                 print("[db_manager] Access token expired, refreshing with direct method...")
@@ -186,17 +192,24 @@ class GoogleDriveManager:
                 token_data["refresh_token"] = credentials.refresh_token
                 with open("token.json", "w") as f:
                     json.dump(token_data, f, indent=2)
+                print("[db_manager] Token refreshed and saved")
+            else:
+                print("[db_manager] Access token is still valid")
             
             # Create GoogleAuth with credentials
+            print("[db_manager] Creating GoogleAuth with credentials...")
             gauth = GoogleAuth()
             gauth.credentials = credentials
             
+            print("[db_manager] Creating GoogleDrive instance...")
             self.drive = GoogleDrive(gauth)
             self.authenticated = True
             print("[db_manager] Google Drive authentication successful via direct method")
             
         except Exception as e:
-            print(f"[db_manager] Direct authentication also failed: {e}")
+            print(f"[db_manager] Direct authentication failed at step: {e}")
+            import traceback
+            print(f"[db_manager] Full traceback: {traceback.format_exc()}")
             self.authenticated = False
     
     def _encrypt_token(self, token_value):
