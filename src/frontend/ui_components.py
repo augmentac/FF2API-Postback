@@ -392,14 +392,31 @@ def get_effective_required_fields(api_schema, current_mappings):
     for field_path, field_info in conditional_fields.items():
         parts = field_path.split('.')
         if len(parts) >= 2:
-            # Get the immediate parent object for this conditional field
-            immediate_parent = '.'.join(parts[:-1])
-            # Remove array indices for comparison
-            clean_parent = '.'.join([p for p in immediate_parent.split('.') if not p.isdigit()])
-            
-            # Only activate this conditional field if its immediate parent is in use
-            if clean_parent in specific_objects_in_use:
-                effective_required[field_path] = field_info
+            # Special handling for reference numbers - each reference number is independent
+            if 'referenceNumbers' in field_path:
+                # For reference numbers, only make name required if value is mapped (and vice versa)
+                # Don't make other reference number indices required
+                if field_path.endswith('.name'):
+                    # Make name required only if corresponding value is mapped
+                    value_field = field_path.replace('.name', '.value')
+                    if value_field in current_mappings and current_mappings.get(value_field) and current_mappings[value_field] != 'Select column...':
+                        effective_required[field_path] = field_info
+                elif field_path.endswith('.value'):
+                    # Make value required only if corresponding name is mapped (or if value itself is mapped)
+                    name_field = field_path.replace('.value', '.name')
+                    if (field_path in current_mappings and current_mappings.get(field_path) and current_mappings[field_path] != 'Select column...') or \
+                       (name_field in current_mappings and current_mappings.get(name_field) and current_mappings[name_field] != 'Select column...'):
+                        effective_required[field_path] = field_info
+            else:
+                # Standard conditional logic for non-reference-number fields
+                # Get the immediate parent object for this conditional field
+                immediate_parent = '.'.join(parts[:-1])
+                # Remove array indices for comparison
+                clean_parent = '.'.join([p for p in immediate_parent.split('.') if not p.isdigit()])
+                
+                # Only activate this conditional field if its immediate parent is in use
+                if clean_parent in specific_objects_in_use:
+                    effective_required[field_path] = field_info
     
     return effective_required
 
