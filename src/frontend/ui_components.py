@@ -301,9 +301,15 @@ def get_full_api_schema():
         'load.equipment.maxTemperatureF': {'type': 'number', 'required': False, 'description': 'Max Temperature F'},
         'load.equipment.accessorials': {'type': 'array', 'required': False, 'description': 'Equipment Accessorials'},
         
-        # Reference Numbers (Conditionally Required)
-        'load.referenceNumbers.0.name': {'type': 'string', 'required': 'conditional', 'description': 'Reference Number Name', 'enum': ['PRO_NUMBER', 'PICKUP_NUMBER', 'PO_NUMBER', 'TRAILER_NUMBER', 'TRUCK_NUMBER', 'SHIPPER_NUMBER', 'CONSIGNEE_NUMBER', 'OTHER']},
-        'load.referenceNumbers.0.value': {'type': 'string', 'required': 'conditional', 'description': 'Reference Number Value'},
+        # Reference Numbers (Conditionally Required) - Enhanced for better UI mapping
+        'load.referenceNumbers.0.name': {'type': 'string', 'required': 'conditional', 'description': 'Reference Number Type (Auto-set to PRO_NUMBER)', 'enum': ['PRO_NUMBER', 'PICKUP_NUMBER', 'PO_NUMBER', 'TRAILER_NUMBER', 'TRUCK_NUMBER', 'SHIPPER_NUMBER', 'CONSIGNEE_NUMBER', 'OTHER'], 'note': 'Automatically set to PRO_NUMBER when value is mapped', 'auto_populate': True},
+        'load.referenceNumbers.0.value': {'type': 'string', 'required': 'conditional', 'description': 'PRO Number / Tracking Number', 'category': 'tracking', 'friendly_name': 'PRO Number', 'priority': 'high'},
+        
+        # Additional Reference Number Types
+        'load.referenceNumbers.1.name': {'type': 'string', 'required': 'conditional', 'description': 'Secondary Reference Type', 'enum': ['PRO_NUMBER', 'PICKUP_NUMBER', 'PO_NUMBER', 'TRAILER_NUMBER', 'TRUCK_NUMBER', 'SHIPPER_NUMBER', 'CONSIGNEE_NUMBER', 'OTHER']},
+        'load.referenceNumbers.1.value': {'type': 'string', 'required': 'conditional', 'description': 'Secondary Reference Value', 'category': 'tracking'},
+        'load.referenceNumbers.2.name': {'type': 'string', 'required': 'conditional', 'description': 'Third Reference Type', 'enum': ['PRO_NUMBER', 'PICKUP_NUMBER', 'PO_NUMBER', 'TRAILER_NUMBER', 'TRUCK_NUMBER', 'SHIPPER_NUMBER', 'CONSIGNEE_NUMBER', 'OTHER']},
+        'load.referenceNumbers.2.value': {'type': 'string', 'required': 'conditional', 'description': 'Third Reference Value', 'category': 'tracking'},
         
         # Bid Criteria (Conditionally Required)
         'bidCriteria.equipment': {'type': 'string', 'required': 'conditional', 'description': 'Required Equipment'},
@@ -1794,6 +1800,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
         # Smart categorization with progressive disclosure
         processed_fields = set()
         categories = {
+            "📞 Tracking & References": [],
             "💰 Pricing & Bids": [],
             "📦 Load Information": [],
             "📍 Location Details": [],
@@ -1805,7 +1812,9 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
         for field in optional_fields.keys():
             if field in processed_fields:
                 continue
-            if 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
+            if 'referenceNumbers' in field or 'tracking' in field.lower() or field.endswith('.value') and 'reference' in field.lower():
+                categories["📞 Tracking & References"].append(field)
+            elif 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
                 categories["💰 Pricing & Bids"].append(field)
             elif 'items' in field or 'equipment' in field or 'weight' in field:
                 categories["📦 Load Information"].append(field)
@@ -1986,6 +1995,19 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
     with col2:
         # Enhanced mapping controls with integrated manual value option
         st.markdown("**Mapping Options**")
+        
+        # Special handling for auto-populate fields (like reference number types)
+        if field_info.get('auto_populate'):
+            st.info("🤖 This field is automatically set when the corresponding value field is mapped")
+            # Check if the corresponding value field is mapped
+            value_field = field.replace('.name', '.value')
+            if value_field in updated_mappings and updated_mappings.get(value_field):
+                st.success("✅ Auto-populated to PRO_NUMBER")
+                updated_mappings[field] = "MANUAL_VALUE:PRO_NUMBER"
+                return  # Skip normal mapping controls
+            else:
+                st.caption("⏳ Will be set when PRO Number value is mapped")
+                return  # Skip normal mapping controls
         
         current_mapping = updated_mappings.get(field, None)
         column_options = ["None"] + list(df.columns) + ["📝 Manual Value"]

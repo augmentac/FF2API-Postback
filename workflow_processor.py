@@ -346,6 +346,7 @@ class EndToEndWorkflowProcessor:
                     'equipmentType': 'DRY_VAN'
                 },
                 'items': [],
+                'referenceNumbers': [],  # Initialize for reference numbers
                 'route': [
                     {
                         'sequence': 1,
@@ -389,6 +390,37 @@ class EndToEndWorkflowProcessor:
                 ]
             }
         }
+        
+        # Add reference numbers if available in row data
+        # Check for common PRO number fields
+        pro_number = None
+        pro_fields = ['PRO', 'pro_number', 'Carrier Pro#', 'pro', 'pro_num', 'tracking_number']
+        
+        for field in pro_fields:
+            if field in row and row[field]:
+                pro_number = str(row[field]).strip()
+                break
+        
+        if pro_number:
+            payload['load']['referenceNumbers'].append({
+                'name': 'PRO_NUMBER',
+                'value': pro_number
+            })
+        
+        # Check for other reference numbers
+        po_number = None
+        po_fields = ['PO#', 'po_number', 'purchase_order', 'po', 'PO Number']
+        
+        for field in po_fields:
+            if field in row and row[field]:
+                po_number = str(row[field]).strip()
+                break
+        
+        if po_number:
+            payload['load']['referenceNumbers'].append({
+                'name': 'PO_NUMBER', 
+                'value': po_number
+            })
         
         return payload
     

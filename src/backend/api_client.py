@@ -170,7 +170,7 @@ class LoadsAPIClient:
                 # Unauthorized - try token refresh only for API key auth
                 if self.auth_type == 'api_key':
                     refresh_result = self._refresh_token()
-                    if refresh_result['success']:
+                    if refresh_result and refresh_result.get('success'):
                         # Retry the request with new token
                         response = self.session.post(f"{self.base_url}/v2/loads", json=load_data, timeout=30)
                         if response.status_code in [200, 201, 204]:
@@ -202,7 +202,7 @@ class LoadsAPIClient:
                     else:
                         return {
                             'success': False,
-                            'error': f'Authentication failed: {refresh_result["message"]}',
+                            'error': f'Authentication failed: {refresh_result.get("message", "Unknown token refresh error") if refresh_result is not None else "Token refresh returned None"}',
                             'status_code': response.status_code
                         }
                 else:
@@ -397,7 +397,7 @@ class LoadsAPIClient:
                 if self.auth_type == 'api_key':
                     # Try to refresh token once on 401 for API key auth
                     refresh_result = self._refresh_token()
-                    if refresh_result['success']:
+                    if refresh_result and refresh_result.get('success'):
                         # Retry the request with new token
                         response = self.session.post(f"{self.base_url}/v2/loads", json=test_payload, timeout=30)
                         if response.status_code in [200, 201, 204]:
@@ -405,7 +405,7 @@ class LoadsAPIClient:
                         else:
                             return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
                     else:
-                        return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result["message"]}'}
+                        return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result.get("message", "Unknown token refresh error") if refresh_result is not None else "Token refresh returned None"}'}
                 else:
                     # Bearer token authentication - no refresh available
                     return {'success': False, 'message': 'Bearer token authentication failed. Please check your bearer token.'}
