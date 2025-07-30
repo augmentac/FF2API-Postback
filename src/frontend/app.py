@@ -2637,6 +2637,16 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             step_indicator.empty()
         except:
             pass
+        
+        # Return proper failure summary instead of None
+        return {
+            'success_rate': 0.0,
+            'successful_count': 0,
+            'failed_count': len(df),
+            'total_count': len(df),
+            'processing_time': 0,
+            'error_message': str(e)
+        }
 
 def get_smart_mappings(df, data_processor):
     """Get smart field mapping suggestions"""
