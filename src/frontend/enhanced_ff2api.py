@@ -1574,9 +1574,13 @@ def _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
         if 'processing_results' in st.session_state and st.session_state.processing_results:
             actual_results = st.session_state.processing_results
             logger.info(f"Retrieved {len(actual_results)} individual processing results from session state")
-            # Log first result structure for debugging
+            # Log first result structure for debugging (safely)
             if actual_results:
-                logger.info(f"First individual result: {actual_results[0]}")
+                try:
+                    logger.info(f"First individual result type: {type(actual_results[0])}")
+                    logger.info(f"First individual result keys: {list(actual_results[0].keys()) if isinstance(actual_results[0], dict) else 'Not a dict'}")
+                except Exception as e:
+                    logger.error(f"Error logging first result: {e}")
             return actual_results
         else:
             logger.warning("No individual processing results found in session state")
