@@ -1153,7 +1153,7 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     
     # Get effective required fields based on current mappings
     effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
-    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') in [False, 'conditional']}
     
     # Progress indicator for mapping completeness with intelligent conditional detection
     effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
@@ -1656,7 +1656,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     
     # Get effective required fields based on current mappings
     effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
-    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') in [False, 'conditional']}
     
     # Handle header changes
     if header_comparison and header_comparison['status'] == 'changed':
@@ -2147,7 +2147,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     # Separate required and optional fields
     # Required fields include both always required (True) and conditionally required ('conditional')
     required_fields = {k: v for k, v in api_schema.items() if v.get('required') in [True, 'conditional']}
-    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') == False}
+    optional_fields = {k: v for k, v in api_schema.items() if v.get('required') in [False, 'conditional']}
     
     # Progress tracking - use current session state if available with intelligent conditional detection
     current_mappings = st.session_state.get('field_mappings', field_mappings)
