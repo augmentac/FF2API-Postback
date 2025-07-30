@@ -989,20 +989,25 @@ def _render_data_preview_section():
                 data_processor
             )
             
-            # Display message about the preview
-            if "No field mappings configured yet" in api_preview_data["message"]:
-                st.info("🔗 Complete field mapping first to see API preview")
-                st.markdown("""
-                    **What you'll see here:**
-                    - JSON structure showing how your CSV data will be formatted for the API
-                    - Real sample values from your first CSV row
-                    - Properly nested objects (load, customer, brokerage)
-                    - Field validation and data type conversion
-                """)
-            elif "error" in api_preview_data["message"].lower():
-                st.warning(f"⚠️ {api_preview_data['message']}")
+            # Display message about the preview - with null-safe handling
+            if api_preview_data and api_preview_data.get("message"):
+                message = api_preview_data["message"]
+                if "No field mappings configured yet" in message:
+                    st.info("🔗 Complete field mapping first to see API preview")
+                    st.markdown("""
+                        **What you'll see here:**
+                        - JSON structure showing how your CSV data will be formatted for the API
+                        - Real sample values from your first CSV row
+                        - Properly nested objects (load, customer, brokerage)
+                        - Field validation and data type conversion
+                    """)
+                elif "error" in message.lower():
+                    st.warning(f"⚠️ {message}")
+                else:
+                    st.success(f"✅ {message}")
             else:
-                st.success(f"✅ {api_preview_data['message']}")
+                # Fallback for when api_preview_data is None or has no message
+                st.warning("⚠️ Could not generate API preview - check your field mappings")
             
             # Display JSON preview with enhanced formatting
             # Always show preview if field mappings exist, even if preview has warnings
@@ -1459,8 +1464,13 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             # Use original FF2API processing exactly
             ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
             
+            # Handle case where ff2api_results is None
+            if ff2api_results is None:
+                logger.error("FF2API processing returned None")
+                ff2api_results = []
+            
             # Handle case where ff2api_results is a dict instead of list
-            if isinstance(ff2api_results, dict):
+            elif isinstance(ff2api_results, dict):
                 logger.info("FF2API returned dict instead of list, converting to list format")
                 # If it's a dict, it might contain results in a specific key, or be a single result
                 if 'results' in ff2api_results:
@@ -1587,11 +1597,15 @@ def _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
             logger.info(f"Current processing failed with: {processing_summary}")
             
             # Since the current processing failed (0 successful), create an appropriate failure result
+            success_rate = 0
+            if processing_summary and isinstance(processing_summary, dict):
+                success_rate = processing_summary.get('success_rate', 0)
+            
             return [{
                 'success': False,
                 'row_index': 0,
                 'load_number': 'UNKNOWN',
-                'error': f"FF2API processing failed: {processing_summary.get('success_rate', 0)}% success rate",
+                'error': f"FF2API processing failed: {success_rate}% success rate",
                 'processing_summary': processing_summary
             }]
             
