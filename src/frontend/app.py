@@ -2372,8 +2372,31 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         with st.spinner("Formatting data for API submission..."):
             api_payloads = data_processor.format_for_api(validated_df)
         
+        # DEBUG: Log payload information
+        logger.info(f"DEBUG: api_payloads count: {len(api_payloads)}")
+        logger.info(f"DEBUG: validated_df shape: {validated_df.shape}")
+        if len(api_payloads) > 0:
+            logger.info(f"DEBUG: First payload keys: {list(api_payloads[0].keys())}")
+            logger.info(f"DEBUG: First payload structure: {json.dumps(api_payloads[0], indent=2, default=str)}")
+        else:
+            logger.warning("DEBUG: api_payloads is empty - this explains zero counts!")
+        
         # Step 5: Send to API with enhanced progress
         update_progress("Sending to API", 5, f"Submitting {len(api_payloads)} loads to the API...")
+        
+        # DEBUG: Check for empty payloads and exit early if found
+        if len(api_payloads) == 0:
+            logger.error("DEBUG: No API payloads generated - this will result in zero counts!")
+            st.error("❌ No valid payloads were generated from the data. Check field mappings and data validation.")
+            st.session_state.processing_in_progress = False
+            return {
+                'success_rate': 0.0,
+                'successful_count': 0,
+                'failed_count': 0,
+                'total_count': len(df),
+                'processing_time': time.time() - start_time,
+                'error_message': 'No valid API payloads generated'
+            }
         
         # Enhanced API submission with progress tracking
         api_progress_bar = st.progress(0)
@@ -2392,6 +2415,9 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             # Submit individual load
             result = client.create_load(payload)
             result['row_index'] = i + 1
+            
+            # DEBUG: Log API response
+            logger.info(f"DEBUG: API call {i+1} result: success={result.get('success', 'NOT_SET')}, keys={list(result.keys())}")
             
             # Enhanced: Extract load number from successful responses
             if result.get('success', False):
@@ -2420,8 +2446,10 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
             # Update counters
             if result.get('success', False):
                 successful_count += 1
+                logger.info(f"DEBUG: SUCCESS increment - successful_count now: {successful_count}")
             else:
                 failed_count += 1
+                logger.info(f"DEBUG: FAILED increment - failed_count now: {failed_count}, error: {result.get('error', 'No error message')}")
                 # Add detailed error for failed records
                 detailed_errors.append({
                     'row_number': i + 1,
@@ -2572,6 +2600,9 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         
         # Suggest backup after successful processing
         auto_backup_suggestion()
+        
+        # DEBUG: Log final summary
+        logger.info(f"DEBUG: Final summary - successful_count: {successful_count}, failed_count: {failed_count}, total_count: {len(df)}, success_rate: {success_rate}")
         
         # Return result for learning system
         return {

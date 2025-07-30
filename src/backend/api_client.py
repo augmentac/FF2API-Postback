@@ -76,11 +76,16 @@ class LoadsAPIClient:
     def create_load(self, load_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a single load via API"""
         try:
+            # DEBUG: Log the request details
+            logging.info(f"DEBUG create_load: Making API request to {self.base_url}/v2/loads")
             response = self.session.post(
                 f"{self.base_url}/v2/loads",
                 json=load_data,
                 timeout=30
             )
+            
+            # DEBUG: Log response details
+            logging.info(f"DEBUG create_load: Response status_code: {response.status_code}")
             
             # Handle different response codes explicitly
             if response.status_code == 201:
@@ -91,12 +96,14 @@ class LoadsAPIClient:
                     load_number = (response_data.get('loadNumber') or 
                                  response_data.get('load', {}).get('loadNumber') or
                                  response_data.get('id'))
-                    return {
+                    result = {
                         'success': True,
                         'data': response_data,
                         'status_code': response.status_code,
                         'load_number': load_number
                     }
+                    logging.info(f"DEBUG create_load: Returning SUCCESS result with load_number: {load_number}")
+                    return result
                 except json.JSONDecodeError:
                     return {
                         'success': True,
@@ -112,12 +119,14 @@ class LoadsAPIClient:
                     load_number = (response_data.get('loadNumber') or 
                                  response_data.get('load', {}).get('loadNumber') or
                                  response_data.get('id'))
-                    return {
+                    result = {
                         'success': True,
                         'data': response_data,
                         'status_code': response.status_code,
                         'load_number': load_number
                     }
+                    logging.info(f"DEBUG create_load: Returning SUCCESS result with load_number: {load_number}")
+                    return result
                 except json.JSONDecodeError:
                     return {
                         'success': True,
@@ -137,11 +146,13 @@ class LoadsAPIClient:
                 # Bad request - invalid payload
                 try:
                     error_details = response.json()
-                    return {
+                    result = {
                         'success': False,
                         'error': f'Bad request: {error_details}',
                         'status_code': response.status_code
                     }
+                    logging.info(f"DEBUG create_load: Returning FAILURE result - Bad request: {error_details}")
+                    return result
                 except json.JSONDecodeError:
                     return {
                         'success': False,

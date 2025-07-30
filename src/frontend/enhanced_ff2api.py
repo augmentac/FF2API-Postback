@@ -1584,18 +1584,25 @@ def _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
         logger.info(f"Processing summary returned: {processing_summary}")
         
         # Extract actual processing results from session state
-        # The individual results should be stored in processing_results
-        if ('processing_results' in st.session_state and 
-            st.session_state.processing_results and 
-            isinstance(st.session_state.processing_results, list) and
-            len(st.session_state.processing_results) > 0 and
-            isinstance(st.session_state.processing_results[0], dict)):
+        # The individual results are stored in load_results (not processing_results which is a summary)
+        if ('load_results' in st.session_state and 
+            st.session_state.load_results and 
+            isinstance(st.session_state.load_results, list) and
+            len(st.session_state.load_results) > 0 and
+            isinstance(st.session_state.load_results[0], dict)):
             
-            actual_results = st.session_state.processing_results
+            actual_results = st.session_state.load_results
             logger.info(f"Retrieved {len(actual_results)} valid individual processing results from session state")
             return actual_results
         else:
-            logger.warning("No valid individual processing results found in session state")
+            logger.warning("No valid individual processing results found in session state (load_results)")
+            logger.info(f"Session state keys: {list(st.session_state.keys())}")
+            if 'processing_results' in st.session_state:
+                logger.info(f"processing_results type: {type(st.session_state.processing_results)}")
+                logger.info(f"processing_results content: {st.session_state.processing_results}")
+            if 'load_results' in st.session_state:
+                logger.info(f"load_results type: {type(st.session_state.load_results)}")
+                logger.info(f"load_results length: {len(st.session_state.load_results) if isinstance(st.session_state.load_results, list) else 'not a list'}")
             
             # Focus on the actual issue: why processing is failing
             logger.info(f"Current processing failed with: {processing_summary}")

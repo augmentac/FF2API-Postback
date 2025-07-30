@@ -63,6 +63,12 @@ token.json
 credentials.json
 token.pickle
 
+# Encryption keys and sensitive config files
+config/encryption.key
+config/*.key
+*.key
+encryption_key.txt
+
 # Backup files
 *.bak
 *.backup

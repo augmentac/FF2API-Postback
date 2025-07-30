@@ -1,0 +1,4 @@
+load_number,PRO,carrier,mode,rate_type,status,internal_load_id,load_id_status,workflow_path,agent_events_count,load_id_error,tracking_status,tracking_location,tracking_date,tracking_error
+TEST001,0968391969,ESTES,FTL,SPOT,ACTIVE,created,success,load_processing_success,0,,failed,,,No tracking data found across all endpoints
+TEST002,1400266820,ESTES,FTL,SPOT,ACTIVE,created,success,load_processing_success,0,,failed,,,No tracking data found across all endpoints
+TEST003,2121130165,ESTES,FTL,SPOT,ACTIVE,created,success,load_processing_success,0,,failed,,,No tracking data found across all endpoints

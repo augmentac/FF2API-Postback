@@ -60,7 +60,9 @@ def authenticate_user(password):
         if 'auth' in st.secrets and 'APP_PASSWORD' in st.secrets.auth:
             correct_password = st.secrets.auth.APP_PASSWORD
         else:
-            correct_password = "admin123"
+            # No default password - force proper authentication setup
+            st.error("⚠️ Authentication not configured. Please configure APP_PASSWORD in Streamlit secrets.")
+            st.stop()
         return password == correct_password
     except Exception as e:
         logger.error(f"Authentication error: {e}")

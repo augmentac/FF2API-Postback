@@ -83,7 +83,7 @@ class SnowflakeAugmentEnrichmentSource(EnrichmentSource):
                     if self.brokerage_key:
                         cursor = self._connection.cursor()
                         try:
-                            cursor.execute(f"ALTER SESSION SET BROKERAGE_CONTEXT = '{self.brokerage_key}'")
+                            cursor.execute("ALTER SESSION SET BROKERAGE_CONTEXT = %s", (self.brokerage_key,))
                             logger.info(f"Set brokerage context: {self.brokerage_key}")
                         except Exception as e:
                             logger.warning(f"Could not set brokerage context: {e}")

@@ -1075,6 +1075,12 @@ class DataProcessor:
         """Format DataFrame for API consumption - only include mapped fields"""
         api_data = []
         
+        # DEBUG: Log input DataFrame information
+        self.logger.info(f"DEBUG format_for_api: Input DataFrame shape: {df.shape}")
+        self.logger.info(f"DEBUG format_for_api: DataFrame columns: {list(df.columns)}")
+        if len(df) > 0:
+            self.logger.info(f"DEBUG format_for_api: First row data: {df.iloc[0].to_dict()}")
+        
         # Process in chunks for better performance with large files
         total_rows = len(df)
         if total_rows > chunk_size:
@@ -1090,16 +1096,22 @@ class DataProcessor:
                 chunk_data = self._process_chunk_for_api(chunk_df, preview_mode)
                 api_data.extend(chunk_data)
                 
+            self.logger.info(f"DEBUG format_for_api: Returning {len(api_data)} payloads from chunks")
             return api_data
         else:
             # Process normally for small files
-            return self._process_chunk_for_api(df, preview_mode)
+            chunk_result = self._process_chunk_for_api(df, preview_mode)
+            self.logger.info(f"DEBUG format_for_api: Single chunk returned {len(chunk_result)} payloads")
+            return chunk_result
     
     def _process_chunk_for_api(self, df: pd.DataFrame, preview_mode: bool = False) -> List[Dict[str, Any]]:
         """Process a chunk of DataFrame for API consumption"""
         api_data = []
         
-        for _, row in df.iterrows():
+        self.logger.info(f"DEBUG _process_chunk_for_api: Processing {len(df)} rows, preview_mode={preview_mode}")
+        
+        for row_idx, row in df.iterrows():
+            self.logger.info(f"DEBUG _process_chunk_for_api: Processing row {row_idx} with {len(row)} fields")
             # Start with empty payload structure
             load_payload = {}
             
@@ -1151,7 +1163,9 @@ class DataProcessor:
                 self._apply_final_api_fixes(load_payload)
             
             api_data.append(load_payload)
+            self.logger.info(f"DEBUG _process_chunk_for_api: Added payload for row {row_idx}, payload has keys: {list(load_payload.keys())}")
         
+        self.logger.info(f"DEBUG _process_chunk_for_api: Returning {len(api_data)} payloads")
         return api_data
     
     def _apply_api_validation_fixes(self, load_payload: Dict[str, Any]) -> None:

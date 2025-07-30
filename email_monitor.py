@@ -480,39 +480,33 @@ class EmailMonitorService:
             # query_parts.append("newer_than:7d")
             
             query = " ".join(query_parts)
-            logger.info(f"Gmail search query: {query}")
-            print(f"DEBUG: Gmail search query: {query}")  # Debug output
+            logger.info(f"Gmail search query constructed with {len(query_parts)} filters")
             
             # Search for messages
             search_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={query}"
             response = requests.get(search_url, headers=gmail_headers)
             
             if response.status_code != 200:
-                logger.error(f"Gmail search failed: {response.status_code} - {response.text}")
-                print(f"DEBUG: Gmail search failed: {response.status_code} - {response.text}")
+                logger.error(f"Gmail search failed with status code: {response.status_code}")
                 return []
             
             search_results = response.json()
             messages = search_results.get('messages', [])
             
-            print(f"DEBUG: Found {len(messages)} messages matching search criteria")
-            print(f"DEBUG: Full search response: {search_results}")
             logger.info(f"Found {len(messages)} messages matching search criteria")
             
             if not messages:
                 logger.info(f"No new emails found for {brokerage_key}")
-                print(f"DEBUG: No messages found. Search criteria: {query}")
-                print(f"DEBUG: Raw Gmail response: {search_results}")
                 
-                # Let's also try a simpler search to see if Gmail API is working at all
+                # Test simple search for troubleshooting
                 simple_query = "has:attachment"
                 simple_url = f"https://gmail.googleapis.com/gmail/v1/users/me/messages?q={simple_query}&maxResults=5"
                 simple_response = requests.get(simple_url, headers=gmail_headers)
                 if simple_response.status_code == 200:
                     simple_results = simple_response.json()
-                    print(f"DEBUG: Simple search 'has:attachment' found {len(simple_results.get('messages', []))} messages")
+                    logger.debug(f"Simple search test found {len(simple_results.get('messages', []))} messages with attachments")
                 else:
-                    print(f"DEBUG: Simple search failed: {simple_response.status_code}")
+                    logger.warning(f"Simple search test failed with status: {simple_response.status_code}")
                 
                 return []
             

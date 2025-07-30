@@ -30,13 +30,14 @@ postback:
 
 enrichment:
   sources:
-    - type: mock_tracking
-      generate_events: true
-      max_events: 5
-    - type: snowflake_augment
-      database: "AUGMENT_DW"
-      schema: "MARTS"
-      enrichments: ["tracking", "customer", "carrier"]
+    - type: tracking_api
+      pro_column: "PRO"              # CSV column containing PRO number
+      carrier_column: "carrier"      # CSV column containing carrier name
+      timeout: 30
+      max_retries: 3
+      retry_delay: 1
+      # Note: Authentication automatically inherited from brokerage configuration
+      # Note: API endpoint automatically derived from FF2API base URL
 
 # End-to-End Workflow Settings
 endtoend:

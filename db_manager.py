@@ -137,7 +137,7 @@ class GoogleDriveManager:
             
             # Generate temporary key for this session (not recommended for production)
             self._encryption_key = Fernet.generate_key()
-            print(f"[db_manager] Generated temporary encryption key: {self._encryption_key.decode()}")
+            print("[db_manager] Generated temporary encryption key (key not logged for security)")
             print("[db_manager] WARNING: This key will not persist across app restarts!")
             return self._encryption_key
             
@@ -160,7 +160,7 @@ class GoogleDriveManager:
             with open("token.json", "r") as f:
                 token_data = json.load(f)
             
-            print(f"[db_manager] Token data loaded, has access_token: {'access_token' in token_data}")
+            print("[db_manager] Token data loaded successfully")
             
             # Create credentials directly
             print("[db_manager] Creating OAuth2 credentials...")
@@ -731,12 +731,18 @@ def start_periodic_backup(interval_minutes: int = 30):
 
 # Cleanup function for temporary files
 def cleanup_temp_files():
-    """Clean up temporary credential files"""
+    """Securely clean up temporary credential files"""
     try:
         for temp_file in ["client_secrets.json", "token.json"]:
             if os.path.exists(temp_file):
-                os.remove(temp_file)
-                print(f"[db_manager] Cleaned up {temp_file}")
+                # Secure deletion - overwrite file before removal
+                try:
+                    with open(temp_file, 'w') as f:
+                        f.write('0' * 1024)  # Overwrite with zeros
+                    os.remove(temp_file)
+                    print(f"[db_manager] Securely cleaned up {temp_file}")
+                except Exception as delete_error:
+                    print(f"[db_manager] WARNING: Failed to securely delete {temp_file}: {delete_error}")
     except Exception as e:
         print(f"[db_manager] WARNING: Failed to cleanup temp files: {e}")
 
@@ -776,7 +782,8 @@ def get_backup_status() -> dict:
                 
                 total_records = 0
                 for (table_name,) in tables:
-                    cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                    # Use quoted identifiers for table names (trusted from sqlite_master)
+                    cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
                     count = cursor.fetchone()[0]
                     status['tables'][table_name] = count
                     total_records += count
