@@ -1567,39 +1567,23 @@ def _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
                                                  st.session_state.brokerage_name, data_processor, 
                                                  DatabaseManager(), st.session_state.session_id)
         
+        logger.info(f"Processing summary returned: {processing_summary}")
+        
         # Extract actual processing results from session state
         # The individual results should be stored in processing_results
-        if 'processing_results' in st.session_state:
+        if 'processing_results' in st.session_state and st.session_state.processing_results:
             actual_results = st.session_state.processing_results
             logger.info(f"Retrieved {len(actual_results)} individual processing results from session state")
+            # Log first result structure for debugging
+            if actual_results:
+                logger.info(f"First individual result: {actual_results[0]}")
             return actual_results
         else:
             logger.warning("No individual processing results found in session state")
-            # Create mock results based on summary for compatibility
-            if processing_summary.get('successful_count', 0) > 0 or processing_summary.get('failed_count', 0) > 0:
-                # Create individual result entries based on summary
-                results = []
-                total_count = processing_summary.get('total_count', len(df))
-                successful_count = processing_summary.get('successful_count', 0)
-                
-                for i in range(total_count):
-                    if i < successful_count:
-                        results.append({
-                            'success': True,
-                            'row_index': i,
-                            'load_number': f'LOAD_{i:03d}',
-                            'data': {}
-                        })
-                    else:
-                        results.append({
-                            'success': False,
-                            'row_index': i,
-                            'load_number': f'LOAD_{i:03d}',
-                            'error': 'Processing failed'
-                        })
-                return results
-            else:
-                return []
+            logger.info(f"Available session state keys: {list(st.session_state.keys())}")
+            
+            # Return the processing summary as a fallback (but convert to expected format)
+            return processing_summary
             
     except ValueError as e:
         if "truth value of a DataFrame is ambiguous" in str(e):
