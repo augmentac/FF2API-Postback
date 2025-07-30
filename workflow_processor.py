@@ -4,6 +4,7 @@ import streamlit as st
 import pandas as pd
 from typing import Dict, Any, List, Optional, Tuple
 import logging
+import json
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -287,12 +288,16 @@ class EndToEndWorkflowProcessor:
                 # Use the original load_number from CSV as the load identifier
                 # This is what will be used later for load details retrieval
                 original_load_number = row.get('load_number', f'LOAD{i:03d}')
+                logger.info(f"Processing load {i}: {original_load_number}")
                 
                 # Prepare load data for FF2API (this would need proper field mapping)
                 load_payload = self._prepare_load_payload(row)
+                logger.info(f"Generated load payload for {original_load_number}: {json.dumps(load_payload, indent=2)}")
                 
                 # Submit to FF2API
+                logger.info(f"Submitting load to FF2API: {original_load_number}")
                 api_result = client.create_load(load_payload)
+                logger.info(f"FF2API response for {original_load_number}: {api_result}")
                 
                 if api_result['success']:
                     # Use original load_number for later retrieval via load_id_mapper
