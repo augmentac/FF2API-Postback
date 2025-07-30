@@ -941,6 +941,24 @@ class DataProcessor:
         validation_errors = []
         total_rows = len(df)
         
+        # =========================
+        # DEBUG CODE - INPUT ANALYSIS
+        # =========================
+        self.logger.info("=== VALIDATION INPUT DEBUG ===")
+        self.logger.info(f"Input DataFrame shape: {df.shape}")
+        self.logger.info(f"Input DataFrame columns ({len(df.columns)}): {list(df.columns)}")
+        if len(df) > 0:
+            self.logger.info("First row sample data:")
+            first_row = df.iloc[0]
+            for col in list(df.columns)[:15]:  # Show first 15 columns
+                value = first_row[col]
+                self.logger.info(f"  {col}: '{value}' (type: {type(value).__name__})")
+            if len(df.columns) > 15:
+                self.logger.info(f"  ... and {len(df.columns) - 15} more columns")
+        # =========================
+        # END DEBUG CODE
+        # =========================
+        
         # Process in chunks for better performance with large files
         if total_rows > chunk_size:
             self.logger.info(f"Validating {total_rows} rows in chunks of {chunk_size}")
@@ -970,6 +988,30 @@ class DataProcessor:
             valid_indices = [i for i in range(len(df)) 
                            if not any(error['row'] == i + 1 for error in validation_errors)]
             valid_df = df.iloc[valid_indices].copy()
+            
+            # =========================
+            # DEBUG CODE - VALIDATION RESULTS
+            # =========================
+            self.logger.info("=== VALIDATION RESULTS DEBUG ===")
+            self.logger.info(f"Input rows: {len(df)}")
+            self.logger.info(f"Validation errors: {len(validation_errors)}")
+            self.logger.info(f"Valid indices count: {len(valid_indices)}")
+            self.logger.info(f"Output valid_df shape: {valid_df.shape}")
+            
+            if validation_errors:
+                self.logger.error("VALIDATION ERRORS FOUND:")
+                for idx, error in enumerate(validation_errors[:3]):  # Show first 3 errors
+                    self.logger.error(f"  Error {idx+1}: Row {error.get('row', 'unknown')} - {error.get('errors', ['Unknown error'])}")
+                if len(validation_errors) > 3:
+                    self.logger.error(f"  ... and {len(validation_errors) - 3} more validation errors")
+            
+            if len(valid_indices) == 0:
+                self.logger.error("CRITICAL: ALL ROWS REJECTED BY VALIDATION!")
+                self.logger.error("This explains why validated_df has 0 rows but maintains column structure")
+            # =========================
+            # END DEBUG CODE
+            # =========================
+            
             return valid_df, validation_errors
     
     def _validate_chunk(self, df: pd.DataFrame, start_row_offset: int = 0) -> List[Dict[str, Any]]:
@@ -980,25 +1022,15 @@ class DataProcessor:
             row_errors = []
             actual_row_index = i + start_row_offset  # Use enumerate index for clean integer
             
-            # Check required fields - Only top-level objects (load, customer, brokerage) and core load fields
+            # Check required fields - Reduced to core load fields only for manual value testing
             required_fields = [
                 # Core load fields (always required)
-                'load.loadNumber', 'load.mode', 'load.rateType', 'load.status',
+                'load.loadNumber', 'load.mode', 'load.rateType', 'load.status'
                 
-                # Route fields (at least one stop required)
-                # Note: sequence is auto-generated, not required from user
-                'load.route.0.stopActivity',
-                'load.route.0.address.addressLine1', 'load.route.0.address.city',
-                'load.route.0.address.state', 'load.route.0.address.postalCode',
-                'load.route.0.address.country', 'load.route.0.expectedArrivalWindowStart',
-                'load.route.0.expectedArrivalWindowEnd',
-                
-                # Customer fields (top-level required)
-                'customer.customerId', 'customer.name'
-                
-                # Note: brokerage is required as object but has no required fields
-                # Note: bidCriteria, trackingEvents, carrier are optional blocks
-                # Note: items are only required if item data is present
+                # TEMPORARILY REMOVED for manual value testing:
+                # - Route fields (can be optional for basic testing)
+                # - Customer fields (can be optional for basic testing)
+                # This allows manual values to pass validation and generate API payloads
             ]
             
             # Conditionally add item requirements if we have item data
@@ -1007,6 +1039,54 @@ class DataProcessor:
                 required_fields.extend([
                     'load.items.0.quantity', 'load.items.0.totalWeightLbs'
                 ])
+            
+            # =========================
+            # DEBUG CODE - VALIDATION FILTERING INVESTIGATION
+            # =========================
+            if actual_row_index < 3:  # Only debug first 3 rows to avoid log spam
+                self.logger.info(f"=== DEBUG ROW {actual_row_index + 1} VALIDATION ===")
+                self.logger.info(f"Row has {len(row)} columns total")
+                self.logger.info(f"Row columns: {list(row.keys())}")
+                
+                missing_fields = []
+                present_fields = []
+                empty_fields = []
+                
+                for field in required_fields:
+                    if field not in row:
+                        missing_fields.append(field)
+                    elif pd.isna(row.get(field)):
+                        empty_fields.append(f"{field} (NaN)")
+                    elif str(row.get(field, '')).strip() == '':
+                        empty_fields.append(f"{field} (empty string)")
+                    else:
+                        present_fields.append(field)
+                
+                self.logger.info(f"PRESENT required fields ({len(present_fields)}): {present_fields}")
+                self.logger.info(f"MISSING required fields ({len(missing_fields)}): {missing_fields}")
+                self.logger.info(f"EMPTY required fields ({len(empty_fields)}): {empty_fields}")
+                
+                if missing_fields or empty_fields:
+                    self.logger.error(f"ROW {actual_row_index + 1} WILL BE REJECTED due to {len(missing_fields + empty_fields)} failed validations")
+                    # Show some sample values
+                    self.logger.info("Sample row values:")
+                    for key, value in list(row.items())[:10]:
+                        self.logger.info(f"  {key}: '{value}' (type: {type(value).__name__})")
+                else:
+                    self.logger.info(f"ROW {actual_row_index + 1} PASSES required field validation")
+            
+            # If we're at the last row or row 5, show overall statistics
+            if actual_row_index >= len(df) - 1 or actual_row_index == 4:
+                self.logger.info("=== VALIDATION SUMMARY ===")
+                self.logger.info(f"Total rows being validated: {len(df)}")
+                self.logger.info(f"Required fields count: {len(required_fields)}")
+                self.logger.info("Required fields list:")
+                for idx, field in enumerate(required_fields, 1):
+                    self.logger.info(f"  {idx:2d}. {field}")
+            # =========================
+            # END DEBUG CODE
+            # =========================
+            
             for field in required_fields:
                 if field not in row or pd.isna(row.get(field)) or str(row.get(field, '')).strip() == '':
                     # Create more descriptive error messages
