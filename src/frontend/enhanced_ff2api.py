@@ -109,8 +109,9 @@ def authenticate_user(password):
         if 'auth' in st.secrets and 'APP_PASSWORD' in st.secrets.auth:
             correct_password = st.secrets.auth.APP_PASSWORD
         else:
-            # Fallback for local development
-            correct_password = "admin123"
+            # No default password - force proper authentication setup
+            st.error("⚠️ Authentication not configured. Please configure APP_PASSWORD in Streamlit secrets.")
+            st.stop()
         
         return password == correct_password
     except Exception as e:
@@ -1541,14 +1542,17 @@ def _process_load_id_mapping(ff2api_results, brokerage_key):
     """Process load ID mapping for successful FF2API results"""
     try:
         # Get credentials for load ID mapping
-        credentials = credential_manager.validate_credentials(brokerage_key)
+        capabilities = credential_manager.validate_credentials(brokerage_key)
         
-        if not credentials.api_available:
+        if not capabilities.api_available:
             logger.warning("API credentials not available for load ID mapping")
             return []
         
+        # Get actual credential data for LoadIDMapper
+        credentials = credential_manager.get_brokerage_credentials(brokerage_key)
+        
         # Initialize load ID mapper
-        load_id_mapper = LoadIDMapper(brokerage_key, credentials.__dict__)
+        load_id_mapper = LoadIDMapper(brokerage_key, credentials)
         
         # Convert FF2API results to LoadProcessingResult format
         load_processing_results = []
@@ -1562,7 +1566,7 @@ def _process_load_id_mapping(ff2api_results, brokerage_key):
                 ))
         
         # Process load ID mappings
-        mappings = load_id_mapper.process_load_results(load_processing_results)
+        mappings = load_id_mapper.map_load_ids(load_processing_results)
         return mappings
         
     except Exception as e:
