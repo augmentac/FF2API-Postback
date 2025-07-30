@@ -25,15 +25,23 @@ class LoadsAPIClient:
         elif self.auth_type == 'api_key':
             if not self.api_key:
                 raise ValueError("API key is required when auth_type is 'api_key'")
+            # Try direct API key usage first, fallback to token refresh if needed
+            self.session.headers.update({
+                'Authorization': f'Bearer {self.api_key}'
+            })
+            self.bearer_token = self.api_key  # Treat API key as bearer token initially
+        elif self.auth_type == 'api_key_refresh':
+            if not self.api_key:
+                raise ValueError("API key is required when auth_type is 'api_key_refresh'")
             # Use API key to refresh token (existing behavior)
             self._refresh_token()
         else:
-            raise ValueError(f"Unsupported auth_type: {auth_type}. Must be 'api_key' or 'bearer_token'")
+            raise ValueError(f"Unsupported auth_type: {auth_type}. Must be 'api_key', 'api_key_refresh', or 'bearer_token'")
     
     def _refresh_token(self) -> Dict[str, Any]:
-        """Refresh the bearer token using the API key (only for api_key auth_type)"""
-        if self.auth_type != 'api_key':
-            return {'success': False, 'message': 'Token refresh not available for bearer token authentication'}
+        """Refresh the bearer token using the API key (only for api_key_refresh auth_type)"""
+        if self.auth_type != 'api_key_refresh':
+            return {'success': False, 'message': 'Token refresh not available for this authentication type'}
         
         if not self.api_key:
             return {'success': False, 'message': 'API key not provided for token refresh'}
@@ -295,7 +303,11 @@ class LoadsAPIClient:
         """Test API connection and credentials using minimal required payload"""
         # Check authentication setup
         if self.auth_type == 'api_key':
-            # For API key auth, check if token refresh was successful
+            # For API key auth, bearer_token should be set to api_key
+            if not self.bearer_token:
+                return {'success': False, 'message': 'API key not properly configured.'}
+        elif self.auth_type == 'api_key_refresh':
+            # For API key refresh auth, check if token refresh was successful
             if not self.bearer_token:
                 return {'success': False, 'message': 'Token refresh failed. Please check your API key.'}
         elif self.auth_type == 'bearer_token':
@@ -394,8 +406,8 @@ class LoadsAPIClient:
                 return {'success': True, 'message': 'Connection successful! (HTTP 204 - No Content - API accepted the request)'}
             elif response.status_code == 401:
                 # Handle 401 based on auth type
-                if self.auth_type == 'api_key':
-                    # Try to refresh token once on 401 for API key auth
+                if self.auth_type == 'api_key_refresh':
+                    # Try to refresh token once on 401 for API key refresh auth
                     refresh_result = self._refresh_token()
                     if refresh_result and refresh_result.get('success'):
                         # Retry the request with new token
@@ -406,6 +418,9 @@ class LoadsAPIClient:
                             return {'success': False, 'message': 'Authentication failed even after token refresh. Please check your API key.'}
                     else:
                         return {'success': False, 'message': f'Authentication failed. Token refresh error: {refresh_result.get("message", "Unknown token refresh error") if refresh_result is not None else "Token refresh returned None"}'}
+                elif self.auth_type == 'api_key':
+                    # Direct API key authentication failed
+                    return {'success': False, 'message': 'API key authentication failed. Please check your API key.'}
                 else:
                     # Bearer token authentication - no refresh available
                     return {'success': False, 'message': 'Bearer token authentication failed. Please check your bearer token.'}
@@ -418,13 +433,13 @@ class LoadsAPIClient:
                     error_details = response.json()
                     return {
                         'success': False,
-                        'error': f'Bad request: {error_details}',
+                        'message': f'Bad request: {error_details}',
                         'status_code': response.status_code
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': False,
-                        'error': f'Bad request: {response.text}',
+                        'message': f'Bad request: {response.text}',
                         'status_code': response.status_code
                     }
             elif response.status_code == 422:
@@ -432,13 +447,13 @@ class LoadsAPIClient:
                     error_details = response.json()
                     return {
                         'success': False,
-                        'error': f'Validation error: {error_details}',
+                        'message': f'Validation error: {error_details}',
                         'status_code': response.status_code
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': False,
-                        'error': f'Validation error: {response.text}',
+                        'message': f'Validation error: {response.text}',
                         'status_code': response.status_code
                     }
             else:
@@ -447,13 +462,13 @@ class LoadsAPIClient:
                     error_details = response.json()
                     return {
                         'success': False,
-                        'error': f'API error: {error_details}',
+                        'message': f'API error: {error_details}',
                         'status_code': response.status_code
                     }
                 except json.JSONDecodeError:
                     return {
                         'success': False,
-                        'error': f'API error: {response.text}',
+                        'message': f'API error: {response.text}',
                         'status_code': response.status_code
                     }
                 
