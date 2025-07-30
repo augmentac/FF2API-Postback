@@ -361,8 +361,8 @@ class DataProcessor:
                 'priority': 1
             },
             
-            # 🏢 load.route.0.address.addressLine1
-            'load.route.0.address.addressLine1': {
+            # 🏢 load.route.0.address.street1
+            'load.route.0.address.street1': {
                 'regex': r'(street|address|line[\s_]*1)(?!.*(?:zip|city|state))',
                 'aliases': ['street', 'address', 'street address', 'line 1', 'pickup address'],
                 'exclude_tokens': ['zip', 'city', 'state', 'postal'],
@@ -376,8 +376,8 @@ class DataProcessor:
                 'priority': 1
             },
             
-            # 🗺️ load.route.0.address.state
-            'load.route.0.address.state': {
+            # 🗺️ load.route.0.address.stateOrProvince
+            'load.route.0.address.stateOrProvince': {
                 'regex': r'(state|province|region|state[\s_]*code)',
                 'aliases': ['state', 'province', 'region', 'state code'],
                 'value_patterns': [r'^[A-Z]{2}$'],  # US state codes
@@ -449,7 +449,7 @@ class DataProcessor:
              },
              
              # 📍 Delivery/Destination Address Fields
-             'load.route.1.address.addressLine1': {
+             'load.route.1.address.street1': {
                  'regex': r'(dest|delivery|destination|to)[\s_]*(street|address|line[\s_]*1)',
                  'aliases': ['dest street', 'delivery street', 'destination address', 'to street', 'delivery address'],
                  'exclude_tokens': ['zip', 'city', 'state', 'postal'],
@@ -462,7 +462,7 @@ class DataProcessor:
                  'priority': 1
              },
              
-             'load.route.1.address.state': {
+             'load.route.1.address.stateOrProvince': {
                  'regex': r'(dest|delivery|destination|to)[\s_]*(state|province|region)',
                  'aliases': ['dest state', 'delivery state', 'destination state', 'to state'],
                  'value_patterns': [r'^[A-Z]{2}$'],
@@ -543,6 +543,20 @@ class DataProcessor:
                  'value_patterns': [r'^\d+(\.\d{2})?$', r'^\$?\d+(\.\d{2})?$'],
                  'exclude_patterns': [r'type', r'category', r'mode', r'spot', r'contract', r'dedicated'],
                  'numeric_required': True,  # Flag to indicate this field requires numeric values
+                 'priority': 1
+             },
+             
+             # 🚛 Carrier Information  
+             'carrier.name': {
+                 'regex': r'(carrier|trucking[\s_]*company|carrier[\s_]*name|company[\s_]*name)',
+                 'aliases': ['carrier', 'carrier name', 'trucking company', 'company name', 'carrier company'],
+                 'priority': 1
+             },
+             
+             'carrier.dotNumber': {
+                 'regex': r'(dot[\s_]*(number|#)?|usdot|mc[\s_]*(number|#)?)',
+                 'aliases': ['dot number', 'dot#', 'usdot', 'mc number', 'mc#', 'dot', 'carrier dot'],
+                 'value_patterns': [r'^\d+$'],
                  'priority': 1
              },
              
@@ -1025,7 +1039,10 @@ class DataProcessor:
             # Check required fields - Reduced to core load fields only for manual value testing
             required_fields = [
                 # Core load fields (always required)
-                'load.loadNumber', 'load.mode', 'load.rateType', 'load.status'
+                'load.loadNumber', 'load.mode', 'load.rateType', 'load.status',
+                
+                # Carrier fields (required by API)
+                'carrier.name', 'carrier.dotNumber'
                 
                 # TEMPORARILY REMOVED for manual value testing:
                 # - Route fields (can be optional for basic testing)
