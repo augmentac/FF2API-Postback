@@ -1478,12 +1478,21 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             
             logger.info(f"FF2API results count: {len(ff2api_results)}")
             
+            # Debug: Log the actual FF2API results structure
+            for i, r in enumerate(ff2api_results):
+                logger.info(f"FF2API result {i}: {r}")
+            
             # Safe success rate calculation
             success_count = 0
             for i, r in enumerate(ff2api_results):
                 try:
-                    if isinstance(r, dict) and r.get('success', False):
-                        success_count += 1
+                    if isinstance(r, dict):
+                        success_status = r.get('success', False)
+                        logger.info(f"Result {i} success status: {success_status}")
+                        if success_status:
+                            success_count += 1
+                    else:
+                        logger.error(f"Result {i} is not dict: {type(r)} = {r}")
                 except Exception as e:
                     logger.error(f"Error checking success for result {i}: {e}, type: {type(r)}, value: {r}")
             
@@ -1634,18 +1643,18 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
                 }
             })
         
-        # Add Snowflake enrichment
-        snowflake_creds = credential_manager.get_snowflake_credentials()
-        if snowflake_creds:
-            enrichment_config.append({
-                'type': 'snowflake_augment',
-                'database': 'AUGMENT_DW',
-                'schema': 'MARTS', 
-                'enrichments': ['tracking', 'customer'],
-                'use_load_ids': True,
-                'brokerage_key': brokerage_key,
-                **snowflake_creds
-            })
+        # Add Snowflake enrichment (disabled for now - source not available)
+        # snowflake_creds = credential_manager.get_snowflake_credentials()
+        # if snowflake_creds:
+        #     enrichment_config.append({
+        #         'type': 'snowflake_augment',
+        #         'database': 'AUGMENT_DW',
+        #         'schema': 'MARTS', 
+        #         'enrichments': ['tracking', 'customer'],
+        #         'use_load_ids': True,
+        #         'brokerage_key': brokerage_key,
+        #         **snowflake_creds
+        #     })
         
         if not enrichment_config:
             logger.warning("No enrichment sources configured")
