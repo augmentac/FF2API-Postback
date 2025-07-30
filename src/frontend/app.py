@@ -2369,11 +2369,23 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         # Step 4: Format for API
         update_progress("Formatting for API", 4, "Converting data to API-compatible format...")
         
+        # DEBUG: Log input data
+        logger.info(f"DEBUG: validated_df shape: {validated_df.shape}")
+        logger.info(f"DEBUG: validated_df columns: {list(validated_df.columns)}")
+        logger.info(f"DEBUG: First row data: {validated_df.iloc[0].to_dict() if len(validated_df) > 0 else 'No data'}")
+        
         with st.spinner("Formatting data for API submission..."):
+            logger.info("DEBUG: Calling data_processor.format_for_api()")
             api_payloads = data_processor.format_for_api(validated_df)
+            logger.info(f"DEBUG: format_for_api() returned {len(api_payloads)} payloads")
         
         # DEBUG: Log payload information
         logger.info(f"DEBUG: api_payloads count: {len(api_payloads)}")
+        if len(api_payloads) == 0:
+            logger.error("DEBUG: api_payloads is empty! No payloads generated for API processing.")
+            st.error("❌ No API payloads generated - check field mappings and data format")
+        else:
+            logger.info(f"DEBUG: First payload: {api_payloads[0] if api_payloads else 'None'}")
         logger.info(f"DEBUG: validated_df shape: {validated_df.shape}")
         if len(api_payloads) > 0:
             logger.info(f"DEBUG: First payload keys: {list(api_payloads[0].keys())}")
