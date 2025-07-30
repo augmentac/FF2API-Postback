@@ -1459,10 +1459,24 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             # Use original FF2API processing exactly
             ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
             
+            # Debug: Check ff2api_results structure
+            logger.info(f"FF2API results type: {type(ff2api_results)}")
+            if ff2api_results:
+                logger.info(f"First result type: {type(ff2api_results[0])}, value: {ff2api_results[0]}")
+            
+            # Safe success rate calculation
+            success_count = 0
+            for i, r in enumerate(ff2api_results):
+                try:
+                    if isinstance(r, dict) and r.get('success', False):
+                        success_count += 1
+                except Exception as e:
+                    logger.error(f"Error checking success for result {i}: {e}, type: {type(r)}, value: {r}")
+            
             result = {
                 'ff2api_results': ff2api_results,
                 'total_rows': len(df),
-                'success_rate': len([r for r in ff2api_results if r.get('success', False)]) / len(df) if len(df) > 0 else 0,
+                'success_rate': success_count / len(df) if len(df) > 0 else 0,
                 'processing_mode': processing_mode
             }
             
@@ -1556,14 +1570,23 @@ def _process_load_id_mapping(ff2api_results, brokerage_key):
         
         # Convert FF2API results to LoadProcessingResult format
         load_processing_results = []
-        for result in ff2api_results:
-            if result.get('success', False):
-                load_processing_results.append(LoadProcessingResult(
-                    csv_row_index=result.get('row_index', 0),
-                    load_number=result.get('load_number', ''),
-                    success=True,
-                    response_data=result.get('data', {})
-                ))
+        for i, result in enumerate(ff2api_results):
+            try:
+                # Debug: Check if result is a dictionary
+                if not isinstance(result, dict):
+                    logger.error(f"FF2API result {i} is not a dictionary: {type(result)} = {result}")
+                    continue
+                    
+                if result.get('success', False):
+                    load_processing_results.append(LoadProcessingResult(
+                        csv_row_index=result.get('row_index', 0),
+                        load_number=result.get('load_number', ''),
+                        success=True,
+                        response_data=result.get('data', {})
+                    ))
+            except Exception as e:
+                logger.error(f"Error processing FF2API result {i}: {e}, result type: {type(result)}, result: {result}")
+                continue
         
         # Process load ID mappings
         mappings = load_id_mapper.map_load_ids(load_processing_results)
