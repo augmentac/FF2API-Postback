@@ -1766,7 +1766,9 @@ def _render_current_file_info():
                     api_preview_data = generate_sample_api_preview(
                         st.session_state.uploaded_df, 
                         field_mappings, 
-                        data_processor
+                        data_processor,
+                        db_manager=db_manager,
+                        brokerage_name=st.session_state.get('selected_brokerage', 'default')
                     )
                     
                     # Display message about the preview

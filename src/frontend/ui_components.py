@@ -2712,8 +2712,8 @@ def cleanup_learning_data_interface(db_manager, data_processor):
             else:
                 st.error(f"Cleanup failed: {result['error']}")
 
-def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str], data_processor) -> Dict[str, Any]:
-    """Generate a sample API preview from the first row of mapped data"""
+def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str], data_processor, db_manager=None, brokerage_name=None) -> Dict[str, Any]:
+    """Generate a sample API preview from the first row of mapped data with carrier auto-mapping"""
     
     # If no mappings, return empty structure
     if not field_mappings:
@@ -2744,10 +2744,37 @@ def generate_sample_api_preview(df: pd.DataFrame, field_mappings: Dict[str, str]
         # Apply field mappings to the first row (use preview mode to skip missing columns)
         mapped_df, mapping_errors = data_processor.apply_mapping(first_row_df, field_mappings, preview_mode=True)
         
+        # Apply carrier auto-mapping if enabled and database is available
+        carrier_auto_mapped = False
+        if db_manager and brokerage_name:
+            try:
+                original_carrier_fields = {}
+                # Capture original carrier fields for comparison
+                for col in mapped_df.columns:
+                    if col.startswith('carrier.'):
+                        original_carrier_fields[col] = mapped_df[col].iloc[0] if not mapped_df[col].empty else None
+                
+                # Apply carrier auto-mapping
+                mapped_df = data_processor.apply_carrier_mapping(mapped_df, brokerage_name, db_manager)
+                
+                # Check if any carrier fields were auto-populated
+                for col in mapped_df.columns:
+                    if col.startswith('carrier.'):
+                        new_value = mapped_df[col].iloc[0] if not mapped_df[col].empty else None
+                        original_value = original_carrier_fields.get(col)
+                        if new_value and new_value != original_value:
+                            carrier_auto_mapped = True
+                            break
+                            
+            except Exception as e:
+                logger.warning(f"Carrier auto-mapping failed in preview: {e}")
+        
         # For preview, continue even if some mappings failed
         warning_message = ""
         if mapping_errors:
             warning_message = f" (Note: Some mappings skipped - {', '.join(mapping_errors)})"
+        if carrier_auto_mapped:
+            warning_message += " (Carrier fields auto-populated)"
         
         # Format the mapped data for API preview (skip validation fixes)
         api_preview_list = data_processor.format_for_api(mapped_df, preview_mode=True)
