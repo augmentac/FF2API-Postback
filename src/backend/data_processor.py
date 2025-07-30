@@ -1698,7 +1698,8 @@ class DataProcessor:
         
         try:
             # Update the most recent interaction with processing results
-            conn = db_manager.get_connection()
+            import sqlite3
+            conn = sqlite3.connect(db_manager.db_path)
             cursor = conn.cursor()
             
             cursor.execute('''
