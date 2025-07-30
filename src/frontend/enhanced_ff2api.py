@@ -273,10 +273,14 @@ def main():
     # Initialize components
     db_manager, data_processor = init_components()
     
-    # Initialize database backup system
-    print("[enhanced_ff2api] Initializing database backup system...")
-    restore_sqlite_if_missing()
-    start_periodic_backup(interval_minutes=15)  # More frequent for active development
+    # Initialize database backup system (only once per session)
+    if 'backup_system_initialized' not in st.session_state:
+        print("[enhanced_ff2api] Initializing database backup system...")
+        restore_sqlite_if_missing()
+        start_periodic_backup(interval_minutes=15)  # More frequent for active development
+        st.session_state.backup_system_initialized = True
+    else:
+        print("[enhanced_ff2api] Database backup system already initialized")
     
     # Ensure session ID for learning tracking
     ensure_session_id()
