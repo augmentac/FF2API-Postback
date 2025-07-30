@@ -88,8 +88,9 @@ def authenticate_user(password):
         if 'auth' in st.secrets and 'APP_PASSWORD' in st.secrets.auth:
             correct_password = st.secrets.auth.APP_PASSWORD
         else:
-            # Fallback for local development
-            correct_password = "admin123"
+            # No default password - force proper authentication setup
+            st.error("⚠️ Authentication not configured. Please configure APP_PASSWORD in Streamlit secrets.")
+            st.stop()
         
         return password == correct_password
     except Exception as e:
@@ -1446,7 +1447,7 @@ def _handle_save_configuration(brokerage_name, db_manager):
                     st.session_state.config_save_error = f"❌ Failed to save configuration: {str(db_error)}"
                     
             else:
-                st.session_state.config_save_error = f"❌ API connection failed: {result['message']}"
+                st.session_state.config_save_error = f"❌ API connection failed: {result.get('message', 'Unknown error')}"
         except Exception as e:
             st.session_state.config_save_error = f"❌ Failed to test connection: {str(e)}"
 
@@ -1778,10 +1779,10 @@ def _render_current_file_info():
                             - Properly nested objects (load, customer, brokerage)
                             - Field validation and data type conversion
                         """)
-                    elif "error" in api_preview_data["message"].lower():
+                    elif api_preview_data.get("message") and "error" in api_preview_data["message"].lower():
                         st.warning(f"⚠️ {api_preview_data['message']}")
                     else:
-                        st.success(f"✅ {api_preview_data['message']}")
+                        st.success(f"✅ {api_preview_data.get('message', 'API preview generated')}")
                     
                     # Display JSON preview with enhanced formatting
                     if api_preview_data["preview"] and field_mappings:
@@ -2322,7 +2323,7 @@ def process_data_enhanced(df, field_mappings, api_credentials, brokerage_name, d
         
         connection_test = client.validate_connection()
         if not connection_test['success']:
-            st.error(f"❌ API connection failed: {connection_test['message']}")
+            st.error(f"❌ API connection failed: {connection_test.get('message', 'Unknown connection error')}")
             st.session_state.processing_in_progress = False  # Clear processing flag on early failure
             return
             
@@ -2743,7 +2744,7 @@ def process_data(df, field_mappings, api_credentials, customer_name, data_proces
         client = LoadsAPIClient(api_credentials['base_url'], api_key=api_credentials['api_key'], auth_type='api_key')
         connection_test = client.validate_connection()
         if not connection_test['success']:
-            st.error(f"❌ API connection failed: {connection_test['message']}")
+            st.error(f"❌ API connection failed: {connection_test.get('message', 'Unknown connection error')}")
             return
             
         # Step 2: Apply field mappings
