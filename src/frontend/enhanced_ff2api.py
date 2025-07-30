@@ -1459,10 +1459,24 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             # Use original FF2API processing exactly
             ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
             
-            # Debug: Check ff2api_results structure
-            logger.info(f"FF2API results type: {type(ff2api_results)}")
-            if ff2api_results:
-                logger.info(f"First result type: {type(ff2api_results[0])}, value: {ff2api_results[0]}")
+            # Handle case where ff2api_results is a dict instead of list
+            if isinstance(ff2api_results, dict):
+                logger.info("FF2API returned dict instead of list, converting to list format")
+                # If it's a dict, it might contain results in a specific key, or be a single result
+                if 'results' in ff2api_results:
+                    ff2api_results = ff2api_results['results']
+                elif 'data' in ff2api_results:
+                    ff2api_results = ff2api_results['data']
+                else:
+                    # Treat the entire dict as a single result
+                    ff2api_results = [ff2api_results]
+            
+            # Ensure ff2api_results is a list
+            if not isinstance(ff2api_results, list):
+                logger.error(f"FF2API results is not a list: {type(ff2api_results)}")
+                ff2api_results = []
+            
+            logger.info(f"FF2API results count: {len(ff2api_results)}")
             
             # Safe success rate calculation
             success_count = 0
