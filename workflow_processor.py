@@ -150,7 +150,7 @@ class EndToEndWorkflowProcessor:
             if progress_callback:
                 progress_callback(0.5, "Retrieving internal load IDs...")
             
-            results.load_id_mappings = self.load_id_mapper.map_load_ids(results.ff2api_results)
+            results.load_id_mappings = self.load_id_mapper.map_load_ids(results.ff2api_results, results.csv_data)
             mapping_summary = self.load_id_mapper.get_mapping_summary(results.load_id_mappings)
             
             self.update_step('mapping', 'completed', 
@@ -376,6 +376,25 @@ class EndToEndWorkflowProcessor:
                     enriched_row['ff2api_carrier_name'] = mapping.carrier_name
                     # Also set standard carrier field for tracking integration
                     enriched_row['carrier'] = mapping.carrier_name
+                
+                # Add enhanced workflow fields
+                if mapping.workflow_path:
+                    enriched_row['workflow_path'] = mapping.workflow_path
+                    
+                if mapping.pro_source_type:
+                    enriched_row['pro_source_type'] = mapping.pro_source_type
+                    
+                if mapping.pro_confidence:
+                    enriched_row['pro_confidence'] = mapping.pro_confidence
+                    
+                if mapping.pro_context:
+                    enriched_row['pro_context'] = mapping.pro_context
+                    
+                # Add agent events summary (count only, not full data for CSV output)
+                if mapping.agent_events_data:
+                    enriched_row['agent_events_count'] = len(mapping.agent_events_data)
+                else:
+                    enriched_row['agent_events_count'] = 0
                 
                 if mapping.error_message:
                     enriched_row['load_id_error'] = mapping.error_message
