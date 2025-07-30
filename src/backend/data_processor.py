@@ -1042,7 +1042,7 @@ class DataProcessor:
                 'load.loadNumber', 'load.mode', 'load.rateType', 'load.status',
                 
                 # Carrier fields (required by API)
-                'carrier.name', 'carrier.dotNumber'
+                'carrier.name'
                 
                 # TEMPORARILY REMOVED for manual value testing:
                 # - Route fields (can be optional for basic testing)
