@@ -220,16 +220,16 @@ class DataProcessor:
             'load.rateType': 'pricing type (SPOT/CONTRACT/DEDICATED/PROJECT)',
             'load.status': 'current shipment status',
             'load.route.0.stopActivity': 'pickup or delivery activity',
-            'load.route.0.address.street1': 'pickup street address',
+            'load.route.0.address.addressLine1': 'pickup street address',
             'load.route.0.address.city': 'pickup city',
-            'load.route.0.address.stateOrProvince': 'pickup state/province',
+            'load.route.0.address.state': 'pickup state/province',
             'load.route.0.address.postalCode': 'pickup ZIP/postal code',
             'load.route.0.address.country': 'pickup country code',
             'load.route.0.expectedArrivalWindowStart': 'pickup appointment start time',
             'load.route.0.expectedArrivalWindowEnd': 'pickup appointment end time',
-            'load.route.1.address.street1': 'delivery street address',
+            'load.route.1.address.addressLine1': 'delivery street address',
             'load.route.1.address.city': 'delivery city',
-            'load.route.1.address.stateOrProvince': 'delivery state/province',
+            'load.route.1.address.state': 'delivery state/province',
             'load.route.1.address.postalCode': 'delivery ZIP/postal code',
             'load.route.1.expectedArrivalWindowStart': 'delivery appointment start time',
             'customer.customerId': 'customer account identifier',
@@ -361,8 +361,8 @@ class DataProcessor:
                 'priority': 1
             },
             
-            # 🏢 load.route.0.address.street1
-            'load.route.0.address.street1': {
+            # 🏢 load.route.0.address.addressLine1
+            'load.route.0.address.addressLine1': {
                 'regex': r'(street|address|line[\s_]*1)(?!.*(?:zip|city|state))',
                 'aliases': ['street', 'address', 'street address', 'line 1', 'pickup address'],
                 'exclude_tokens': ['zip', 'city', 'state', 'postal'],
@@ -376,8 +376,8 @@ class DataProcessor:
                 'priority': 1
             },
             
-            # 🗺️ load.route.0.address.stateOrProvince
-            'load.route.0.address.stateOrProvince': {
+            # 🗺️ load.route.0.address.state
+            'load.route.0.address.state': {
                 'regex': r'(state|province|region|state[\s_]*code)',
                 'aliases': ['state', 'province', 'region', 'state code'],
                 'value_patterns': [r'^[A-Z]{2}$'],  # US state codes
@@ -449,7 +449,7 @@ class DataProcessor:
              },
              
              # 📍 Delivery/Destination Address Fields
-             'load.route.1.address.street1': {
+             'load.route.1.address.addressLine1': {
                  'regex': r'(dest|delivery|destination|to)[\s_]*(street|address|line[\s_]*1)',
                  'aliases': ['dest street', 'delivery street', 'destination address', 'to street', 'delivery address'],
                  'exclude_tokens': ['zip', 'city', 'state', 'postal'],
@@ -462,7 +462,7 @@ class DataProcessor:
                  'priority': 1
              },
              
-             'load.route.1.address.stateOrProvince': {
+             'load.route.1.address.state': {
                  'regex': r'(dest|delivery|destination|to)[\s_]*(state|province|region)',
                  'aliases': ['dest state', 'delivery state', 'destination state', 'to state'],
                  'value_patterns': [r'^[A-Z]{2}$'],
@@ -745,13 +745,13 @@ class DataProcessor:
             },
             # Address field grouping
             {
-                'group_fields': ['load.route.0.address.street1', 'load.route.0.address.city', 
-                               'load.route.0.address.stateOrProvince', 'load.route.0.address.postalCode'],
+                'group_fields': ['load.route.0.address.addressLine1', 'load.route.0.address.city', 
+                               'load.route.0.address.state', 'load.route.0.address.postalCode'],
                 'keywords': ['pickup', 'origin', 'from']
             },
             {
-                'group_fields': ['load.route.1.address.street1', 'load.route.1.address.city', 
-                               'load.route.1.address.stateOrProvince', 'load.route.1.address.postalCode'],
+                'group_fields': ['load.route.1.address.addressLine1', 'load.route.1.address.city', 
+                               'load.route.1.address.state', 'load.route.1.address.postalCode'],
                 'keywords': ['delivery', 'destination', 'dest', 'to']
             }
         ]
@@ -988,8 +988,8 @@ class DataProcessor:
                 # Route fields (at least one stop required)
                 # Note: sequence is auto-generated, not required from user
                 'load.route.0.stopActivity',
-                'load.route.0.address.street1', 'load.route.0.address.city',
-                'load.route.0.address.stateOrProvince', 'load.route.0.address.postalCode',
+                'load.route.0.address.addressLine1', 'load.route.0.address.city',
+                'load.route.0.address.state', 'load.route.0.address.postalCode',
                 'load.route.0.address.country', 'load.route.0.expectedArrivalWindowStart',
                 'load.route.0.expectedArrivalWindowEnd',
                 
@@ -1207,7 +1207,7 @@ class DataProcessor:
                             
                             # For second stop and beyond, ensure all required address fields exist
                             if i > 0:  # Second stop (route.$1)
-                                required_address_fields = ['street1', 'city', 'stateOrProvince', 'postalCode']
+                                required_address_fields = ['addressLine1', 'city', 'state', 'postalCode']
                                 for field in required_address_fields:
                                     if field not in stop['address'] or not stop['address'][field]:
                                         # Use first stop's address as fallback

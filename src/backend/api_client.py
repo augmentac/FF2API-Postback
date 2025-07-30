@@ -319,9 +319,9 @@ class LoadsAPIClient:
                             "sequence": 1,
                             "stopActivity": "PICKUP",
                             "address": {
-                                "street1": "123 Main St",
+                                "addressLine1": "123 Main St",
                                 "city": "Chicago",
-                                "stateOrProvince": "IL",
+                                "state": "IL",
                                 "postalCode": "60601",
                                 "country": "US"
                             },
@@ -332,9 +332,9 @@ class LoadsAPIClient:
                             "sequence": 2,
                             "stopActivity": "DELIVERY",
                             "address": {
-                                "street1": "456 Oak Ave",
+                                "addressLine1": "456 Oak Ave",
                                 "city": "Milwaukee",
-                                "stateOrProvince": "WI",
+                                "state": "WI",
                                 "postalCode": "53202",
                                 "country": "US"
                             },

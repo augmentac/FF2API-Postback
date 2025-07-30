@@ -330,21 +330,65 @@ class EndToEndWorkflowProcessor:
     
     def _prepare_load_payload(self, row: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Prepare CSV row data for FF2API load creation.
+        Prepare CSV row data for FF2API load creation with proper nested structure.
         
-        This method should be enhanced with proper field mapping logic
-        based on your specific CSV structure and FF2API requirements.
+        Uses the same nested structure logic as DataProcessor.format_for_api()
+        to ensure compatibility with FF2API validation requirements.
         """
-        # Basic payload structure - this should be enhanced with proper field mapping
+        # Required nested structure for FF2API
         payload = {
-            'loadNumber': row.get('load_number'),
-            'mode': row.get('mode', 'FTL'),
-            'rateType': row.get('rate_type', 'SPOT'),
-            'status': row.get('status', 'DRAFT')
+            'load': {
+                'loadNumber': row.get('load_number'),
+                'mode': row.get('mode', 'FTL'),
+                'rateType': row.get('rate_type', 'SPOT'),
+                'status': 'DRAFT',  # Fixed: use valid status instead of CSV data
+                'equipment': {
+                    'equipmentType': 'DRY_VAN'
+                },
+                'items': [],
+                'route': [
+                    {
+                        'sequence': 1,
+                        'stopActivity': 'PICKUP',
+                        'address': {
+                            'street1': '123 Test St',
+                            'city': 'Test City',
+                            'stateOrProvince': 'CA',
+                            'country': 'US',
+                            'postalCode': '90210'
+                        },
+                        'expectedArrivalWindowStart': '2024-01-01T08:00:00Z',
+                        'expectedArrivalWindowEnd': '2024-01-01T17:00:00Z'
+                    },
+                    {
+                        'sequence': 2,
+                        'stopActivity': 'DELIVERY',
+                        'address': {
+                            'street1': '456 Test Ave',
+                            'city': 'Test City 2',
+                            'stateOrProvince': 'NY',
+                            'country': 'US',
+                            'postalCode': '10001'
+                        },
+                        'expectedArrivalWindowStart': '2024-01-02T08:00:00Z',
+                        'expectedArrivalWindowEnd': '2024-01-02T17:00:00Z'
+                    }
+                ]
+            },
+            'customer': {
+                'name': 'Test Customer'
+            },
+            'brokerage': {
+                'contacts': [
+                    {
+                        'name': 'Test Broker',
+                        'email': 'test@example.com',
+                        'phone': '555-123-4567',
+                        'role': 'ACCOUNT_MANAGER'
+                    }
+                ]
+            }
         }
-        
-        # Add other fields as needed based on CSV structure
-        # This is where you'd implement comprehensive field mapping
         
         return payload
     
