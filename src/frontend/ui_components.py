@@ -1205,11 +1205,13 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
         
         # Group optional fields by category for better UX
         categories = {
+            "📞 Tracking & References": [f for f in optional_fields.keys() if 'referenceNumbers' in f or 'tracking' in f.lower() or (f.endswith('.value') and 'reference' in f.lower())],
             "📍 Location Details": [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
             "📦 Load Information": [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
             "💰 Pricing & Bids": [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
             "👥 Contacts & Carriers": [f for f in optional_fields.keys() if 'contact' in f or 'carrier' in f or 'driver' in f],
             "📋 Other Fields": [f for f in optional_fields.keys() if f not in [item for sublist in [
+                [f for f in optional_fields.keys() if 'referenceNumbers' in f or 'tracking' in f.lower() or (f.endswith('.value') and 'reference' in f.lower())],
                 [f for f in optional_fields.keys() if 'address' in f or 'route' in f],
                 [f for f in optional_fields.keys() if 'items' in f or 'equipment' in f or 'weight' in f],
                 [f for f in optional_fields.keys() if 'bid' in f.lower() or 'cost' in f.lower() or 'rate' in f.lower()],
@@ -2226,6 +2228,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
         # Group optional fields by category with priority-based assignment to prevent duplicates
         processed_fields = set()
         categories = {
+            "📞 Tracking & References": [],
             "💰 Pricing & Bids": [],
             "📦 Load Information": [],
             "📍 Location Details": [],
@@ -2237,8 +2240,10 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
         for field in optional_fields.keys():
             if field in processed_fields:
                 continue
-            # Priority order: Pricing & Bids > Load Information > Location > Contacts > Other
-            if 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
+            # Priority order: Tracking & References > Pricing & Bids > Load Information > Location > Contacts > Other
+            if 'referenceNumbers' in field or 'tracking' in field.lower() or (field.endswith('.value') and 'reference' in field.lower()):
+                categories["📞 Tracking & References"].append(field)
+            elif 'bid' in field.lower() or 'cost' in field.lower() or 'rate' in field.lower():
                 categories["💰 Pricing & Bids"].append(field)
             elif 'items' in field or 'equipment' in field or 'weight' in field:
                 categories["📦 Load Information"].append(field)
