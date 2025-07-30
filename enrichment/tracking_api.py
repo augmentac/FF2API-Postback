@@ -7,6 +7,7 @@ Provides real-time carrier tracking data via browser automation API
 import requests
 import logging
 import time
+import json
 from typing import Dict, Any, Optional, List
 from datetime import datetime
 from .base import EnrichmentSource
@@ -22,25 +23,21 @@ class TrackingAPIEnricher(EnrichmentSource):
     
     def __init__(self, config: Dict[str, Any]):
         """
-        Initialize tracking API enrichment with auto-inherited configuration.
+        Initialize tracking API enrichment with hardcoded authentication from secrets.
         
         Args:
             config: Configuration containing brokerage settings and field mappings
         """
         super().__init__(config)
         
-        # Auto-inherit from existing brokerage configuration
+        # Brokerage info for context
         self.brokerage_key = config.get('brokerage_key', '')
-        self.api_base_url = config.get('api_base_url', '')
-        self.api_key = config.get('api_key', '')
-        self.bearer_token = config.get('bearer_token', '')
-        self.auth_type = config.get('auth_type', 'api_key')
         
-        # CSV field mappings (only new config needed)
+        # CSV field mappings
         self.pro_column = config.get('pro_column', 'PRO')
         self.carrier_column = config.get('carrier_column', 'carrier')
         
-        # Auto-derive tracking endpoint from FF2API base URL
+        # Tracking endpoint
         self.tracking_base_url = self._derive_tracking_endpoint()
         
         # Standard settings
@@ -48,8 +45,11 @@ class TrackingAPIEnricher(EnrichmentSource):
         self.retry_count = config.get('max_retries', 3)
         self.retry_delay = config.get('retry_delay', 1)
         
-        # Setup authentication headers (same as FF2API)
-        self.auth_headers = self._setup_auth_headers()
+        # Initialize session for persistent connection
+        self.session = requests.Session()
+        
+        # Use hardcoded authentication from secrets (managed separately)
+        self._setup_hardcoded_auth()
         
         # Cache for API results to avoid duplicate calls
         self._tracking_cache = {}
@@ -57,7 +57,59 @@ class TrackingAPIEnricher(EnrichmentSource):
         logger.info(f"Tracking API initialized for brokerage: {self.brokerage_key}")
         logger.info(f"Tracking endpoint: {self.tracking_base_url}")
         logger.info(f"Column mapping - PRO: {self.pro_column}, Carrier: {self.carrier_column}")
+        logger.info("Using hardcoded authentication for tracking API")
     
+    def _setup_hardcoded_auth(self):
+        """
+        Setup hardcoded authentication from secrets for tracking API.
+        This auth is managed separately from brokerage API keys.
+        """
+        try:
+            import streamlit as st
+            
+            # Check for hardcoded tracking API credentials in secrets
+            if hasattr(st, 'secrets') and 'tracking_api' in st.secrets:
+                tracking_secrets = st.secrets.tracking_api
+                
+                # Support both bearer token and API key auth methods
+                if 'bearer_token' in tracking_secrets:
+                    bearer_token = tracking_secrets.bearer_token
+                    self.session.headers.update({
+                        'Authorization': f'Bearer {bearer_token}',
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'FF2API-TrackingEnrichment/1.0'
+                    })
+                    logger.info("✓ Using hardcoded bearer token for tracking API")
+                    
+                elif 'api_key' in tracking_secrets:
+                    api_key = tracking_secrets.api_key
+                    self.session.headers.update({
+                        'Authorization': f'Bearer {api_key}',
+                        'Content-Type': 'application/json',
+                        'User-Agent': 'FF2API-TrackingEnrichment/1.0'
+                    })
+                    logger.info("✓ Using hardcoded API key for tracking API")
+                    
+                else:
+                    logger.warning("Tracking API secrets found but no bearer_token or api_key configured")
+                    self._setup_default_headers()
+                    
+            else:
+                logger.warning("No hardcoded tracking API credentials found in secrets")
+                logger.warning("Add tracking_api.bearer_token or tracking_api.api_key to Streamlit secrets")
+                self._setup_default_headers()
+                
+        except Exception as e:
+            logger.error(f"Failed to setup hardcoded auth: {e}")
+            self._setup_default_headers()
+    
+    def _setup_default_headers(self):
+        """Setup default headers without authentication"""
+        self.session.headers.update({
+            'Content-Type': 'application/json',
+            'User-Agent': 'FF2API-TrackingEnrichment/1.0'
+        })
+
     def _derive_tracking_endpoint(self) -> str:
         """
         Auto-derive tracking API endpoint from existing FF2API base URL.
@@ -68,33 +120,14 @@ class TrackingAPIEnricher(EnrichmentSource):
         # Use production tracking endpoint
         return "https://track-and-trace-agent.prod.goaugment.com/unstable/completed-browser-task"
     
-    def _setup_auth_headers(self) -> Dict[str, str]:
-        """
-        Setup authentication headers using same credentials as FF2API.
-        
-        Returns:
-            Dictionary of authentication headers
-        """
-        headers = {
-            'Content-Type': 'application/json',
-            'User-Agent': 'FF2API-TrackingEnrichment/1.0'
-        }
-        
-        if self.auth_type == 'bearer_token' and self.bearer_token:
-            headers['Authorization'] = f'Bearer {self.bearer_token}'
-        elif self.auth_type == 'api_key' and self.api_key:
-            headers['Authorization'] = f'Bearer {self.api_key}'
-        elif self.api_key:  # Fallback
-            headers['Authorization'] = f'Bearer {self.api_key}'
-        
-        return headers
     
     def validate_config(self) -> bool:
         """
         Check if tracking API configuration is valid.
+        Also performs a test call to verify tracking API access.
         
         Returns:
-            True if configuration is valid
+            True if configuration is valid and tracking API is accessible
         """
         if not self.brokerage_key:
             logger.error("No brokerage key configured for tracking API")
@@ -104,11 +137,60 @@ class TrackingAPIEnricher(EnrichmentSource):
             logger.error("No tracking API endpoint configured")
             return False
         
-        if not (self.api_key or self.bearer_token):
-            logger.error("No API authentication configured for tracking")
+        # Check if authentication headers are set
+        auth_header = self.session.headers.get('Authorization')
+        if not auth_header:
+            logger.warning("No authentication configured in secrets for tracking API")
+            logger.warning("Add tracking_api.bearer_token or tracking_api.api_key to Streamlit secrets")
+            return False
+        
+        # Test tracking API access
+        logger.info("Testing tracking API accessibility...")
+        test_result = self._test_tracking_access()
+        if not test_result:
+            logger.warning("Tracking API is not accessible with current credentials")
+            logger.warning("Enhanced workflow will continue without tracking enrichment")
             return False
         
         return True
+    
+    def _test_tracking_access(self) -> bool:
+        """
+        Test if tracking API is accessible with current credentials.
+        
+        Returns:
+            True if tracking API responds (even with 404 for specific PRO)
+        """
+        try:
+            # Test with a dummy PRO number
+            test_url = f"{self.tracking_base_url}/pro-number/TEST123"
+            params = {
+                'brokerageKey': 'eshipping',
+                'browserTask': 'TEST'
+            }
+            
+            response = self.session.get(
+                test_url,
+                params=params,
+                timeout=10
+            )
+            
+            # Consider 404 as "accessible but no data" (good)
+            # Consider 401/403 as "not authorized" (bad)
+            if response.status_code in [200, 404]:
+                logger.info("✓ Tracking API is accessible")
+                return True
+            elif response.status_code in [401, 403]:
+                logger.warning(f"✗ Tracking API authentication failed: {response.status_code}")
+                logger.warning("This brokerage may not have tracking API access enabled")
+                return False
+            else:
+                logger.warning(f"✗ Tracking API returned unexpected status: {response.status_code}")
+                return False
+                
+        except Exception as e:
+            logger.warning(f"✗ Tracking API test failed: {str(e)}")
+            return False
     
     def is_applicable(self, row: Dict[str, Any]) -> bool:
         """
@@ -215,10 +297,9 @@ class TrackingAPIEnricher(EnrichmentSource):
                 logger.debug(f"Tracking API call attempt {attempt + 1}: {url}")
                 logger.debug(f"Parameters: {params}")
                 
-                response = requests.get(
+                response = self.session.get(
                     url,
                     params=params,
-                    headers=self.auth_headers,
                     timeout=self.timeout
                 )
                 
@@ -244,7 +325,8 @@ class TrackingAPIEnricher(EnrichmentSource):
                 
                 elif response.status_code in [401, 403]:
                     logger.error(f"Authentication failed for tracking API: {response.status_code}")
-                    logger.error("Check that brokerage API credentials are valid")
+                    logger.error("Check hardcoded tracking API credentials in secrets")
+                    logger.error("Update tracking_api.bearer_token or tracking_api.api_key in Streamlit secrets")
                     # Cache the auth failure to avoid repeated attempts
                     self._tracking_cache[cache_key] = None
                     return None

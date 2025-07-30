@@ -77,16 +77,51 @@ class LoadIDMapper:
         return cls(brokerage_key, credentials)
         
     def get_auth_headers(self) -> Dict[str, str]:
-        """Get authentication headers for API calls using resolved credentials."""
+        """
+        Get authentication headers for GET API calls using hardcoded credentials.
+        GET endpoints (load retrieval, agent events) use separate hardcoded auth.
+        """
         headers = {'Content-Type': 'application/json'}
         
-        if self.api_key:
-            headers['Authorization'] = f'Bearer {self.api_key}'
-            logger.debug(f"Added API authentication for brokerage: {self.brokerage_key}")
-        else:
-            logger.warning(f"No API key available for brokerage: {self.brokerage_key}")
+        # Use hardcoded authentication for GET endpoints
+        try:
+            # Check for hardcoded load API credentials in secrets
+            if hasattr(st, 'secrets') and 'load_api' in st.secrets:
+                load_secrets = st.secrets.load_api
+                
+                # Support both bearer token and API key auth methods
+                if 'bearer_token' in load_secrets:
+                    bearer_token = load_secrets.bearer_token
+                    headers['Authorization'] = f'Bearer {bearer_token}'
+                    logger.debug("✓ Using hardcoded bearer token for load API")
+                    
+                elif 'api_key' in load_secrets:
+                    api_key = load_secrets.api_key
+                    headers['Authorization'] = f'Bearer {api_key}'
+                    logger.debug("✓ Using hardcoded API key for load API")
+                    
+                else:
+                    logger.warning("Load API secrets found but no bearer_token or api_key configured")
+                    self._fallback_to_brokerage_auth(headers)
+                    
+            else:
+                logger.warning("No hardcoded load API credentials found in secrets")
+                logger.warning("Add load_api.bearer_token or load_api.api_key to Streamlit secrets")
+                self._fallback_to_brokerage_auth(headers)
+                
+        except Exception as e:
+            logger.error(f"Failed to setup hardcoded auth for load API: {e}")
+            self._fallback_to_brokerage_auth(headers)
             
         return headers
+    
+    def _fallback_to_brokerage_auth(self, headers: Dict[str, str]):
+        """Fallback to brokerage-specific auth if hardcoded auth not available"""
+        if self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+            logger.debug(f"Fallback: Using brokerage API key for: {self.brokerage_key}")
+        else:
+            logger.warning(f"No authentication available for load API calls")
     
     def map_load_ids(self, processing_results: List[LoadProcessingResult], csv_rows: List[Dict[str, Any]] = None) -> List[LoadIDMapping]:
         """
