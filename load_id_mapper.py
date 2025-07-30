@@ -28,6 +28,10 @@ class LoadIDMapping:
     internal_load_id: Optional[str]
     api_status: str  # 'success', 'failed', 'not_found'
     error_message: Optional[str] = None
+    # Additional load data from FF2API
+    pro_number: Optional[str] = None
+    carrier_name: Optional[str] = None
+    load_details: Optional[Dict[str, Any]] = None
 
 
 class LoadIDMapper:
@@ -91,14 +95,17 @@ class LoadIDMapper:
         
         for result in processing_results:
             if result.success and result.load_number:
-                internal_id, status, error = self._fetch_internal_load_id(result.load_number)
+                internal_id, status, error, pro_number, carrier_name, load_details = self._fetch_internal_load_id(result.load_number)
                 
                 mapping = LoadIDMapping(
                     csv_row_index=result.csv_row_index,
                     load_number=result.load_number,
                     internal_load_id=internal_id,
                     api_status=status,
-                    error_message=error
+                    error_message=error,
+                    pro_number=pro_number,
+                    carrier_name=carrier_name,
+                    load_details=load_details
                 )
                 mappings.append(mapping)
                 
@@ -115,7 +122,7 @@ class LoadIDMapper:
         
         return mappings
     
-    def _fetch_internal_load_id(self, load_number: str) -> tuple[Optional[str], str, Optional[str]]:
+    def _fetch_internal_load_id(self, load_number: str) -> tuple[Optional[str], str, Optional[str], Optional[str], Optional[str], Optional[Dict]]:
         """
         Fetch internal load ID for a given load number using automatic credential resolution.
         
@@ -123,12 +130,12 @@ class LoadIDMapper:
             load_number: The brokerage load number (e.g., CSVTEST75279)
             
         Returns:
-            Tuple of (internal_load_id, status, error_message)
+            Tuple of (internal_load_id, status, error_message, pro_number, carrier_name, load_details)
         """
         # Check if we have API credentials
         if not self.api_key:
             logger.error(f"No API credentials for brokerage {self.brokerage_key}")
-            return None, 'no_credentials', f'No API credentials configured for {self.brokerage_key}'
+            return None, 'no_credentials', f'No API credentials configured for {self.brokerage_key}', None, None, None
         
         url = f"{self.base_url}/brokerage-key/{self.brokerage_key}/brokerage-load-id/{load_number}"
         headers = self.get_auth_headers()
@@ -150,24 +157,40 @@ class LoadIDMapper:
                     # Adjust field name based on actual API response structure
                     internal_id = data.get('load_id') or data.get('id') or data.get('internal_load_id')
                     
+                    # Extract PRO number from various possible fields
+                    pro_number = (data.get('pro_number') or 
+                                data.get('PRO') or 
+                                data.get('proNumber') or
+                                data.get('tracking_number') or
+                                data.get('carrier_pro') or
+                                data.get('load', {}).get('pro_number') or
+                                data.get('load', {}).get('PRO'))
+                    
+                    # Extract carrier name from various possible fields  
+                    carrier_name = (data.get('carrier_name') or
+                                  data.get('carrier') or
+                                  data.get('load', {}).get('carrier_name') or
+                                  data.get('load', {}).get('carrier') or
+                                  data.get('carrier_company_name'))
+                    
                     if internal_id:
-                        logger.info(f"Successfully retrieved load ID {internal_id} for {load_number}")
-                        return internal_id, 'success', None
+                        logger.info(f"Successfully retrieved load data for {load_number}: ID={internal_id}, PRO={pro_number}, Carrier={carrier_name}")
+                        return internal_id, 'success', None, pro_number, carrier_name, data
                     else:
                         logger.warning(f"No load ID found in response for {load_number}")
-                        return None, 'no_id_in_response', 'Load ID not found in API response'
+                        return None, 'no_id_in_response', 'Load ID not found in API response', pro_number, carrier_name, data
                         
                 elif response.status_code == 404:
                     logger.warning(f"Load {load_number} not found in system")
-                    return None, 'not_found', f'Load {load_number} not found'
+                    return None, 'not_found', f'Load {load_number} not found', None, None, None
                     
                 elif response.status_code == 401:
                     logger.error("API authentication failed")
-                    return None, 'auth_failed', 'API authentication failed'
+                    return None, 'auth_failed', 'API authentication failed', None, None, None
                     
                 elif response.status_code == 403:
                     logger.error("API access forbidden")
-                    return None, 'access_forbidden', 'Access forbidden'
+                    return None, 'access_forbidden', 'Access forbidden', None, None, None
                     
                 else:
                     logger.warning(f"API returned status {response.status_code} for {load_number}: {response.text}")
@@ -175,28 +198,28 @@ class LoadIDMapper:
                     
                     # Don't retry on client errors (4xx)
                     if 400 <= response.status_code < 500:
-                        return None, 'client_error', error_msg
+                        return None, 'client_error', error_msg, None, None, None
                         
             except requests.exceptions.Timeout:
                 logger.warning(f"Timeout on attempt {attempt + 1} for {load_number}")
                 if attempt == self.retry_count - 1:
-                    return None, 'timeout', f'API timeout after {self.retry_count} attempts'
+                    return None, 'timeout', f'API timeout after {self.retry_count} attempts', None, None, None
                     
             except requests.exceptions.ConnectionError:
                 logger.warning(f"Connection error on attempt {attempt + 1} for {load_number}")
                 if attempt == self.retry_count - 1:
-                    return None, 'connection_error', f'Connection failed after {self.retry_count} attempts'
+                    return None, 'connection_error', f'Connection failed after {self.retry_count} attempts', None, None, None
                     
             except Exception as e:
                 logger.error(f"Unexpected error on attempt {attempt + 1} for {load_number}: {e}")
                 if attempt == self.retry_count - 1:
-                    return None, 'error', str(e)
+                    return None, 'error', str(e), None, None, None
             
             # Wait before retry
             if attempt < self.retry_count - 1:
                 time.sleep(self.retry_delay)
                 
-        return None, 'failed', f'All {self.retry_count} attempts failed'
+        return None, 'failed', f'All {self.retry_count} attempts failed', None, None, None
     
     def get_mapping_summary(self, mappings: List[LoadIDMapping]) -> Dict[str, int]:
         """Get summary statistics for load ID mappings."""

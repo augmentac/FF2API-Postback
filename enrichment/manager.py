@@ -1,31 +1,29 @@
-"""Enrichment manager for coordinating multiple enrichment sources."""
+"""Enrichment manager for real-time tracking integration."""
 
 from typing import List, Dict, Any, Type
 import logging
 from .base import EnrichmentSource
-from .mock_tracking import MockTrackingEnrichmentSource
-from .snowflake_augment import SnowflakeAugmentEnrichmentSource
 from .tracking_api import TrackingAPIEnricher
 
 logger = logging.getLogger(__name__)
 
 
 class EnrichmentManager:
-    """Manages multiple enrichment sources and applies them to data rows."""
+    """Manages tracking API enrichment for real-time shipment data."""
     
     SOURCE_TYPES: Dict[str, Type[EnrichmentSource]] = {
-        'mock_tracking': MockTrackingEnrichmentSource,
-        'snowflake_augment': SnowflakeAugmentEnrichmentSource,
         'tracking_api': TrackingAPIEnricher,
     }
     
-    def __init__(self, source_configs: List[Dict[str, Any]]):
+    def __init__(self, source_configs: List[Dict[str, Any]], brokerage_config: Dict[str, Any] = None):
         """Initialize manager with enrichment source configurations.
         
         Args:
             source_configs: List of source configuration dictionaries
+            brokerage_config: Brokerage configuration for auto-authentication
         """
         self.sources = []
+        self.brokerage_config = brokerage_config or {}
         self._initialize_sources(source_configs)
         
     def _initialize_sources(self, source_configs: List[Dict[str, Any]]):
@@ -39,7 +37,15 @@ class EnrichmentManager:
                 
             try:
                 source_class = self.SOURCE_TYPES[source_type]
-                source = source_class(config)
+                
+                # Auto-inherit brokerage configuration for tracking API
+                if source_type == 'tracking_api' and self.brokerage_config:
+                    enhanced_config = {**config, **self.brokerage_config}
+                    logger.info(f"Auto-inherited brokerage auth for tracking API: {self.brokerage_config.get('brokerage_key', 'unknown')}")
+                else:
+                    enhanced_config = config
+                
+                source = source_class(enhanced_config)
                 
                 if source.validate_config():
                     self.sources.append(source)

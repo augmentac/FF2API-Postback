@@ -12,6 +12,7 @@ from load_id_mapper import LoadIDMapper, LoadProcessingResult, LoadIDMapping
 from enrichment.manager import EnrichmentManager
 from postback.router import PostbackRouter
 from credential_manager import credential_manager
+from src.backend.api_client import LoadsAPIClient
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,17 @@ class EndToEndWorkflowProcessor:
         
         # Initialize enrichment with global credentials and brokerage context
         enrichment_config = self._build_enrichment_config(config.get('enrichment', {}).get('sources', []))
-        self.enrichment_manager = EnrichmentManager(enrichment_config)
+        
+        # Build brokerage configuration for auto-authentication
+        brokerage_config = {
+            'brokerage_key': self.brokerage_key,
+            'api_base_url': config.get('load_api_url', ''),
+            'api_key': brokerage_creds.get('api_key', ''),
+            'bearer_token': brokerage_creds.get('bearer_token', ''),
+            'auth_type': brokerage_creds.get('auth_type', 'api_key')
+        }
+        
+        self.enrichment_manager = EnrichmentManager(enrichment_config, brokerage_config)
         
         # Initialize postback router
         postback_config = config.get('postback', {}).get('handlers', [])
@@ -128,7 +139,7 @@ class EndToEndWorkflowProcessor:
             if progress_callback:
                 progress_callback(0.3, "Processing loads through FF2API...")
                 
-            results.ff2api_results = self._simulate_ff2api_processing(results.csv_data)
+            results.ff2api_results = self._process_loads_via_ff2api(results.csv_data)
             
             successful_loads = len([r for r in results.ff2api_results if r.success])
             self.update_step('ff2api', 'completed', 
@@ -205,12 +216,14 @@ class EndToEndWorkflowProcessor:
         
         if self.workflow_type == 'endtoend':
             # Strict validation for end-to-end workflow (new load creation)
-            required_fields = ['load_id']  # Required for FF2API processing
-            recommended_fields = ['carrier', 'PRO', 'customer_code', 'origin_zip', 'dest_zip']
+            # Accept either load_id or load_number for load identification
+            load_id_fields = ['load_id', 'load_number', 'loadNumber', 'load_num', 'LoadNumber']
+            has_load_identifier = any(field in first_row for field in load_id_fields)
             
-            for field in required_fields:
-                if field not in first_row:
-                    errors.append(f"Required field '{field}' is missing for end-to-end processing")
+            if not has_load_identifier:
+                errors.append(f"Required load identifier field is missing. Expected one of: {load_id_fields}")
+            
+            recommended_fields = ['carrier', 'PRO', 'customer_code', 'origin_zip', 'dest_zip']
                     
             missing_recommended = [field for field in recommended_fields if field not in first_row]
             if missing_recommended:
@@ -229,36 +242,111 @@ class EndToEndWorkflowProcessor:
         
         return errors
     
-    def _simulate_ff2api_processing(self, csv_data: List[Dict[str, Any]]) -> List[LoadProcessingResult]:
+    def _process_loads_via_ff2api(self, csv_data: List[Dict[str, Any]]) -> List[LoadProcessingResult]:
         """
-        Simulate FF2API processing results.
-        In actual implementation, this would call the real FF2API system.
+        Process loads through real FF2API system.
+        
+        Args:
+            csv_data: List of CSV row dictionaries
+            
+        Returns:
+            List of LoadProcessingResult objects with FF2API response data
         """
         results = []
         
-        for i, row in enumerate(csv_data):
-            # Simulate processing with some realistic success/failure patterns
-            success = True  # For demo, assume most succeed
-            load_number = None
-            error_message = None
+        # Initialize FF2API client with brokerage credentials
+        try:
+            api_base_url = self.config.get('load_api_url', 'https://load.prod.goaugment.com')
+            # Remove the /unstable/loads suffix if present, we need base URL
+            if '/unstable/loads' in api_base_url:
+                api_base_url = api_base_url.replace('/unstable/loads', '')
             
-            if success:
-                # Generate load number based on load_id
-                base_load_id = row.get('load_id', f'LOAD{i:03d}')
-                load_number = f"CSV{base_load_id}{i:05d}"  # e.g., CSVLOAD00175279
-            else:
-                error_message = "Simulated processing error"
-            
-            result = LoadProcessingResult(
-                csv_row_index=i,
-                load_number=load_number,
-                success=success,
-                error_message=error_message,
-                response_data={'processed_at': datetime.now().isoformat()}
+            client = LoadsAPIClient(
+                base_url=api_base_url,
+                api_key=self.credentials.api_available and credential_manager.get_brokerage_api_key(self.brokerage_key),
+                auth_type='api_key'
             )
+            
+            logger.info(f"Initialized FF2API client for {self.brokerage_key} at {api_base_url}")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize FF2API client: {e}")
+            # Return all failed results
+            return [
+                LoadProcessingResult(
+                    csv_row_index=i,
+                    load_number=None,
+                    success=False,
+                    error_message=f"API client initialization failed: {e}"
+                ) for i, _ in enumerate(csv_data)
+            ]
+        
+        # Process each load
+        for i, row in enumerate(csv_data):
+            try:
+                # Use the original load_number from CSV as the load identifier
+                # This is what will be used later for load details retrieval
+                original_load_number = row.get('load_number', f'LOAD{i:03d}')
+                
+                # Prepare load data for FF2API (this would need proper field mapping)
+                load_payload = self._prepare_load_payload(row)
+                
+                # Submit to FF2API
+                api_result = client.create_load(load_payload)
+                
+                if api_result['success']:
+                    # Use original load_number for later retrieval via load_id_mapper
+                    result = LoadProcessingResult(
+                        csv_row_index=i,
+                        load_number=original_load_number,  # Use CSV load_number for consistency
+                        success=True,
+                        error_message=None,
+                        response_data=api_result.get('data', {})
+                    )
+                    logger.info(f"Successfully processed load {original_load_number}")
+                else:
+                    result = LoadProcessingResult(
+                        csv_row_index=i,
+                        load_number=original_load_number,
+                        success=False,
+                        error_message=api_result.get('error', 'Unknown API error'),
+                        response_data=api_result
+                    )
+                    logger.error(f"Failed to process load {original_load_number}: {api_result.get('error')}")
+                
+            except Exception as e:
+                logger.error(f"Exception processing load {i}: {e}")
+                result = LoadProcessingResult(
+                    csv_row_index=i,
+                    load_number=row.get('load_number', f'LOAD{i:03d}'),
+                    success=False,
+                    error_message=f"Processing exception: {str(e)}"
+                )
+            
             results.append(result)
         
+        logger.info(f"FF2API processing complete: {len([r for r in results if r.success])}/{len(results)} successful")
         return results
+    
+    def _prepare_load_payload(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Prepare CSV row data for FF2API load creation.
+        
+        This method should be enhanced with proper field mapping logic
+        based on your specific CSV structure and FF2API requirements.
+        """
+        # Basic payload structure - this should be enhanced with proper field mapping
+        payload = {
+            'loadNumber': row.get('load_number'),
+            'mode': row.get('mode', 'FTL'),
+            'rateType': row.get('rate_type', 'SPOT'),
+            'status': row.get('status', 'DRAFT')
+        }
+        
+        # Add other fields as needed based on CSV structure
+        # This is where you'd implement comprehensive field mapping
+        
+        return payload
     
     def _enrich_data_with_load_ids(self, csv_data: List[Dict[str, Any]], 
                                   mappings: List[LoadIDMapping]) -> List[Dict[str, Any]]:
@@ -277,6 +365,17 @@ class EndToEndWorkflowProcessor:
                 enriched_row['load_number'] = mapping.load_number
                 enriched_row['internal_load_id'] = mapping.internal_load_id
                 enriched_row['load_id_status'] = mapping.api_status
+                
+                # Add PRO number and carrier from FF2API load details (if available)
+                if mapping.pro_number:
+                    enriched_row['ff2api_pro_number'] = mapping.pro_number
+                    # Also set standard PRO field for tracking integration
+                    enriched_row['PRO'] = mapping.pro_number
+                    
+                if mapping.carrier_name:
+                    enriched_row['ff2api_carrier_name'] = mapping.carrier_name
+                    # Also set standard carrier field for tracking integration
+                    enriched_row['carrier'] = mapping.carrier_name
                 
                 if mapping.error_message:
                     enriched_row['load_id_error'] = mapping.error_message

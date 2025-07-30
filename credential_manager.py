@@ -97,30 +97,29 @@ class CredentialManager:
         return self.email_creds
     
     def get_tracking_api_credentials(self) -> Optional[Dict[str, Any]]:
-        """Get tracking API credentials for shipment tracking enrichment."""
+        """
+        Get tracking API credentials for shipment tracking enrichment.
+        
+        NOTE: Tracking API uses existing brokerage credentials automatically.
+        This method only provides endpoint configuration defaults.
+        Authentication is inherited from brokerage configuration.
+        """
         try:
+            # Tracking API configuration is optional - provides only endpoint overrides
             tracking_config = st.secrets.get("tracking_api", {})
-            if not tracking_config:
-                logger.info("No tracking API configuration found - tracking features disabled")
-                return None
-                
-            # Check for required api_endpoint field
-            if 'api_endpoint' not in tracking_config:
-                logger.warning("Tracking API endpoint not configured - tracking features disabled")
-                return None
             
-            # Set defaults for optional fields
+            # Default configuration - tracking API inherits from brokerage auth
             config = {
-                'api_endpoint': tracking_config['api_endpoint'],
+                'api_endpoint': tracking_config.get('api_endpoint', 'https://track-and-trace-agent.prod.goaugment.com/unstable/completed-browser-task'),
                 'timeout': tracking_config.get('timeout', 30),
                 'max_retries': tracking_config.get('max_retries', 3)
             }
             
-            logger.info("Tracking API credentials loaded successfully")
+            logger.info("Tracking API configuration loaded (authentication inherited from brokerage)")
             return config
             
         except Exception as e:
-            logger.error(f"Error loading tracking API credentials: {e}")
+            logger.error(f"Error loading tracking API configuration: {e}")
             return None
     
     def validate_credentials(self, brokerage_key: str) -> CredentialCapabilities:
@@ -183,7 +182,7 @@ class CredentialManager:
             
             # Filter out configuration keys (not actual brokerage credentials)
             config_keys = {
-                'base_url', 'timeout', 'retry_count', 'retry_delay', 
+                'base_url', 'base-url', 'timeout', 'retry_count', 'retry-count', 'retry_delay', 'retry-delay',
                 'default_api_base_url', 'api_base_url', 'default-api-base-url'
             }
             

@@ -41,7 +41,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send_email, email_recipient, api_timeout, retry_count):
+def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send_email, email_recipient, api_timeout, retry_count, pro_column="PRO", carrier_column="carrier"):
     """Simplified end-to-end processing with minimal UI."""
     
     with st.spinner("Processing new loads..."):
@@ -56,11 +56,11 @@ def process_endtoend_simple(df, brokerage_key, add_tracking, output_format, send
             
             # Add enrichment if enabled
             if add_tracking:
-                # Use tracking API for enrichment instead of Snowflake
+                # Use tracking API for enrichment with user-specified columns
                 config['enrichment']['sources'] = [{
                     'type': 'tracking_api',
-                    'pro_column': 'PRO',
-                    'carrier_column': 'carrier'
+                    'pro_column': pro_column,
+                    'carrier_column': carrier_column
                 }]
             
             # Set output
@@ -149,31 +149,119 @@ def load_default_endtoend_config() -> Dict[str, Any]:
 
 
 def validate_uploaded_file(uploaded_file) -> pd.DataFrame:
-    """Validate and load uploaded file."""
+    """Validate and load uploaded file with comprehensive security checks."""
     try:
-        if uploaded_file.name.endswith('.csv'):
-            df = pd.read_csv(uploaded_file)
-        elif uploaded_file.name.endswith('.json'):
-            content = json.load(uploaded_file)
+        # File size validation (10MB limit)
+        MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+        if uploaded_file.size > MAX_FILE_SIZE:
+            st.error(f"File too large. Maximum size is {MAX_FILE_SIZE / (1024*1024):.1f}MB")
+            return None
+        
+        # File extension validation
+        allowed_extensions = ['.csv', '.json']
+        file_extension = None
+        for ext in allowed_extensions:
+            if uploaded_file.name.lower().endswith(ext):
+                file_extension = ext
+                break
+        
+        if not file_extension:
+            st.error("Invalid file type. Only CSV and JSON files are allowed")
+            return None
+        
+        # Content type validation
+        if hasattr(uploaded_file, 'type'):
+            allowed_mime_types = ['text/csv', 'application/json', 'text/plain', 'application/octet-stream']
+            if uploaded_file.type and uploaded_file.type not in allowed_mime_types:
+                st.error(f"Invalid file content type: {uploaded_file.type}")
+                return None
+        
+        # Read file with security limits
+        if file_extension == '.csv':
+            # CSV validation with row/column limits
+            MAX_ROWS = 10000
+            MAX_COLS = 100
+            
+            df = pd.read_csv(uploaded_file, nrows=MAX_ROWS + 1)  # Read one extra to check limit
+            
+            if len(df) > MAX_ROWS:
+                st.error(f"CSV file has too many rows. Maximum allowed: {MAX_ROWS:,}")
+                return None
+                
+            if len(df.columns) > MAX_COLS:
+                st.error(f"CSV file has too many columns. Maximum allowed: {MAX_COLS}")
+                return None
+            
+            # Remove the extra row if we read MAX_ROWS + 1
+            if len(df) == MAX_ROWS + 1:
+                df = df.iloc[:MAX_ROWS]
+                
+        elif file_extension == '.json':
+            # JSON validation with size and structure limits
+            MAX_JSON_SIZE = 5 * 1024 * 1024  # 5MB for JSON content
+            content_bytes = uploaded_file.read()
+            
+            if len(content_bytes) > MAX_JSON_SIZE:
+                st.error(f"JSON content too large. Maximum size: {MAX_JSON_SIZE / (1024*1024):.1f}MB")
+                return None
+            
+            # Reset file pointer and parse JSON
+            uploaded_file.seek(0)
+            try:
+                content = json.load(uploaded_file)
+            except json.JSONDecodeError as e:
+                st.error(f"Invalid JSON format: {str(e)}")
+                return None
+            
+            # Convert to DataFrame with validation
             if isinstance(content, list):
+                if len(content) > 10000:  # Limit array size
+                    st.error("JSON array too large. Maximum 10,000 items allowed")
+                    return None
                 df = pd.DataFrame(content)
             elif isinstance(content, dict):
                 df = pd.DataFrame([content])
             else:
                 st.error("JSON file must contain an array or object")
                 return None
-        else:
-            st.error("Please upload a CSV or JSON file")
-            return None
-            
+        
+        # Final DataFrame validation
         if df.empty:
-            st.error("Uploaded file is empty")
+            st.error("Uploaded file contains no data")
             return None
-            
+        
+        # Check for suspicious column names (potential injection attempts)
+        suspicious_patterns = ['<script', 'javascript:', 'data:', 'vbscript:', 'onload=', 'onerror=']
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if any(pattern in col_lower for pattern in suspicious_patterns):
+                st.error(f"Suspicious column name detected: {col}")
+                return None
+        
+        # Validate data types and content
+        for col in df.columns:
+            # Check for excessively long strings that might indicate malicious content
+            if df[col].dtype == 'object':
+                max_lengths = df[col].astype(str).str.len()
+                if max_lengths.max() > 1000:  # 1000 character limit per cell
+                    st.warning(f"Column '{col}' contains very long text (max: {max_lengths.max()} chars)")
+        
+        logger.info(f"File validation successful: {uploaded_file.name} ({uploaded_file.size} bytes, {len(df)} rows, {len(df.columns)} columns)")
         return df
         
+    except UnicodeDecodeError:
+        st.error("File encoding error. Please ensure the file uses UTF-8 encoding")
+        return None
+    except MemoryError:
+        st.error("File too large to process. Please reduce file size")
+        return None
     except Exception as e:
-        st.error(f"Error reading file: {str(e)}")
+        # Sanitize error message to prevent information disclosure
+        error_msg = str(e)
+        if len(error_msg) > 200:
+            error_msg = error_msg[:200] + "..."
+        st.error(f"Error processing file: {error_msg}")
+        logger.error(f"File validation error for {uploaded_file.name}: {e}")
         return None
 
 
@@ -505,6 +593,32 @@ def main():
         
         # Essential options only
         add_tracking = st.checkbox("Add tracking data", value=True)
+        
+        # Tracking configuration
+        if add_tracking:
+            with st.expander("⚙️ Tracking Settings"):
+                st.markdown("**Column Mapping for Tracking**")
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    pro_column = st.text_input(
+                        "PRO Number Column",
+                        value="PRO",
+                        help="CSV column containing PRO/tracking numbers"
+                    )
+                
+                with col2:
+                    carrier_column = st.text_input(
+                        "Carrier Column", 
+                        value="carrier",
+                        help="CSV column containing carrier names"
+                    )
+                
+                st.info("💡 Tracking data will be fetched automatically using your brokerage API credentials")
+        else:
+            pro_column = "PRO"
+            carrier_column = "carrier"
+        
         send_email = st.checkbox("Email results")
         
         if send_email:
@@ -591,7 +705,8 @@ def main():
             if has_load_number and (send_email and email_recipient or not send_email):
                 if st.button("Process New Loads", type="primary", use_container_width=True):
                     process_endtoend_simple(df, brokerage_key, add_tracking, output_format, 
-                                          send_email, email_recipient, api_timeout, retry_count)
+                                          send_email, email_recipient, api_timeout, retry_count,
+                                          pro_column, carrier_column)
             else:
                 if not has_load_number:
                     st.button("Process New Loads", disabled=True, help="Missing load number field")

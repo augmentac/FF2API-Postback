@@ -1,94 +1,118 @@
 """
-Tracking API Enrichment Source.
-
-Provides tracking data enrichment by calling a single API endpoint
-with dynamic carrier (browserTask) and PRO number parameters.
+Tracking API Enrichment Integration
+Auto-inherits authentication from existing brokerage configuration
+Provides real-time carrier tracking data via browser automation API
 """
 
 import requests
-import pandas as pd
 import logging
-from typing import Dict, Any, List, Optional
+import time
+from typing import Dict, Any, Optional, List
+from datetime import datetime
 from .base import EnrichmentSource
 
 logger = logging.getLogger(__name__)
 
+
 class TrackingAPIEnricher(EnrichmentSource):
-    """Enrichment source that fetches tracking data from a single API endpoint."""
+    """
+    Real-time tracking enrichment using browser automation API.
+    Automatically inherits authentication from existing FF2API configuration.
+    """
     
     def __init__(self, config: Dict[str, Any]):
-        """Initialize tracking API enricher.
+        """
+        Initialize tracking API enrichment with auto-inherited configuration.
         
         Args:
-            config: Configuration dictionary containing:
-                - api_endpoint: The tracking API endpoint URL
-                - timeout: Request timeout in seconds (default: 30)
-                - max_retries: Maximum retry attempts (default: 3)
+            config: Configuration containing brokerage settings and field mappings
         """
         super().__init__(config)
-        self.api_endpoint = config.get('api_endpoint')
-        self.timeout = config.get('timeout', 30)
-        self.max_retries = config.get('max_retries', 3)
         
-        # Column mapping - will be set by configuration
+        # Auto-inherit from existing brokerage configuration
+        self.brokerage_key = config.get('brokerage_key', '')
+        self.api_base_url = config.get('api_base_url', '')
+        self.api_key = config.get('api_key', '')
+        self.bearer_token = config.get('bearer_token', '')
+        self.auth_type = config.get('auth_type', 'api_key')
+        
+        # CSV field mappings (only new config needed)
         self.pro_column = config.get('pro_column', 'PRO')
         self.carrier_column = config.get('carrier_column', 'carrier')
         
-        if not self.api_endpoint:
-            raise ValueError("api_endpoint is required for tracking API enricher")
+        # Auto-derive tracking endpoint from FF2API base URL
+        self.tracking_base_url = self._derive_tracking_endpoint()
+        
+        # Standard settings
+        self.timeout = config.get('timeout', 30)
+        self.retry_count = config.get('max_retries', 3)
+        self.retry_delay = config.get('retry_delay', 1)
+        
+        # Setup authentication headers (same as FF2API)
+        self.auth_headers = self._setup_auth_headers()
         
         # Cache for API results to avoid duplicate calls
         self._tracking_cache = {}
         
-        logger.info(f"Initialized tracking API enricher with endpoint: {self.api_endpoint}")
+        logger.info(f"Tracking API initialized for brokerage: {self.brokerage_key}")
+        logger.info(f"Tracking endpoint: {self.tracking_base_url}")
         logger.info(f"Column mapping - PRO: {self.pro_column}, Carrier: {self.carrier_column}")
-        
-    def enrich(self, row: Dict[str, Any]) -> Dict[str, Any]:
-        """Enrich a single data row with tracking information.
-        
-        Args:
-            row: Original data row dictionary
-            
-        Returns:
-            Enriched data row dictionary with tracking columns added
+    
+    def _derive_tracking_endpoint(self) -> str:
         """
-        enriched_row = row.copy()
+        Auto-derive tracking API endpoint from existing FF2API base URL.
         
-        # Get PRO and carrier from the row
-        pro_number = row.get(self.pro_column)
-        carrier = row.get(self.carrier_column)
+        Returns:
+            Tracking API base URL
+        """
+        # Use production tracking endpoint
+        return "https://track-and-trace-agent.prod.goaugment.com/unstable/completed-browser-task"
+    
+    def _setup_auth_headers(self) -> Dict[str, str]:
+        """
+        Setup authentication headers using same credentials as FF2API.
         
-        # Initialize tracking columns
-        enriched_row['tracking_status'] = None
-        enriched_row['tracking_location'] = None
-        enriched_row['tracking_date'] = None
+        Returns:
+            Dictionary of authentication headers
+        """
+        headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'FF2API-TrackingEnrichment/1.0'
+        }
         
-        if not pro_number or not carrier:
-            logger.debug(f"Skipping tracking enrichment: missing PRO ({pro_number}) or carrier ({carrier})")
-            return enriched_row
+        if self.auth_type == 'bearer_token' and self.bearer_token:
+            headers['Authorization'] = f'Bearer {self.bearer_token}'
+        elif self.auth_type == 'api_key' and self.api_key:
+            headers['Authorization'] = f'Bearer {self.api_key}'
+        elif self.api_key:  # Fallback
+            headers['Authorization'] = f'Bearer {self.api_key}'
         
-        # Convert to strings and get tracking data
-        pro_str = str(pro_number).strip()
-        carrier_str = str(carrier).strip()
+        return headers
+    
+    def validate_config(self) -> bool:
+        """
+        Check if tracking API configuration is valid.
         
-        if not pro_str or not carrier_str:
-            logger.debug(f"Skipping tracking enrichment: empty PRO or carrier after conversion")
-            return enriched_row
+        Returns:
+            True if configuration is valid
+        """
+        if not self.brokerage_key:
+            logger.error("No brokerage key configured for tracking API")
+            return False
         
-        tracking_data = self._get_tracking_data(carrier_str, pro_str)
+        if not self.tracking_base_url:
+            logger.error("No tracking API endpoint configured")
+            return False
         
-        if tracking_data:
-            enriched_row['tracking_status'] = tracking_data.get('status')
-            enriched_row['tracking_location'] = tracking_data.get('location')
-            enriched_row['tracking_date'] = tracking_data.get('date')
-            logger.debug(f"Successfully enriched tracking data for {carrier_str} PRO {pro_str}")
-        else:
-            logger.debug(f"Failed to get tracking data for {carrier_str} PRO {pro_str}")
+        if not (self.api_key or self.bearer_token):
+            logger.error("No API authentication configured for tracking")
+            return False
         
-        return enriched_row
+        return True
     
     def is_applicable(self, row: Dict[str, Any]) -> bool:
-        """Check if tracking enrichment is applicable to this row.
+        """
+        Check if tracking enrichment is applicable to this row.
         
         Args:
             row: Data row to check
@@ -96,40 +120,81 @@ class TrackingAPIEnricher(EnrichmentSource):
         Returns:
             True if row has required PRO and carrier fields
         """
-        pro_number = row.get(self.pro_column)
-        carrier = row.get(self.carrier_column)
-        
+        pro_number, carrier = self._extract_row_data(row)
         return bool(pro_number and carrier)
     
-    def validate_config(self) -> bool:
-        """Validate tracking API configuration.
-        
-        Returns:
-            True if configuration is valid
+    def _extract_row_data(self, row_data: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
         """
-        if not self.api_endpoint:
-            logger.error("Tracking API endpoint is required")
-            return False
-        
-        if not isinstance(self.timeout, (int, float)) or self.timeout <= 0:
-            logger.error("Tracking API timeout must be a positive number")
-            return False
-        
-        if not isinstance(self.max_retries, int) or self.max_retries < 0:
-            logger.error("Tracking API max_retries must be a non-negative integer")
-            return False
-        
-        return True
-    
-    def _get_tracking_data(self, carrier: str, pro_number: str) -> Optional[Dict[str, Any]]:
-        """Get tracking data for a specific carrier and PRO number.
+        Validate and extract required tracking data from CSV row.
         
         Args:
-            carrier: Carrier name (used as browserTask)
-            pro_number: PRO number to track
+            row_data: Dictionary containing CSV row data
             
         Returns:
-            Dictionary with tracking data or None if failed
+            Tuple of (pro_number, carrier) or (None, None) if invalid
+        """
+        # Extract PRO number - prioritize FF2API-sourced data over CSV fields
+        pro_number = None
+        # First priority: PRO numbers from FF2API load details
+        ff2api_pro_fields = ['ff2api_pro_number', 'PRO']  # PRO is set by workflow from FF2API data
+        csv_pro_fields = [self.pro_column, 'pro_number', 'ProNumber', 'tracking_number']
+        
+        # Try FF2API fields first
+        for pro_field in ff2api_pro_fields:
+            if pro_field in row_data and row_data[pro_field]:
+                pro_number = str(row_data[pro_field]).strip()
+                logger.debug(f"Using FF2API PRO number from field '{pro_field}': {pro_number}")
+                break
+        
+        # Fallback to CSV fields if no FF2API data
+        if not pro_number:
+            for pro_field in csv_pro_fields:
+                if pro_field in row_data and row_data[pro_field]:
+                    pro_number = str(row_data[pro_field]).strip() 
+                    logger.debug(f"Using CSV PRO number from field '{pro_field}': {pro_number}")
+                    break
+        
+        if not pro_number:
+            logger.debug(f"No PRO number found in row data. Checked FF2API fields: {ff2api_pro_fields}, CSV fields: {csv_pro_fields}")
+            return None, None
+        
+        # Extract carrier - prioritize FF2API-sourced data over CSV fields
+        carrier = None
+        # First priority: Carrier names from FF2API load details
+        ff2api_carrier_fields = ['ff2api_carrier_name', 'carrier']  # carrier is set by workflow from FF2API data
+        csv_carrier_fields = [self.carrier_column, 'Carrier Name', 'carrier_name', 'scac_code']
+        
+        # Try FF2API fields first
+        for carrier_field in ff2api_carrier_fields:
+            if carrier_field in row_data and row_data[carrier_field]:
+                carrier = str(row_data[carrier_field]).strip().upper()
+                logger.debug(f"Using FF2API carrier from field '{carrier_field}': {carrier}")
+                break
+        
+        # Fallback to CSV fields if no FF2API data
+        if not carrier:
+            for carrier_field in csv_carrier_fields:
+                if carrier_field in row_data and row_data[carrier_field]:
+                    carrier = str(row_data[carrier_field]).strip().upper()
+                    logger.debug(f"Using CSV carrier from field '{carrier_field}': {carrier}")
+                    break
+        
+        if not carrier:
+            logger.debug(f"No carrier found in row data. Checked FF2API fields: {ff2api_carrier_fields}, CSV fields: {csv_carrier_fields}")
+            return None, None
+        
+        return pro_number, carrier
+    
+    def _call_tracking_api(self, pro_number: str, carrier: str) -> Optional[Dict[str, Any]]:
+        """
+        Make tracking API call with automatic retries.
+        
+        Args:
+            pro_number: PRO/tracking number
+            carrier: Carrier name for browser task
+            
+        Returns:
+            Tracking data dictionary or None if failed
         """
         # Create cache key
         cache_key = f"{carrier}:{pro_number}"
@@ -139,90 +204,155 @@ class TrackingAPIEnricher(EnrichmentSource):
             logger.debug(f"Using cached tracking data for {carrier} PRO {pro_number}")
             return self._tracking_cache[cache_key]
         
-        payload = {
-            "browserTask": carrier,
-            "params": {
-                "proNumber": pro_number
-            }
+        url = f"{self.tracking_base_url}/pro-number/{pro_number}"
+        params = {
+            'brokerageKey': 'eshipping',  # Hardcoded to eshipping for tracking API
+            'browserTask': carrier
         }
         
-        for attempt in range(self.max_retries):
+        for attempt in range(self.retry_count):
             try:
-                logger.debug(f"Tracking API request attempt {attempt + 1} for {carrier} PRO {pro_number}")
+                logger.debug(f"Tracking API call attempt {attempt + 1}: {url}")
+                logger.debug(f"Parameters: {params}")
                 
-                response = requests.post(
-                    self.api_endpoint,
-                    json=payload,
-                    timeout=self.timeout,
-                    headers={'Content-Type': 'application/json'}
+                response = requests.get(
+                    url,
+                    params=params,
+                    headers=self.auth_headers,
+                    timeout=self.timeout
                 )
-                response.raise_for_status()
                 
-                data = response.json()
+                if response.status_code == 200:
+                    tracking_data = response.json()
+                    logger.debug(f"Tracking API success for PRO {pro_number}: {tracking_data.get('result', {}).get('status', 'Unknown')}")
+                    
+                    # Cache the successful result
+                    self._tracking_cache[cache_key] = tracking_data
+                    return tracking_data
                 
-                # Ensure data is a dictionary before calling .get()
-                if not isinstance(data, dict):
-                    logger.warning(f"Unexpected response format from tracking API for {carrier} PRO {pro_number}: {type(data)} - {data}")
+                elif response.status_code == 404:
+                    logger.info(f"Tracking not found for PRO {pro_number} with carrier {carrier}")
                     # Cache the failure to avoid repeated attempts
                     self._tracking_cache[cache_key] = None
                     return None
                 
-                result = data.get('completedBrowserTask', {}).get('result', {})
+                elif response.status_code == 429:
+                    logger.warning(f"Rate limited on tracking API. Attempt {attempt + 1}")
+                    if attempt < self.retry_count - 1:
+                        time.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+                        continue
                 
-                if not result:
-                    logger.warning(f"Empty result from tracking API for {carrier} PRO {pro_number}")
-                    # Cache the failure to avoid repeated attempts
+                elif response.status_code in [401, 403]:
+                    logger.error(f"Authentication failed for tracking API: {response.status_code}")
+                    logger.error("Check that brokerage API credentials are valid")
+                    # Cache the auth failure to avoid repeated attempts
                     self._tracking_cache[cache_key] = None
                     return None
                 
-                tracking_data = {
-                    'status': result.get('detailedStatus', result.get('status')),
-                    'location': self._format_location(result),
-                    'date': result.get('date')
-                }
-                
-                # Cache the successful result
-                self._tracking_cache[cache_key] = tracking_data
-                
-                logger.debug(f"Successfully retrieved tracking data for {carrier} PRO {pro_number}: {tracking_data}")
-                return tracking_data
+                else:
+                    logger.warning(f"Tracking API returned {response.status_code} for PRO {pro_number}")
+                    if attempt < self.retry_count - 1:
+                        time.sleep(self.retry_delay)
+                        continue
                 
             except requests.exceptions.Timeout:
-                logger.warning(f"Tracking API timeout (attempt {attempt + 1}) for {carrier} PRO {pro_number}")
-            except requests.exceptions.HTTPError as e:
-                logger.warning(f"Tracking API HTTP error (attempt {attempt + 1}) for {carrier} PRO {pro_number}: {e}")
-            except requests.exceptions.RequestException as e:
-                logger.warning(f"Tracking API request error (attempt {attempt + 1}) for {carrier} PRO {pro_number}: {e}")
-            except ValueError as e:
-                logger.warning(f"Tracking API JSON decode error (attempt {attempt + 1}) for {carrier} PRO {pro_number}: {e}")
+                logger.warning(f"Tracking API timeout for PRO {pro_number}. Attempt {attempt + 1}")
+                if attempt < self.retry_count - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+            
+            except requests.exceptions.ConnectionError:
+                logger.warning(f"Tracking API connection error for PRO {pro_number}. Attempt {attempt + 1}")
+                if attempt < self.retry_count - 1:
+                    time.sleep(self.retry_delay)
+                    continue
+            
             except Exception as e:
-                logger.error(f"Unexpected error (attempt {attempt + 1}) for {carrier} PRO {pro_number}: {e}")
-                
-            # If this was the last attempt, log final failure and cache it
-            if attempt == self.max_retries - 1:
-                logger.error(f"All {self.max_retries} attempts failed for {carrier} PRO {pro_number}")
-                self._tracking_cache[cache_key] = None
-                    
+                logger.error(f"Unexpected error in tracking API call: {e}")
+                break
+        
+        logger.warning(f"Tracking API failed after {self.retry_count} attempts for PRO {pro_number}")
+        # Cache the failure to avoid repeated attempts
+        self._tracking_cache[cache_key] = None
         return None
     
-    def _format_location(self, result: Dict[str, Any]) -> Optional[str]:
-        """Format location from API result into a single string.
+    def _extract_tracking_fields(self, tracking_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Extract and normalize tracking fields from API response.
         
         Args:
-            result: API result dictionary containing location fields
+            tracking_data: Raw tracking API response
             
         Returns:
-            Formatted location string or None if no location data
+            Normalized tracking fields
         """
-        city = result.get('city', '').strip()
-        state = result.get('state', '').strip()
-        country = result.get('country', '').strip()
+        result = tracking_data.get('result', {})
         
-        location_parts = [part for part in [city, state, country] if part]
+        # Extract tracking information
+        tracking_fields = {
+            'tracking_status': result.get('status', ''),
+            'tracking_detailed_status': result.get('detailedStatus', ''),
+            'tracking_city': result.get('city', ''),
+            'tracking_state': result.get('state', ''),
+            'tracking_country': result.get('country', ''),
+            'tracking_date': result.get('data', ''),
+            'tracking_location': '',
+            'tracking_updated_at': tracking_data.get('updatedAt', '')
+        }
         
-        if location_parts:
-            formatted_location = ', '.join(location_parts)
-            logger.debug(f"Formatted location: {formatted_location}")
-            return formatted_location
+        # Combine location fields
+        location_parts = []
+        if tracking_fields['tracking_city']:
+            location_parts.append(tracking_fields['tracking_city'])
+        if tracking_fields['tracking_state']:
+            location_parts.append(tracking_fields['tracking_state'])
+        if tracking_fields['tracking_country'] and tracking_fields['tracking_country'] != 'US':
+            location_parts.append(tracking_fields['tracking_country'])
         
-        return None
+        tracking_fields['tracking_location'] = ', '.join(location_parts)
+        
+        # Clean up empty fields
+        return {k: v for k, v in tracking_fields.items() if v}
+    
+    def enrich(self, row_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Enrich a single CSV row with real-time tracking data.
+        
+        Args:
+            row_data: Dictionary containing CSV row data
+            
+        Returns:
+            Row data enriched with tracking information
+        """
+        if not self.validate_config():
+            logger.error("Tracking API configuration is invalid")
+            return row_data
+        
+        # Initialize tracking fields
+        enriched_row = row_data.copy()
+        enriched_row.update({
+            'tracking_status': None,
+            'tracking_location': None,
+            'tracking_date': None
+        })
+        
+        # Validate and extract required fields
+        pro_number, carrier = self._extract_row_data(row_data)
+        if not pro_number or not carrier:
+            logger.debug("Missing PRO number or carrier for tracking enrichment")
+            return enriched_row
+        
+        # Make tracking API call
+        tracking_data = self._call_tracking_api(pro_number, carrier)
+        if not tracking_data:
+            logger.debug(f"No tracking data available for PRO {pro_number}")
+            return enriched_row
+        
+        # Extract and merge tracking fields
+        tracking_fields = self._extract_tracking_fields(tracking_data)
+        
+        # Merge with original row data
+        enriched_row.update(tracking_fields)
+        
+        logger.debug(f"Successfully enriched PRO {pro_number} with tracking data")
+        return enriched_row
