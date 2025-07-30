@@ -1446,7 +1446,42 @@ class DataProcessor:
     def _apply_final_api_fixes(self, load_payload: Dict[str, Any]) -> None:
         """Apply final API validation fixes after cleaning process"""
         
-        # Fix carrier contacts requirement (must be done after cleaning to avoid removal)
+        # Fix 1: Remove duplicate address fields (prefer FF2API standard names)
+        if 'load' in load_payload and 'route' in load_payload['load']:
+            for stop in load_payload['load']['route']:
+                if 'address' in stop:
+                    address = stop['address']
+                    
+                    # Prefer street1 over addressLine1
+                    if 'street1' in address and 'addressLine1' in address:
+                        del address['addressLine1']
+                        
+                    # Prefer stateOrProvince over state  
+                    if 'stateOrProvince' in address and 'state' in address:
+                        del address['state']
+        
+        # Fix 2: Add missing carrier.dotNumber from auto-mapping
+        if 'carrier' in load_payload and 'name' in load_payload['carrier']:
+            carrier_name = load_payload['carrier']['name']
+            # Check if dotNumber is missing and try to populate from carrier name
+            if 'dotNumber' not in load_payload['carrier'] or not load_payload['carrier']['dotNumber']:
+                # Import carrier config to get details
+                try:
+                    import sys
+                    sys.path.append('.')
+                    from carrier_config_parser import carrier_config_parser
+                    
+                    # Find carrier details
+                    for config_name, details in carrier_config_parser.carrier_details.items():
+                        if config_name.lower() == carrier_name.lower() or carrier_name.lower() in config_name.lower():
+                            if 'dotNumber' in details and details['dotNumber']:
+                                load_payload['carrier']['dotNumber'] = str(details['dotNumber'])
+                                self.logger.info(f"Auto-populated carrier.dotNumber: {details['dotNumber']} for {carrier_name}")
+                            break
+                except ImportError:
+                    self.logger.warning("Could not import carrier_config_parser for dotNumber auto-population")
+        
+        # Fix 3: Fix carrier contacts requirement (must be done after cleaning to avoid removal)
         if 'carrier' in load_payload:
             carrier_obj = load_payload['carrier']
             if isinstance(carrier_obj, dict):
