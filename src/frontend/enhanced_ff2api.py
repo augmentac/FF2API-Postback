@@ -1618,13 +1618,20 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
         
         # Add tracking API enrichment
         tracking_creds = credential_manager.get_tracking_api_credentials()
-        if tracking_creds:
+        brokerage_creds = credential_manager.get_brokerage_credentials(brokerage_key)
+        
+        if tracking_creds and brokerage_creds.get('api_key'):
             enrichment_config.append({
                 'type': 'tracking_api',
-                'pro_column': 'PRO',  
-                'carrier_column': 'carrier',
-                'brokerage_key': brokerage_key,
-                **tracking_creds
+                'config': {
+                    'pro_column': 'PRO',  
+                    'carrier_column': 'carrier',
+                    'brokerage_key': brokerage_key,
+                    'api_key': brokerage_creds.get('api_key'),
+                    'bearer_token': brokerage_creds.get('api_key'),  # Use same key
+                    'auth_type': 'api_key',
+                    **tracking_creds
+                }
             })
         
         # Add Snowflake enrichment
@@ -1644,8 +1651,17 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
             logger.warning("No enrichment sources configured")
             return []
         
+        # Build brokerage configuration for enrichment manager
+        brokerage_config = {
+            'brokerage_key': brokerage_key,
+            'api_base_url': brokerage_creds.get('base_url', ''),
+            'api_key': brokerage_creds.get('api_key', ''),
+            'bearer_token': brokerage_creds.get('api_key', ''),
+            'auth_type': 'api_key'
+        }
+        
         # Initialize enrichment manager
-        enrichment_manager = EnrichmentManager(enrichment_config)
+        enrichment_manager = EnrichmentManager(enrichment_config, brokerage_config)
         
         # Prepare data for enrichment
         enrichment_data = []
@@ -1687,7 +1703,7 @@ def _process_postback_delivery(enriched_data, brokerage_key):
         postback_router = PostbackRouter(postback_config)
         
         # Route data to handlers
-        results = postback_router.route_data(enriched_data)
+        results = postback_router.post_all(enriched_data)
         
         return results
         
@@ -1732,7 +1748,7 @@ def _process_email_delivery(result, brokerage_key):
         
         # Process email delivery
         email_router = PostbackRouter(email_config)
-        email_results = email_router.route_data(result.get('enriched_data', []))
+        email_results = email_router.post_all(result.get('enriched_data', []))
         
         return email_results
         
