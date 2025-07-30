@@ -82,7 +82,7 @@ class CredentialManager:
         
         return {
             'api_key': api_key,
-            'base_url': self.api_config.get('base_url', 'https://load.prod.goaugment.com'),
+            'base_url': self.api_config.get('base_url', 'https://api.prod.goaugment.com'),
             'timeout': self.api_config.get('timeout', 30),
             'retry_count': self.api_config.get('retry_count', 3),
             'retry_delay': self.api_config.get('retry_delay', 1)
@@ -301,7 +301,7 @@ class CredentialManager:
         try:
             api_config = st.secrets.get("api_config", {})
             defaults = {
-                'base_url': 'https://load.prod.goaugment.com',
+                'base_url': 'https://api.prod.goaugment.com',
                 'timeout': 30,
                 'retry_count': 3,
                 'retry_delay': 1
@@ -315,7 +315,7 @@ class CredentialManager:
         except Exception as e:
             logger.warning(f"Error loading API config, using defaults: {e}")
             return {
-                'base_url': 'https://load.prod.goaugment.com',
+                'base_url': 'https://api.prod.goaugment.com',
                 'timeout': 30,
                 'retry_count': 3,
                 'retry_delay': 1
