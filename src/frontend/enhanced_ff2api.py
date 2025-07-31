@@ -1253,6 +1253,10 @@ def _render_enhanced_processing_section(db_manager, data_processor):
     brokerage_name = st.session_state.brokerage_name
     processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
     
+    # Debug logging for processing mode
+    logger.info(f"Enhanced processing mode from session state: {processing_mode}")
+    logger.info(f"Session state keys: {list(st.session_state.keys())}")
+    
     # Show what will happen based on processing mode
     _show_processing_preview(processing_mode)
     
@@ -1450,6 +1454,11 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
                                  processing_mode, data_processor, db_manager, session_id):
     """Enhanced data processing workflow with end-to-end capabilities"""
     
+    # Debug logging for processing mode
+    logger.info(f"🔍 DEBUG: process_enhanced_data_workflow called with processing_mode: {processing_mode}")
+    logger.info(f"🔍 DEBUG: processing_mode type: {type(processing_mode)}")
+    logger.info(f"🔍 DEBUG: Will run full_endtoend steps: {processing_mode == 'full_endtoend'}")
+    
     st.session_state.processing_in_progress = True
     
     # Initialize progress tracking
@@ -1532,11 +1541,14 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             
             # Step 3: Data Enrichment (if enabled)
             if processing_mode == 'full_endtoend':
+                logger.info("🔍 DEBUG: Starting Step 3: Data Enrichment")
                 status_text.text("Step 3: Enriching data...")
                 progress_bar.progress(3/total_steps)
                 
+                logger.info(f"🔍 DEBUG: Calling _process_data_enrichment with {len(ff2api_results)} FF2API results and {len(result.get('load_id_mappings', []))} load mappings")
                 enriched_data = _process_data_enrichment(ff2api_results, result.get('load_id_mappings', []), brokerage_name)
                 result['enriched_data'] = enriched_data
+                logger.info(f"🔍 DEBUG: Data enrichment completed, got {len(enriched_data)} enriched rows")
             
             # Step 4: Postback Processing (if enabled)
             if processing_mode == 'full_endtoend':
