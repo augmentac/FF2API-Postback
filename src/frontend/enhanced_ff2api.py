@@ -1933,22 +1933,20 @@ def _render_enhanced_download_options(result, processing_mode):
     # Enriched dataset (combines original CSV with all processing results)
     with col3:
         if st.button("📊 Generate Enriched Dataset", use_container_width=True):
-            _render_enriched_dataset_export(result)
+            _generate_enriched_dataset_exports(result)
+        
+        # Show download buttons if exports are ready
+        _render_enriched_dataset_downloads()
 
-def _render_enriched_dataset_export(result):
+def _generate_enriched_dataset_exports(result):
     """
-    Render enriched dataset export interface with multiple format options.
-    
-    This function creates an enriched dataset by combining the original CSV data
-    with all processing results and provides download options in multiple formats.
+    Generate enriched dataset and create all export formats immediately.
+    Stores results in session state for persistent download buttons.
     """
     try:
         # Import required modules
         from src.backend.data_processor import DataProcessor
         from postback.router import PostbackRouter
-        
-        st.subheader("📊 Enriched Dataset Export")
-        st.write("Combine your original CSV data with all processing results into a comprehensive dataset.")
         
         # Get original CSV data from session state
         uploaded_df = st.session_state.get('uploaded_df')
@@ -1967,84 +1965,123 @@ def _render_enriched_dataset_export(result):
         
         # Create enriched dataset
         data_processor = DataProcessor()
+        postback_router = PostbackRouter([])
         
-        with st.spinner("Creating enriched dataset..."):
+        with st.spinner("Creating enriched dataset and generating all export formats..."):
+            # Create enriched dataset
             enriched_df = data_processor.create_enriched_dataset(original_csv_data, ff2api_results)
+            
+            # Generate timestamp for filenames
+            timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+            filename_prefix = f"enriched_dataset_{timestamp}"
+            
+            # Generate all export formats
+            csv_result = postback_router.export_enriched_data(enriched_df, 'csv', filename_prefix)
+            xlsx_result = postback_router.export_enriched_data(enriched_df, 'xlsx', filename_prefix)
+            json_result = postback_router.export_enriched_data(enriched_df, 'json', filename_prefix)
+            
+            # Store results in session state
+            st.session_state.enriched_export_files = {
+                'csv': csv_result,
+                'xlsx': xlsx_result,
+                'json': json_result,
+                'enriched_df': enriched_df,
+                'dataset_info': {
+                    'total_rows': len(enriched_df),
+                    'total_columns': len(enriched_df.columns),
+                    'processed_count': len(enriched_df[enriched_df.get('processing_status', '') == 'processed'])
+                }
+            }
         
-        # Display dataset info
-        col1, col2, col3 = st.columns(3)
+        st.success("✅ Enriched dataset created! All export formats are ready for download.")
+        
+    except Exception as e:
+        st.error(f"❌ Error generating enriched dataset: {str(e)}")
+        logger.error(f"Enriched dataset generation error: {e}")
+
+def _render_enriched_dataset_downloads():
+    """
+    Render persistent download interface for enriched dataset exports.
+    Shows download buttons if exports are available in session state.
+    """
+    if 'enriched_export_files' not in st.session_state:
+        return
+    
+    try:
+        export_data = st.session_state.enriched_export_files
+        dataset_info = export_data.get('dataset_info', {})
+        enriched_df = export_data.get('enriched_df')
+        
+        st.markdown("---")
+        st.subheader("📊 Enriched Dataset Ready")
+        st.write("Your original CSV data combined with all processing results.")
+        
+        # Display dataset metrics
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("Total Rows", len(enriched_df))
+            st.metric("Total Rows", dataset_info.get('total_rows', 0))
         with col2:
-            st.metric("Total Columns", len(enriched_df.columns))
+            st.metric("Total Columns", dataset_info.get('total_columns', 0))
         with col3:
-            processed_count = len(enriched_df[enriched_df.get('processing_status', '') == 'processed'])
-            st.metric("Processed Rows", processed_count)
+            st.metric("Processed Rows", dataset_info.get('processed_count', 0))
+        with col4:
+            if st.button("❌ Clear Downloads"):
+                del st.session_state.enriched_export_files
+                st.rerun()
         
-        # Show sample of enriched data
-        with st.expander("📋 Preview Enriched Dataset", expanded=False):
-            st.dataframe(enriched_df.head(), use_container_width=True)
+        # Show preview
+        if enriched_df is not None:
+            with st.expander("📋 Preview Enriched Dataset", expanded=False):
+                st.dataframe(enriched_df.head(), use_container_width=True)
         
-        # Export format selection
-        export_format = st.selectbox(
-            "Select Export Format",
-            ["CSV", "XLSX", "JSON"],
-            help="Choose the format for your enriched dataset export"
-        )
+        # Download buttons for all formats
+        st.subheader("📥 Download Options")
+        col1, col2, col3 = st.columns(3)
         
-        # Generate export filename prefix
-        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
-        filename_prefix = f"enriched_dataset_{timestamp}"
+        formats = [
+            ('csv', 'CSV', 'text/csv', col1),
+            ('xlsx', 'Excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', col2),
+            ('json', 'JSON', 'application/json', col3)
+        ]
         
-        # Export button
-        if st.button(f"📥 Export as {export_format}", use_container_width=True):
-            try:
-                # Initialize PostbackRouter for export functionality
-                postback_router = PostbackRouter([])
-                
-                # Export the enriched dataset
-                with st.spinner(f"Exporting to {export_format}..."):
-                    export_result = postback_router.export_enriched_data(
-                        enriched_df, 
-                        export_format.lower(), 
-                        filename_prefix
-                    )
-                
-                if export_result.get('success', False):
-                    st.success(f"✅ Export completed successfully!")
-                    
-                    # Display export details
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.metric("File Size", f"{export_result['file_size_mb']} MB")
-                    with col2:
-                        if 'ff2api_success_rate' in export_result:
-                            st.metric("Success Rate", export_result['ff2api_success_rate'])
-                    
-                    # Provide download button
-                    with open(export_result['file_path'], 'rb') as file:
-                        file_data = file.read()
+        for format_key, format_name, mime_type, column in formats:
+            result = export_data.get(format_key, {})
+            
+            with column:
+                if result.get('success', False):
+                    try:
+                        with open(result['file_path'], 'rb') as file:
+                            file_data = file.read()
                         
-                    st.download_button(
-                        f"📥 Download {export_result['filename']}",
-                        file_data,
-                        export_result['filename'],
-                        f"application/{export_format.lower()}" if export_format != 'CSV' else "text/csv",
-                        use_container_width=True
-                    )
-                    
-                    # Show additional export details
-                    with st.expander("📋 Export Details", expanded=False):
-                        export_details = {k: v for k, v in export_result.items() 
-                                        if k not in ['file_path', 'columns']}
-                        st.json(export_details)
+                        st.download_button(
+                            f"📥 Download {format_name}",
+                            file_data,
+                            result['filename'],
+                            mime_type,
+                            use_container_width=True,
+                            help=f"Download as {format_name} ({result.get('file_size_mb', 0)} MB)"
+                        )
                         
+                        # Show file info
+                        st.caption(f"Size: {result.get('file_size_mb', 0)} MB")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error loading {format_name} file")
+                        logger.error(f"Error loading {format_key} file: {e}")
                 else:
-                    st.error(f"❌ Export failed: {export_result.get('error', 'Unknown error')}")
-                    
-            except Exception as e:
-                st.error(f"❌ Export error: {str(e)}")
-                logger.error(f"Enriched dataset export error: {e}")
+                    st.error(f"❌ {format_name} export failed")
+                    if result.get('error'):
+                        st.caption(f"Error: {result['error']}")
+        
+        # Export details
+        with st.expander("📋 Export Details", expanded=False):
+            # Show success rates and statistics
+            for format_key, result in export_data.items():
+                if format_key in ['csv', 'xlsx', 'json'] and result.get('success'):
+                    st.write(f"**{format_key.upper()} Export:**")
+                    details = {k: v for k, v in result.items() 
+                             if k not in ['file_path', 'columns'] and not k.startswith('_')}
+                    st.json(details)
         
         # Information about the enriched dataset
         with st.expander("ℹ️ About Enriched Dataset", expanded=False):
@@ -2064,8 +2101,8 @@ def _render_enriched_dataset_export(result):
             """)
     
     except Exception as e:
-        st.error(f"❌ Error rendering enriched dataset export: {str(e)}")
-        logger.error(f"Enriched dataset export rendering error: {e}")
+        st.error(f"❌ Error rendering download interface: {str(e)}")
+        logger.error(f"Download interface rendering error: {e}")
 
 # Import remaining helper functions from original
 def validate_mapping(df, field_mappings, data_processor):
