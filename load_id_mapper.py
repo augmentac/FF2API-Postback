@@ -78,55 +78,160 @@ class LoadIDMapper:
         
     def get_auth_headers(self) -> Dict[str, str]:
         """
-        Get authentication headers with improved fallback logic.
-        Tries hardcoded load API credentials first, then falls back to brokerage credentials.
+        Get authentication headers with comprehensive debugging.
         """
         headers = {'Content-Type': 'application/json'}
         
-        # Access Streamlit Cloud configured load_api secrets
+        # COMPREHENSIVE DEBUG LOGGING
+        logger.info("🔍 DEBUG: Starting Load ID Mapper authentication analysis")
+        
         try:
-            # Verify Streamlit secrets are available
+            # Step 1: Test Streamlit import and basic access
+            logger.info(f"🔍 DEBUG: Streamlit module available: {st is not None}")
+            logger.info(f"🔍 DEBUG: hasattr(st, 'secrets'): {hasattr(st, 'secrets')}")
+            
             if not hasattr(st, 'secrets'):
-                raise Exception("Streamlit secrets not available - check cloud deployment configuration")
+                logger.error("❌ DEBUG: st.secrets attribute not available")
+                raise Exception("DEBUG: Streamlit secrets not available - check cloud deployment configuration")
             
-            # Check for required load_api section
-            if 'load_api' not in st.secrets:
-                raise Exception("Missing [load_api] section in Streamlit Cloud secrets - please configure load_api.bearer_token or load_api.api_key")
+            # Step 2: Test secrets object accessibility
+            try:
+                secrets_obj = st.secrets
+                logger.info(f"🔍 DEBUG: st.secrets object type: {type(secrets_obj)}")
+                logger.info(f"🔍 DEBUG: st.secrets object exists: {secrets_obj is not None}")
+            except Exception as secrets_error:
+                logger.error(f"❌ DEBUG: Error accessing st.secrets object: {secrets_error}")
+                raise Exception(f"DEBUG: Cannot access st.secrets object: {secrets_error}")
             
-            load_secrets = st.secrets.load_api
-            logger.info(f"✓ Found [load_api] section in Streamlit secrets")
+            # Step 3: Test secrets conversion to dict
+            try:
+                secrets_dict = dict(st.secrets)
+                available_sections = list(secrets_dict.keys())
+                logger.info(f"🔍 DEBUG: Available secrets sections: {available_sections}")
+                logger.info(f"🔍 DEBUG: Total sections found: {len(available_sections)}")
+            except Exception as dict_error:
+                logger.error(f"❌ DEBUG: Error converting secrets to dict: {dict_error}")
+                available_sections = ["DICT_CONVERSION_FAILED"]
             
-            # Support both bearer token and API key auth methods
-            if hasattr(load_secrets, 'bearer_token') and load_secrets.bearer_token:
-                bearer_token = str(load_secrets.bearer_token).strip()
-                if bearer_token:
-                    headers['Authorization'] = f'Bearer {bearer_token}'
-                    logger.info("✓ Using bearer_token from st.secrets.load_api")
-                    return headers
-                else:
-                    logger.error("bearer_token found in load_api secrets but is empty")
+            # Step 4: Test load_api section access
+            logger.info("🔍 DEBUG: Testing load_api section access...")
+            
+            # Method 1: Dictionary membership test
+            try:
+                load_api_in_dict = 'load_api' in st.secrets
+                logger.info(f"🔍 DEBUG: 'load_api' in st.secrets (dict method): {load_api_in_dict}")
+            except Exception as dict_test_error:
+                logger.error(f"❌ DEBUG: Dictionary membership test failed: {dict_test_error}")
+                load_api_in_dict = False
+            
+            # Method 2: hasattr test
+            try:
+                load_api_hasattr = hasattr(st.secrets, 'load_api')
+                logger.info(f"🔍 DEBUG: hasattr(st.secrets, 'load_api'): {load_api_hasattr}")
+            except Exception as hasattr_error:
+                logger.error(f"❌ DEBUG: hasattr test failed: {hasattr_error}")
+                load_api_hasattr = False
+            
+            # Step 5: If section missing, provide detailed diagnosis
+            if not load_api_in_dict and not load_api_hasattr:
+                logger.error(f"❌ DEBUG: load_api section not found")
+                logger.error(f"❌ DEBUG: Available sections: {available_sections}")
+                
+                # Check for similar section names
+                similar_sections = [s for s in available_sections if 'load' in s.lower() or 'api' in s.lower()]
+                if similar_sections:
+                    logger.error(f"❌ DEBUG: Similar sections found: {similar_sections}")
+                
+                raise Exception(f"DEBUG: Missing [load_api] section. Available sections: {available_sections}")
+            
+            # Step 6: Access load_api section
+            logger.info("🔍 DEBUG: Accessing load_api section...")
+            try:
+                load_secrets = st.secrets.load_api
+                logger.info(f"🔍 DEBUG: load_secrets object type: {type(load_secrets)}")
+                logger.info(f"🔍 DEBUG: load_secrets object exists: {load_secrets is not None}")
+            except Exception as section_error:
+                logger.error(f"❌ DEBUG: Error accessing load_api section: {section_error}")
+                raise Exception(f"DEBUG: Cannot access load_api section: {section_error}")
+            
+            # Step 7: Test bearer_token access
+            logger.info("🔍 DEBUG: Testing bearer_token access...")
+            try:
+                has_bearer_token = hasattr(load_secrets, 'bearer_token')
+                logger.info(f"🔍 DEBUG: hasattr(load_secrets, 'bearer_token'): {has_bearer_token}")
+                
+                if has_bearer_token:
+                    bearer_token_raw = load_secrets.bearer_token
+                    logger.info(f"🔍 DEBUG: bearer_token raw type: {type(bearer_token_raw)}")
+                    logger.info(f"🔍 DEBUG: bearer_token raw value exists: {bearer_token_raw is not None}")
+                    logger.info(f"🔍 DEBUG: bearer_token raw length: {len(str(bearer_token_raw)) if bearer_token_raw else 0}")
                     
-            elif hasattr(load_secrets, 'api_key') and load_secrets.api_key:
-                api_key = str(load_secrets.api_key).strip()
-                if api_key:
-                    headers['Authorization'] = f'Bearer {api_key}'
-                    logger.info("✓ Using api_key from st.secrets.load_api")
-                    return headers
-                else:
-                    logger.error("api_key found in load_api secrets but is empty")
-            else:
-                raise Exception("[load_api] section found but missing both bearer_token and api_key - please configure one of these in Streamlit Cloud secrets")
+                    if bearer_token_raw:
+                        bearer_token = str(bearer_token_raw).strip()
+                        logger.info(f"🔍 DEBUG: bearer_token after processing length: {len(bearer_token)}")
+                        logger.info(f"🔍 DEBUG: bearer_token preview: {bearer_token[:10]}...{bearer_token[-4:] if len(bearer_token) > 14 else bearer_token}")
+                        
+                        if bearer_token:
+                            headers['Authorization'] = f'Bearer {bearer_token}'
+                            logger.info("✅ DEBUG: Successfully set Authorization header with bearer_token")
+                            return headers
+                        else:
+                            logger.error("❌ DEBUG: bearer_token is empty after processing")
+                    else:
+                        logger.error("❌ DEBUG: bearer_token raw value is None/empty")
+            except Exception as bearer_error:
+                logger.error(f"❌ DEBUG: Error accessing bearer_token: {bearer_error}")
+            
+            # Step 8: Test api_key access
+            logger.info("🔍 DEBUG: Testing api_key access...")
+            try:
+                has_api_key = hasattr(load_secrets, 'api_key')
+                logger.info(f"🔍 DEBUG: hasattr(load_secrets, 'api_key'): {has_api_key}")
+                
+                if has_api_key:
+                    api_key_raw = load_secrets.api_key
+                    logger.info(f"🔍 DEBUG: api_key raw type: {type(api_key_raw)}")
+                    logger.info(f"🔍 DEBUG: api_key raw value exists: {api_key_raw is not None}")
+                    logger.info(f"🔍 DEBUG: api_key raw length: {len(str(api_key_raw)) if api_key_raw else 0}")
+                    
+                    if api_key_raw:
+                        api_key = str(api_key_raw).strip()
+                        logger.info(f"🔍 DEBUG: api_key after processing length: {len(api_key)}")
+                        logger.info(f"🔍 DEBUG: api_key preview: {api_key[:10]}...{api_key[-4:] if len(api_key) > 14 else api_key}")
+                        
+                        if api_key:
+                            headers['Authorization'] = f'Bearer {api_key}'
+                            logger.info("✅ DEBUG: Successfully set Authorization header with api_key")
+                            return headers
+                        else:
+                            logger.error("❌ DEBUG: api_key is empty after processing")
+                    else:
+                        logger.error("❌ DEBUG: api_key raw value is None/empty")
+            except Exception as api_key_error:
+                logger.error(f"❌ DEBUG: Error accessing api_key: {api_key_error}")
+            
+            # Step 9: Final failure analysis
+            logger.error("❌ DEBUG: No valid authentication credentials found")
+            available_keys = []
+            try:
+                if hasattr(load_secrets, 'bearer_token'):
+                    available_keys.append('bearer_token')
+                if hasattr(load_secrets, 'api_key'):
+                    available_keys.append('api_key')
+                logger.error(f"❌ DEBUG: Available keys in load_api section: {available_keys}")
+            except:
+                logger.error("❌ DEBUG: Cannot enumerate keys in load_api section")
+            
+            raise Exception(f"DEBUG: No valid credentials in load_api section. Available keys: {available_keys}")
                 
         except Exception as e:
-            logger.error(f"❌ Load API authentication failed: {e}")
-            logger.error("Please ensure [load_api] section is configured in Streamlit Cloud secrets with either:")
-            logger.error("  - load_api.bearer_token = 'your-bearer-token'")
-            logger.error("  - load_api.api_key = 'your-api-key'")
-            raise Exception(f"Load API authentication configuration error: {e}")
+            logger.error(f"❌ DEBUG: Load ID Mapper authentication failed with: {type(e).__name__}: {e}")
+            logger.error("❌ DEBUG: This detailed error information should help identify the root cause")
+            raise Exception(f"Load API authentication debug error: {e}")
         
         return headers
     
-    # Removed fallback authentication - now requires proper st.secrets.load_api configuration
+    # Debug version with comprehensive logging - fallback authentication removed for debugging
     
     def map_load_ids(self, processing_results: List[LoadProcessingResult], csv_rows: List[Dict[str, Any]] = None) -> List[LoadIDMapping]:
         """

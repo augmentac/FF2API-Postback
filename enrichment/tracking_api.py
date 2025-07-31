@@ -61,60 +61,168 @@ class TrackingAPIEnricher(EnrichmentSource):
     
     def _setup_hardcoded_auth(self):
         """
-        Setup authentication using Streamlit Cloud configured tracking_api secrets.
-        Requires [tracking_api] section with bearer_token or api_key.
+        Setup authentication with comprehensive debugging for tracking_api secrets.
         """
+        # COMPREHENSIVE DEBUG LOGGING
+        logger.info("🔍 DEBUG: Starting Tracking API authentication analysis")
+        
         try:
             import streamlit as st
             
-            # Verify Streamlit secrets are available
+            # Step 1: Test Streamlit import and basic access
+            logger.info(f"🔍 DEBUG: Streamlit module available: {st is not None}")
+            logger.info(f"🔍 DEBUG: hasattr(st, 'secrets'): {hasattr(st, 'secrets')}")
+            
             if not hasattr(st, 'secrets'):
-                raise Exception("Streamlit secrets not available - check cloud deployment configuration")
+                logger.error("❌ DEBUG: st.secrets attribute not available")
+                raise Exception("DEBUG: Streamlit secrets not available - check cloud deployment configuration")
             
-            # Check for required tracking_api section
-            if 'tracking_api' not in st.secrets:
-                raise Exception("Missing [tracking_api] section in Streamlit Cloud secrets - please configure tracking_api.bearer_token or tracking_api.api_key")
+            # Step 2: Test secrets object accessibility
+            try:
+                secrets_obj = st.secrets
+                logger.info(f"🔍 DEBUG: st.secrets object type: {type(secrets_obj)}")
+                logger.info(f"🔍 DEBUG: st.secrets object exists: {secrets_obj is not None}")
+            except Exception as secrets_error:
+                logger.error(f"❌ DEBUG: Error accessing st.secrets object: {secrets_error}")
+                raise Exception(f"DEBUG: Cannot access st.secrets object: {secrets_error}")
             
-            tracking_secrets = st.secrets.tracking_api
-            logger.info(f"✓ Found [tracking_api] section in Streamlit secrets")
+            # Step 3: Test secrets conversion to dict
+            try:
+                secrets_dict = dict(st.secrets)
+                available_sections = list(secrets_dict.keys())
+                logger.info(f"🔍 DEBUG: Available secrets sections: {available_sections}")
+                logger.info(f"🔍 DEBUG: Total sections found: {len(available_sections)}")
+            except Exception as dict_error:
+                logger.error(f"❌ DEBUG: Error converting secrets to dict: {dict_error}")
+                available_sections = ["DICT_CONVERSION_FAILED"]
             
-            # Support both bearer token and API key auth methods
-            if hasattr(tracking_secrets, 'bearer_token') and tracking_secrets.bearer_token:
-                bearer_token = str(tracking_secrets.bearer_token).strip()
-                if bearer_token:
-                    self.session.headers.update({
-                        'Authorization': f'Bearer {bearer_token}',
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'FF2API-TrackingEnrichment/1.0'
-                    })
-                    logger.info("✓ Using bearer_token from st.secrets.tracking_api")
-                    return
-                else:
-                    logger.error("bearer_token found in tracking_api secrets but is empty")
+            # Step 4: Test tracking_api section access
+            logger.info("🔍 DEBUG: Testing tracking_api section access...")
+            
+            # Method 1: Dictionary membership test
+            try:
+                tracking_api_in_dict = 'tracking_api' in st.secrets
+                logger.info(f"🔍 DEBUG: 'tracking_api' in st.secrets (dict method): {tracking_api_in_dict}")
+            except Exception as dict_test_error:
+                logger.error(f"❌ DEBUG: Dictionary membership test failed: {dict_test_error}")
+                tracking_api_in_dict = False
+            
+            # Method 2: hasattr test
+            try:
+                tracking_api_hasattr = hasattr(st.secrets, 'tracking_api')
+                logger.info(f"🔍 DEBUG: hasattr(st.secrets, 'tracking_api'): {tracking_api_hasattr}")
+            except Exception as hasattr_error:
+                logger.error(f"❌ DEBUG: hasattr test failed: {hasattr_error}")
+                tracking_api_hasattr = False
+            
+            # Step 5: If section missing, provide detailed diagnosis
+            if not tracking_api_in_dict and not tracking_api_hasattr:
+                logger.error(f"❌ DEBUG: tracking_api section not found")
+                logger.error(f"❌ DEBUG: Available sections: {available_sections}")
+                
+                # Check for similar section names
+                similar_sections = [s for s in available_sections if 'tracking' in s.lower() or 'api' in s.lower()]
+                if similar_sections:
+                    logger.error(f"❌ DEBUG: Similar sections found: {similar_sections}")
+                
+                raise Exception(f"DEBUG: Missing [tracking_api] section. Available sections: {available_sections}")
+            
+            # Step 6: Access tracking_api section
+            logger.info("🔍 DEBUG: Accessing tracking_api section...")
+            try:
+                tracking_secrets = st.secrets.tracking_api
+                logger.info(f"🔍 DEBUG: tracking_secrets object type: {type(tracking_secrets)}")
+                logger.info(f"🔍 DEBUG: tracking_secrets object exists: {tracking_secrets is not None}")
+            except Exception as section_error:
+                logger.error(f"❌ DEBUG: Error accessing tracking_api section: {section_error}")
+                raise Exception(f"DEBUG: Cannot access tracking_api section: {section_error}")
+            
+            # Step 7: Test bearer_token access
+            logger.info("🔍 DEBUG: Testing bearer_token access...")
+            try:
+                has_bearer_token = hasattr(tracking_secrets, 'bearer_token')
+                logger.info(f"🔍 DEBUG: hasattr(tracking_secrets, 'bearer_token'): {has_bearer_token}")
+                
+                if has_bearer_token:
+                    bearer_token_raw = tracking_secrets.bearer_token
+                    logger.info(f"🔍 DEBUG: bearer_token raw type: {type(bearer_token_raw)}")
+                    logger.info(f"🔍 DEBUG: bearer_token raw value exists: {bearer_token_raw is not None}")
+                    logger.info(f"🔍 DEBUG: bearer_token raw length: {len(str(bearer_token_raw)) if bearer_token_raw else 0}")
                     
-            elif hasattr(tracking_secrets, 'api_key') and tracking_secrets.api_key:
-                api_key = str(tracking_secrets.api_key).strip()
-                if api_key:
-                    self.session.headers.update({
-                        'Authorization': f'Bearer {api_key}',
-                        'Content-Type': 'application/json',
-                        'User-Agent': 'FF2API-TrackingEnrichment/1.0'
-                    })
-                    logger.info("✓ Using api_key from st.secrets.tracking_api")
-                    return
-                else:
-                    logger.error("api_key found in tracking_api secrets but is empty")
-            else:
-                raise Exception("[tracking_api] section found but missing both bearer_token and api_key - please configure one of these in Streamlit Cloud secrets")
+                    if bearer_token_raw:
+                        bearer_token = str(bearer_token_raw).strip()
+                        logger.info(f"🔍 DEBUG: bearer_token after processing length: {len(bearer_token)}")
+                        logger.info(f"🔍 DEBUG: bearer_token preview: {bearer_token[:10]}...{bearer_token[-4:] if len(bearer_token) > 14 else bearer_token}")
+                        
+                        if bearer_token:
+                            self.session.headers.update({
+                                'Authorization': f'Bearer {bearer_token}',
+                                'Content-Type': 'application/json',
+                                'User-Agent': 'FF2API-TrackingEnrichment/1.0'
+                            })
+                            logger.info("✅ DEBUG: Successfully set session Authorization header with bearer_token")
+                            logger.info(f"🔍 DEBUG: Session headers now: {dict(self.session.headers)}")
+                            return
+                        else:
+                            logger.error("❌ DEBUG: bearer_token is empty after processing")
+                    else:
+                        logger.error("❌ DEBUG: bearer_token raw value is None/empty")
+            except Exception as bearer_error:
+                logger.error(f"❌ DEBUG: Error accessing bearer_token: {bearer_error}")
+            
+            # Step 8: Test api_key access
+            logger.info("🔍 DEBUG: Testing api_key access...")
+            try:
+                has_api_key = hasattr(tracking_secrets, 'api_key')
+                logger.info(f"🔍 DEBUG: hasattr(tracking_secrets, 'api_key'): {has_api_key}")
+                
+                if has_api_key:
+                    api_key_raw = tracking_secrets.api_key
+                    logger.info(f"🔍 DEBUG: api_key raw type: {type(api_key_raw)}")
+                    logger.info(f"🔍 DEBUG: api_key raw value exists: {api_key_raw is not None}")
+                    logger.info(f"🔍 DEBUG: api_key raw length: {len(str(api_key_raw)) if api_key_raw else 0}")
+                    
+                    if api_key_raw:
+                        api_key = str(api_key_raw).strip()
+                        logger.info(f"🔍 DEBUG: api_key after processing length: {len(api_key)}")
+                        logger.info(f"🔍 DEBUG: api_key preview: {api_key[:10]}...{api_key[-4:] if len(api_key) > 14 else api_key}")
+                        
+                        if api_key:
+                            self.session.headers.update({
+                                'Authorization': f'Bearer {api_key}',
+                                'Content-Type': 'application/json',
+                                'User-Agent': 'FF2API-TrackingEnrichment/1.0'
+                            })
+                            logger.info("✅ DEBUG: Successfully set session Authorization header with api_key")
+                            logger.info(f"🔍 DEBUG: Session headers now: {dict(self.session.headers)}")
+                            return
+                        else:
+                            logger.error("❌ DEBUG: api_key is empty after processing")
+                    else:
+                        logger.error("❌ DEBUG: api_key raw value is None/empty")
+            except Exception as api_key_error:
+                logger.error(f"❌ DEBUG: Error accessing api_key: {api_key_error}")
+            
+            # Step 9: Final failure analysis
+            logger.error("❌ DEBUG: No valid authentication credentials found")
+            available_keys = []
+            try:
+                if hasattr(tracking_secrets, 'bearer_token'):
+                    available_keys.append('bearer_token')
+                if hasattr(tracking_secrets, 'api_key'):
+                    available_keys.append('api_key')
+                logger.error(f"❌ DEBUG: Available keys in tracking_api section: {available_keys}")
+            except:
+                logger.error("❌ DEBUG: Cannot enumerate keys in tracking_api section")
+            
+            raise Exception(f"DEBUG: No valid credentials in tracking_api section. Available keys: {available_keys}")
                 
         except Exception as e:
-            logger.error(f"❌ Tracking API authentication failed: {e}")
-            logger.error("Please ensure [tracking_api] section is configured in Streamlit Cloud secrets with either:")
-            logger.error("  - tracking_api.bearer_token = 'your-bearer-token'")
-            logger.error("  - tracking_api.api_key = 'your-api-key'")
-            raise Exception(f"Tracking API authentication configuration error: {e}")
+            logger.error(f"❌ DEBUG: Tracking API authentication failed with: {type(e).__name__}: {e}")
+            logger.error("❌ DEBUG: This detailed error information should help identify the root cause")
+            raise Exception(f"Tracking API authentication debug error: {e}")
     
-    # Removed _setup_default_headers - now requires proper st.secrets.tracking_api configuration
+    # Debug version with comprehensive logging - default headers method removed for debugging
 
     def _derive_tracking_endpoint(self) -> str:
         """
