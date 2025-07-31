@@ -279,7 +279,7 @@ class TrackingAPIEnricher(EnrichmentSource):
             # Test with a dummy PRO number using correct brokerage key and valid carrier
             test_url = f"{self.tracking_base_url}/pro-number/TEST123"
             params = {
-                'brokerageKey': self.brokerage_key,  # Use actual brokerage key
+                'brokerageKey': 'eshipping',  # Always use eshipping for tracking API
                 'browserTask': 'ESTES'  # Use valid carrier name that API accepts
             }
             
@@ -437,7 +437,7 @@ class TrackingAPIEnricher(EnrichmentSource):
         
         url = f"{self.tracking_base_url}/pro-number/{pro_number}"
         params = {
-            'brokerageKey': self.brokerage_key,  # Use actual brokerage key
+            'brokerageKey': 'eshipping',  # Always use eshipping for tracking API
             'browserTask': 'ESTES'  # Always use ESTES regardless of carrier
         }
         
