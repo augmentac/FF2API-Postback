@@ -1834,7 +1834,7 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
                         logger.info(f"🔍 DEBUG: Set carrier from CSV field '{field}': {enriched_row['carrier']}")
                         break
                 
-                if load_mapping.error_message:
+                if load_mapping and load_mapping.error_message:
                     enriched_row['load_id_error'] = load_mapping.error_message
             
             # Apply enrichment - THIS IS THE KEY MISSING CALL
