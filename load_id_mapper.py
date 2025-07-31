@@ -54,10 +54,14 @@ class LoadIDMapper:
         """
         self.brokerage_key = brokerage_key
         self.api_key = credentials.get('api_key')
-        self.base_url = credentials.get('base_url', 'https://load.prod.goaugment.com/unstable/loads')
+        # Always use the correct Load API endpoint, regardless of what credentials provide
+        self.base_url = 'https://load.prod.goaugment.com/unstable/loads'
         self.timeout = credentials.get('timeout', 30)
         self.retry_count = credentials.get('retry_count', 3)
         self.retry_delay = credentials.get('retry_delay', 1)
+        
+        # Debug logging to confirm correct endpoint
+        logger.info(f"🔍 DEBUG: Load ID Mapper using base URL: {self.base_url}")
         
         if not self.api_key:
             logger.warning(f"No API credentials available for brokerage: {brokerage_key}")
@@ -289,6 +293,7 @@ class LoadIDMapper:
         """
         # Get authentication headers using new debug method
         url = f"{self.base_url}/brokerage-key/{self.brokerage_key}/brokerage-load-id/{load_number}"
+        logger.info(f"🔍 DEBUG: Constructed Load API URL: {url}")
         
         try:
             headers = self.get_auth_headers()
