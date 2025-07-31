@@ -1651,6 +1651,12 @@ def _process_load_id_mapping(ff2api_results, brokerage_key):
         # Initialize load ID mapper
         load_id_mapper = LoadIDMapper(brokerage_key, credentials)
         
+        # Get original CSV data to extract load numbers
+        uploaded_df = st.session_state.get('uploaded_df')
+        original_csv_data = []
+        if uploaded_df is not None:
+            original_csv_data = uploaded_df.to_dict('records')
+        
         # Convert FF2API results to LoadProcessingResult format
         load_processing_results = []
         for i, result in enumerate(ff2api_results):
@@ -1661,9 +1667,27 @@ def _process_load_id_mapping(ff2api_results, brokerage_key):
                     continue
                     
                 if result.get('success', False):
+                    # Get original load number from CSV data
+                    csv_row_index = result.get('row_index', i)
+                    original_load_number = ''
+                    
+                    if csv_row_index < len(original_csv_data):
+                        csv_row = original_csv_data[csv_row_index]
+                        # Try common load number field names
+                        load_number_fields = ['load_number', 'Load Number', 'BOL #', 'Carrier Pro#', 'LoadNumber']
+                        for field in load_number_fields:
+                            if field in csv_row and csv_row[field]:
+                                original_load_number = str(csv_row[field]).strip()
+                                logger.info(f"Found load number '{original_load_number}' in CSV field '{field}' for row {csv_row_index}")
+                                break
+                    
+                    if not original_load_number:
+                        original_load_number = result.get('load_number', f'LOAD{csv_row_index:03d}')
+                        logger.warning(f"No load number found in CSV for row {csv_row_index}, using: {original_load_number}")
+                    
                     load_processing_results.append(LoadProcessingResult(
-                        csv_row_index=result.get('row_index', 0),
-                        load_number=result.get('load_number', ''),
+                        csv_row_index=csv_row_index,
+                        load_number=original_load_number,
                         success=True,
                         response_data=result.get('data', {})
                     ))

@@ -434,6 +434,11 @@ class EndToEndWorkflowProcessor:
         """Enrich CSV data using load ID mappings and Snowflake enrichment."""
         enriched_data = []
         
+        # Debug logging
+        logger.info(f"Starting enrichment for {len(csv_data)} rows with {len(mappings)} load ID mappings")
+        for mapping in mappings[:3]:  # Log first 3 mappings for debugging
+            logger.info(f"Mapping {mapping.csv_row_index}: load_number={mapping.load_number}, internal_load_id={mapping.internal_load_id}, status={mapping.api_status}")
+        
         # Create mapping lookup for efficiency
         mapping_lookup = {m.csv_row_index: m for m in mappings}
         
@@ -482,7 +487,15 @@ class EndToEndWorkflowProcessor:
             
             # Apply enrichment using existing enrichment manager
             # The Snowflake enrichment will use internal_load_id if available
+            pre_columns = set(enriched_row.keys())
             enriched_row = self.enrichment_manager.enrich_row(enriched_row)
+            post_columns = set(enriched_row.keys())
+            new_columns = post_columns - pre_columns
+            
+            if new_columns:
+                logger.info(f"Row {i}: Enrichment added columns: {new_columns}")
+            else:
+                logger.debug(f"Row {i}: No new columns added by enrichment")
             
             enriched_data.append(enriched_row)
         
@@ -511,6 +524,28 @@ class EndToEndWorkflowProcessor:
         """Build enrichment configuration with automatic credential resolution."""
         enrichment_config = []
         
+        # Always try to add tracking API enrichment if credentials are available
+        tracking_creds = credential_manager.get_tracking_api_credentials()
+        brokerage_creds = credential_manager.get_brokerage_credentials(self.brokerage_key)
+        
+        if tracking_creds and brokerage_creds.get('api_key'):
+            tracking_config = {
+                'type': 'tracking_api',
+                'pro_column': 'PRO',  
+                'carrier_column': 'carrier',
+                'brokerage_key': self.brokerage_key,
+                **tracking_creds
+            }
+            enrichment_config.append(tracking_config)
+            logger.info("Added tracking API enrichment to workflow configuration")
+        else:
+            logger.warning("Tracking API credentials not available - skipping tracking API enrichment")
+            if not tracking_creds:
+                logger.warning("tracking_creds is None")
+            if not brokerage_creds.get('api_key'):
+                logger.warning("brokerage API key not available")
+        
+        # Process additional enrichment sources from configuration
         for source in enrichment_sources:
             if source.get('type') == 'snowflake_augment':
                 # Add global Snowflake credentials and brokerage context
@@ -525,21 +560,13 @@ class EndToEndWorkflowProcessor:
                 else:
                     logger.warning("Snowflake credentials not available - skipping Snowflake enrichment")
             elif source.get('type') == 'tracking_api':
-                # Add tracking API credentials and configuration
-                tracking_creds = credential_manager.get_tracking_api_credentials()
-                if tracking_creds:
-                    enriched_source = {
-                        **source,
-                        **tracking_creds,  # Add API endpoint and credentials
-                        'brokerage_key': self.brokerage_key  # Add brokerage context
-                    }
-                    enrichment_config.append(enriched_source)
-                else:
-                    logger.warning("Tracking API credentials not available - skipping tracking API enrichment")
+                # Skip - already added above automatically
+                logger.info("Skipping duplicate tracking_api source from configuration")
             else:
                 # Other enrichment sources pass through unchanged
                 enrichment_config.append(source)
         
+        logger.info(f"Built enrichment configuration with {len(enrichment_config)} sources")
         return enrichment_config
     
     def get_credential_status(self) -> Dict[str, Any]:
