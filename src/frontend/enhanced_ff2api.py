@@ -1930,19 +1930,139 @@ def _render_enhanced_download_options(result, processing_mode):
                     use_container_width=True
                 )
     
-    # Enriched data (if available)
+    # Enriched dataset (combines original CSV with all processing results)
     with col3:
-        if processing_mode == 'full_endtoend' and result.get('enriched_data'):
-            if st.button("🔍 Download Enriched Data", use_container_width=True):
-                enriched_df = pd.DataFrame(result.get('enriched_data', []))
-                csv_data = enriched_df.to_csv(index=False)
-                st.download_button(
-                    "📄 Download CSV",
-                    csv_data,
-                    "enriched_results.csv", 
-                    "text/csv",
-                    use_container_width=True
-                )
+        if st.button("📊 Generate Enriched Dataset", use_container_width=True):
+            _render_enriched_dataset_export(result)
+
+def _render_enriched_dataset_export(result):
+    """
+    Render enriched dataset export interface with multiple format options.
+    
+    This function creates an enriched dataset by combining the original CSV data
+    with all processing results and provides download options in multiple formats.
+    """
+    try:
+        # Import required modules
+        from src.backend.data_processor import DataProcessor
+        from postback.router import PostbackRouter
+        
+        st.subheader("📊 Enriched Dataset Export")
+        st.write("Combine your original CSV data with all processing results into a comprehensive dataset.")
+        
+        # Get original CSV data from session state
+        original_csv_data = st.session_state.get('uploaded_data_records', [])
+        if not original_csv_data:
+            st.error("❌ Original CSV data not found. Please re-upload your file.")
+            return
+        
+        # Get FF2API results from the processing result
+        ff2api_results = result.get('ff2api_results', [])
+        if not ff2api_results:
+            st.warning("⚠️ No FF2API results found. Cannot create enriched dataset.")
+            return
+        
+        # Create enriched dataset
+        data_processor = DataProcessor()
+        
+        with st.spinner("Creating enriched dataset..."):
+            enriched_df = data_processor.create_enriched_dataset(original_csv_data, ff2api_results)
+        
+        # Display dataset info
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Rows", len(enriched_df))
+        with col2:
+            st.metric("Total Columns", len(enriched_df.columns))
+        with col3:
+            processed_count = len(enriched_df[enriched_df.get('processing_status', '') == 'processed'])
+            st.metric("Processed Rows", processed_count)
+        
+        # Show sample of enriched data
+        with st.expander("📋 Preview Enriched Dataset", expanded=False):
+            st.dataframe(enriched_df.head(), use_container_width=True)
+        
+        # Export format selection
+        export_format = st.selectbox(
+            "Select Export Format",
+            ["CSV", "XLSX", "JSON"],
+            help="Choose the format for your enriched dataset export"
+        )
+        
+        # Generate export filename prefix
+        timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+        filename_prefix = f"enriched_dataset_{timestamp}"
+        
+        # Export button
+        if st.button(f"📥 Export as {export_format}", use_container_width=True):
+            try:
+                # Initialize PostbackRouter for export functionality
+                postback_router = PostbackRouter([])
+                
+                # Export the enriched dataset
+                with st.spinner(f"Exporting to {export_format}..."):
+                    export_result = postback_router.export_enriched_data(
+                        enriched_df, 
+                        export_format.lower(), 
+                        filename_prefix
+                    )
+                
+                if export_result.get('success', False):
+                    st.success(f"✅ Export completed successfully!")
+                    
+                    # Display export details
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.metric("File Size", f"{export_result['file_size_mb']} MB")
+                    with col2:
+                        if 'ff2api_success_rate' in export_result:
+                            st.metric("Success Rate", export_result['ff2api_success_rate'])
+                    
+                    # Provide download button
+                    with open(export_result['file_path'], 'rb') as file:
+                        file_data = file.read()
+                        
+                    st.download_button(
+                        f"📥 Download {export_result['filename']}",
+                        file_data,
+                        export_result['filename'],
+                        f"application/{export_format.lower()}" if export_format != 'CSV' else "text/csv",
+                        use_container_width=True
+                    )
+                    
+                    # Show additional export details
+                    with st.expander("📋 Export Details", expanded=False):
+                        export_details = {k: v for k, v in export_result.items() 
+                                        if k not in ['file_path', 'columns']}
+                        st.json(export_details)
+                        
+                else:
+                    st.error(f"❌ Export failed: {export_result.get('error', 'Unknown error')}")
+                    
+            except Exception as e:
+                st.error(f"❌ Export error: {str(e)}")
+                logger.error(f"Enriched dataset export error: {e}")
+        
+        # Information about the enriched dataset
+        with st.expander("ℹ️ About Enriched Dataset", expanded=False):
+            st.markdown("""
+            **The Enriched Dataset includes:**
+            - All original CSV columns and data
+            - FF2API processing results and status
+            - Load creation success/failure information
+            - Error messages and processing details
+            - Timestamps and processing metadata
+            
+            **Use this dataset to:**
+            - Analyze processing success rates
+            - Identify patterns in failed loads
+            - Track data quality improvements
+            - Generate comprehensive reports
+            """)
+    
+    except Exception as e:
+        st.error(f"❌ Error rendering enriched dataset export: {str(e)}")
+        logger.error(f"Enriched dataset export rendering error: {e}")
 
 # Import remaining helper functions from original
 def validate_mapping(df, field_mappings, data_processor):

@@ -2078,4 +2078,108 @@ class DataProcessor:
             
         except Exception as e:
             self.logger.error(f"Error cleaning up learning data: {e}")
-            return {'success': False, 'error': str(e)} 
+            return {'success': False, 'error': str(e)}
+    
+    def create_enriched_dataset(self, original_csv_data: List[Dict[str, Any]], 
+                               ff2api_results: List[Any]) -> pd.DataFrame:
+        """
+        Create enriched dataset by combining original CSV data with FF2API processing results.
+        
+        This function merges the original CSV data with the results from the FF2API workflow,
+        including load creation status, internal load IDs, tracking data, and any other
+        enrichment data that was added during processing.
+        
+        Args:
+            original_csv_data: Original CSV data as list of dictionaries
+            ff2api_results: FF2API processing results (from workflow_processor or session state)
+            
+        Returns:
+            pandas DataFrame with original CSV data enriched with processing results
+        """
+        try:
+            self.logger.info(f"Creating enriched dataset from {len(original_csv_data)} CSV rows and {len(ff2api_results)} results")
+            
+            # Convert original CSV to DataFrame
+            original_df = pd.DataFrame(original_csv_data)
+            
+            # If no results to merge, return original data with status columns
+            if not ff2api_results:
+                original_df['processing_status'] = 'not_processed'
+                original_df['enrichment_timestamp'] = datetime.now().isoformat()
+                return original_df
+            
+            # Create results DataFrame from FF2API results
+            enriched_rows = []
+            
+            for i, result in enumerate(ff2api_results):
+                # Start with original CSV row data
+                if i < len(original_csv_data):
+                    enriched_row = original_csv_data[i].copy()
+                else:
+                    enriched_row = {}
+                
+                # Add processing status information
+                enriched_row['csv_row_index'] = i
+                
+                # Handle different result formats based on the workflow type
+                if hasattr(result, 'success'):
+                    # LoadProcessingResult format
+                    enriched_row['ff2api_success'] = result.success
+                    enriched_row['ff2api_load_number'] = result.load_number
+                    enriched_row['ff2api_error'] = result.error_message
+                    if result.response_data:
+                        enriched_row['ff2api_response'] = str(result.response_data)
+                elif isinstance(result, dict):
+                    # Dictionary format from session state or workflow results
+                    if 'message' in result:
+                        # Handle status messages like "Load created successfully (no response data)"
+                        enriched_row['ff2api_message'] = result['message']
+                        enriched_row['ff2api_success'] = 'success' in result['message'].lower()
+                    
+                    # Add any other fields from the result
+                    for key, value in result.items():
+                        if key not in ['message'] and not key.startswith('csv_row_'):
+                            enriched_row[f'ff2api_{key}'] = value
+                else:
+                    # Handle other result formats
+                    enriched_row['ff2api_result'] = str(result)
+                    enriched_row['ff2api_success'] = False
+                
+                # Add enrichment metadata
+                enriched_row['processing_status'] = 'processed'
+                enriched_row['enrichment_timestamp'] = datetime.now().isoformat()
+                
+                enriched_rows.append(enriched_row)
+            
+            # Create enriched DataFrame
+            enriched_df = pd.DataFrame(enriched_rows)
+            
+            # Ensure we have all original rows even if some processing failed
+            if len(enriched_df) < len(original_csv_data):
+                missing_rows = []
+                for i in range(len(enriched_df), len(original_csv_data)):
+                    missing_row = original_csv_data[i].copy()
+                    missing_row.update({
+                        'csv_row_index': i,
+                        'ff2api_success': False,
+                        'ff2api_error': 'Not processed',
+                        'processing_status': 'incomplete',
+                        'enrichment_timestamp': datetime.now().isoformat()
+                    })
+                    missing_rows.append(missing_row)
+                
+                missing_df = pd.DataFrame(missing_rows)
+                enriched_df = pd.concat([enriched_df, missing_df], ignore_index=True)
+            
+            self.logger.info(f"Successfully created enriched dataset with {len(enriched_df)} rows and {len(enriched_df.columns)} columns")
+            
+            return enriched_df
+            
+        except Exception as e:
+            self.logger.error(f"Error creating enriched dataset: {e}")
+            # Return original data with error status
+            error_df = pd.DataFrame(original_csv_data)
+            error_df['processing_status'] = 'error'
+            error_df['enrichment_error'] = str(e)
+            error_df['enrichment_timestamp'] = datetime.now().isoformat()
+            return error_df 
