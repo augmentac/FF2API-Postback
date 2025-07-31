@@ -43,33 +43,71 @@ class CredentialManager:
         
     def get_brokerage_api_key(self, brokerage_key: str) -> Optional[str]:
         """
-        Automatically resolve API credentials for given brokerage.
+        Automatically resolve API credentials for given brokerage from secrets or database.
         
-        Converts brokerage-key format to secret lookup:
-        'augment-brokerage' → st.secrets['api']['augment_brokerage']
-        'customer-xyz' → st.secrets['api']['customer_xyz']
+        First checks Streamlit secrets, then falls back to database-stored credentials.
         
         Args:
-            brokerage_key: Brokerage identifier (e.g., 'augment-brokerage')
+            brokerage_key: Brokerage identifier (e.g., 'augment-brokerage', 'eshipping')
             
         Returns:
             API key string if found, None if not configured
         """
+        # 1. Try Streamlit secrets first (existing functionality)
         try:
             secret_key = self._normalize_brokerage_key(brokerage_key)
             api_secrets = st.secrets.get("api", {})
             
             if secret_key in api_secrets:
-                logger.info(f"Found API credentials for brokerage: {brokerage_key}")
+                logger.info(f"Found API credentials in secrets for brokerage: {brokerage_key}")
                 return api_secrets[secret_key]
-            else:
-                logger.warning(f"No API credentials found for brokerage: {brokerage_key}")
-                logger.info(f"Available brokerages: {list(api_secrets.keys())}")
-                return None
                 
         except Exception as e:
-            logger.error(f"Error resolving API credentials for {brokerage_key}: {e}")
-            return None
+            logger.error(f"Error checking secrets for {brokerage_key}: {e}")
+        
+        # 2. Try database credentials (UI-created configurations)
+        try:
+            from src.backend.database import DatabaseManager
+            import sqlite3
+            import json
+            from cryptography.fernet import Fernet
+            
+            db_manager = DatabaseManager()
+            conn = sqlite3.connect(db_manager.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT api_credentials, encryption_key 
+                FROM brokerage_configurations 
+                WHERE brokerage_name = ? AND is_active = 1 
+                ORDER BY last_used DESC 
+                LIMIT 1
+            ''', (brokerage_key,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                encrypted_credentials, encryption_key = result
+                
+                # Decrypt credentials
+                fernet = Fernet(encryption_key.encode())
+                decrypted_credentials = fernet.decrypt(encrypted_credentials.encode()).decode()
+                credentials_dict = json.loads(decrypted_credentials)
+                
+                api_key = credentials_dict.get('api_key')
+                if api_key:
+                    logger.info(f"Found API credentials in database for brokerage: {brokerage_key}")
+                    return api_key
+                    
+        except Exception as e:
+            logger.error(f"Error checking database credentials for {brokerage_key}: {e}")
+        
+        # 3. Not found in either source
+        logger.warning(f"No API credentials found for brokerage: {brokerage_key}")
+        available_brokerages = self.get_available_brokerages()
+        logger.info(f"Available brokerages: {available_brokerages}")
+        return None
     
     def get_brokerage_credentials(self, brokerage_key: str) -> Dict[str, Any]:
         """
@@ -80,10 +118,52 @@ class CredentialManager:
         """
         api_key = self.get_brokerage_api_key(brokerage_key)
         
+        # Try to get additional config from database first
+        base_url = self.api_config.get('base_url', 'https://api.prod.goaugment.com')
+        timeout = self.api_config.get('timeout', 30)
+        
+        try:
+            from src.backend.database import DatabaseManager
+            import sqlite3
+            import json
+            from cryptography.fernet import Fernet
+            
+            db_manager = DatabaseManager()
+            conn = sqlite3.connect(db_manager.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT api_credentials, encryption_key 
+                FROM brokerage_configurations 
+                WHERE brokerage_name = ? AND is_active = 1 
+                ORDER BY last_used DESC 
+                LIMIT 1
+            ''', (brokerage_key,))
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if result:
+                encrypted_credentials, encryption_key = result
+                
+                # Decrypt credentials
+                fernet = Fernet(encryption_key.encode())
+                decrypted_credentials = fernet.decrypt(encrypted_credentials.encode()).decode()
+                credentials_dict = json.loads(decrypted_credentials)
+                
+                # Use database config if available
+                if credentials_dict.get('base_url'):
+                    base_url = credentials_dict['base_url']
+                if credentials_dict.get('timeout'):
+                    timeout = credentials_dict['timeout']
+                    
+        except Exception as e:
+            logger.debug(f"Could not get additional config from database for {brokerage_key}: {e}")
+        
         return {
             'api_key': api_key,
-            'base_url': self.api_config.get('base_url', 'https://api.prod.goaugment.com'),
-            'timeout': self.api_config.get('timeout', 30),
+            'base_url': base_url,
+            'timeout': timeout,
             'retry_count': self.api_config.get('retry_count', 3),
             'retry_delay': self.api_config.get('retry_delay', 1)
         }
@@ -172,11 +252,14 @@ class CredentialManager:
     
     def get_available_brokerages(self) -> List[str]:
         """
-        Discover all configured brokerages from API secrets.
+        Discover all configured brokerages from both API secrets and database.
         
         Returns:
             List of brokerage keys in user-friendly format
         """
+        brokerage_keys = []
+        
+        # 1. Get brokerages from API secrets (existing functionality)
         try:
             api_secrets = st.secrets.get("api", {})
             
@@ -187,18 +270,46 @@ class CredentialManager:
             }
             
             # Get actual brokerage keys (exclude configuration keys)
-            brokerage_keys = []
             for key in api_secrets.keys():
                 # Skip configuration keys (case-insensitive)
                 if key.lower().replace('_', '-') not in config_keys:
                     # Convert snake_case back to kebab-case for user display
                     brokerage_keys.append(key.replace('_', '-'))
             
-            logger.info(f"Available brokerages: {brokerage_keys}")
-            return sorted(brokerage_keys)
         except Exception as e:
-            logger.error(f"Error discovering brokerages: {e}")
-            return []
+            logger.error(f"Error discovering brokerages from secrets: {e}")
+        
+        # 2. Get brokerages from database (UI-created configurations)
+        try:
+            from src.backend.database import DatabaseManager
+            import sqlite3
+            
+            db_manager = DatabaseManager()
+            conn = sqlite3.connect(db_manager.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                SELECT DISTINCT brokerage_name 
+                FROM brokerage_configurations 
+                WHERE is_active = 1 
+                ORDER BY brokerage_name
+            ''')
+            
+            db_brokerages = [row[0] for row in cursor.fetchall()]
+            conn.close()
+            
+            # Add database brokerages to the list
+            for db_brokerage in db_brokerages:
+                if db_brokerage not in brokerage_keys:
+                    brokerage_keys.append(db_brokerage)
+                    
+            logger.info(f"Found database brokerages: {db_brokerages}")
+            
+        except Exception as e:
+            logger.error(f"Error discovering brokerages from database: {e}")
+        
+        logger.info(f"Available brokerages: {brokerage_keys}")
+        return sorted(brokerage_keys)
     
     def test_brokerage_connection(self, brokerage_key: str) -> Dict[str, Any]:
         """
