@@ -331,7 +331,7 @@ def get_full_api_schema():
         'carrier.carrierId': {'type': 'string', 'required': False, 'description': 'Carrier ID'},
         'carrier.name': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Name'},
         'carrier.dotNumber': {'type': 'number', 'required': 'conditional', 'description': 'DOT Number (OR MC Number - either is sufficient)'},
-        'carrier.mcNumber': {'type': 'number', 'required': False, 'description': 'MC Number (OR DOT Number - either is sufficient)'},
+        'carrier.mcNumber': {'type': 'number', 'required': 'conditional', 'description': 'MC Number (OR DOT Number - either is sufficient)'},
         'carrier.scac': {'type': 'string', 'required': False, 'description': 'SCAC Code'},
         'carrier.address.street1': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address Street'},
         'carrier.address.street2': {'type': 'string', 'required': False, 'description': 'Carrier Address Street 2'},
@@ -360,7 +360,7 @@ def get_full_api_schema():
         'load.trackingEvents.0.notes': {'type': 'string', 'required': False, 'description': 'Event Notes'},
     }
 
-def get_effective_required_fields(api_schema, current_mappings):
+def get_effective_required_fields(api_schema, current_mappings, brokerage_name=None):
     """
     Determine which fields are effectively required based on current mappings.
     Conditional fields become required only when their immediate parent objects are being used.
@@ -410,18 +410,21 @@ def get_effective_required_fields(api_schema, current_mappings):
                        (name_field in current_mappings and current_mappings.get(name_field) and current_mappings[name_field] != 'Select column...'):
                         effective_required[field_path] = field_info
             # Special handling for carrier identification - either DOT or MC Number is sufficient
-            elif field_path == 'carrier.dotNumber':
-                # DOT number only required if neither DOT nor MC is mapped/available
+            elif field_path in ['carrier.dotNumber', 'carrier.mcNumber']:
+                # DOT/MC number only required if neither DOT nor MC is mapped/available
                 immediate_parent = '.'.join(parts[:-1])
                 clean_parent = '.'.join([p for p in immediate_parent.split('.') if not p.isdigit()])
                 
                 if clean_parent in specific_objects_in_use:
                     # Check if either DOT or MC number is mapped
-                    dot_mapped = field_path in current_mappings and current_mappings.get(field_path) and current_mappings[field_path] != 'Select column...'
+                    dot_mapped = 'carrier.dotNumber' in current_mappings and current_mappings.get('carrier.dotNumber') and current_mappings['carrier.dotNumber'] != 'Select column...'
                     mc_mapped = 'carrier.mcNumber' in current_mappings and current_mappings.get('carrier.mcNumber') and current_mappings['carrier.mcNumber'] != 'Select column...'
                     
-                    # Only require DOT number if neither DOT nor MC is mapped
-                    if not dot_mapped and not mc_mapped:
+                    # Check if carrier auto-mapping will provide DOT/MC numbers
+                    carrier_auto_mapped = _will_carrier_auto_mapping_provide_dot_mc(current_mappings, brokerage_name)
+                    
+                    # Only require this field if neither DOT nor MC is mapped AND auto-mapping won't provide them
+                    if not dot_mapped and not mc_mapped and not carrier_auto_mapped:
                         effective_required[field_path] = field_info
             else:
                 # Standard conditional logic for non-reference-number fields
@@ -435,6 +438,110 @@ def get_effective_required_fields(api_schema, current_mappings):
                     effective_required[field_path] = field_info
     
     return effective_required
+
+
+def _will_carrier_auto_mapping_provide_dot_mc(current_mappings, brokerage_name=None):
+    """
+    Check if carrier auto-mapping will provide DOT/MC numbers based on current mappings.
+    
+    This function determines if the carrier auto-mapping system will likely provide
+    DOT and/or MC numbers, making manual mapping of these fields unnecessary.
+    
+    Args:
+        current_mappings: Dictionary of current field mappings
+        brokerage_name: Optional brokerage name to check if auto-mapping is enabled
+        
+    Returns:
+        bool: True if auto-mapping will provide DOT/MC numbers, False otherwise
+    """
+    try:
+        # Check if carrier name is mapped to a column
+        carrier_name_mapped = ('carrier.name' in current_mappings and 
+                              current_mappings.get('carrier.name') and 
+                              current_mappings['carrier.name'] != 'Select column...')
+        
+        if not carrier_name_mapped:
+            return False
+        
+        # If brokerage name is provided, check if auto-mapping is actually enabled
+        if brokerage_name:
+            try:
+                from src.backend.database import DatabaseManager
+                db_manager = DatabaseManager()
+                config = db_manager.get_carrier_mapping_config(brokerage_name)
+                if not config.get('enable_auto_carrier_mapping', False):
+                    return False
+            except Exception:
+                # If we can't check the config, be conservative
+                pass
+        
+        # Import carrier config parser to check carrier database
+        try:
+            import sys
+            import os
+            
+            # Add the project root to path
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            if project_root not in sys.path:
+                sys.path.append(project_root)
+            
+            from carrier_config_parser import CARRIER_DETAILS
+            
+            # Check if we have comprehensive carrier data in the database
+            carriers_with_both_numbers = 0
+            total_carriers = len(CARRIER_DETAILS)
+            
+            for carrier_name, details in CARRIER_DETAILS.items():
+                if (details.get('dotNumber') is not None and 
+                    details.get('mcNumber') is not None and
+                    details.get('dotNumber') != '' and 
+                    details.get('mcNumber') != ''):
+                    carriers_with_both_numbers += 1
+            
+            # If most carriers in our database have complete DOT/MC data, 
+            # then auto-mapping will likely provide these numbers
+            completeness_ratio = carriers_with_both_numbers / total_carriers if total_carriers > 0 else 0
+            
+            # If 70% or more of carriers have complete data, assume auto-mapping will work
+            if completeness_ratio >= 0.7:
+                return True
+            
+            # Also check for specific high-usage carriers that definitely have complete data
+            high_usage_carriers_with_data = []
+            high_usage_carriers = [
+                'estes express', 'fedex freight', 'ups freight', 'dayton freight', 
+                'yrc freight', 'xpo logistics', 'old dominion', 'saia ltl freight',
+                'r+l carriers', 'abf freight', 'central transport', 'holland'
+            ]
+            
+            for carrier_name, details in CARRIER_DETAILS.items():
+                if (carrier_name.lower() in high_usage_carriers and
+                    details.get('dotNumber') is not None and 
+                    details.get('mcNumber') is not None):
+                    high_usage_carriers_with_data.append(carrier_name.lower())
+            
+            # If we have most major carriers covered, assume auto-mapping will work
+            if len(high_usage_carriers_with_data) >= 6:
+                return True
+                
+        except ImportError as e:
+            # If carrier config is not available, be conservative
+            import logging
+            logging.getLogger(__name__).warning(f"Could not import carrier config for auto-mapping check: {e}")
+            pass
+        except Exception as e:
+            # Log other errors but continue
+            import logging
+            logging.getLogger(__name__).warning(f"Error checking carrier auto-mapping potential: {e}")
+            pass
+            
+        return False
+        
+    except Exception as e:
+        # If anything goes wrong, be conservative and don't assume auto-mapping
+        import logging
+        logging.getLogger(__name__).warning(f"Error in carrier auto-mapping check: {e}")
+        return False
 
 def load_custom_css():
     """Load custom CSS styles with fallback mechanisms"""
@@ -1963,7 +2070,7 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
         required_indicator = "⭐" if required else "📄"
         color = "#dc2626" if required else "#64748b"
         
-        # Check for carrier auto-mapping
+        # Check for carrier auto-mapping and DOT/MC auto-population
         carrier_auto_mapping_text = ""
         if 'carrier' in field.lower():
             # Check if brokerage has carrier auto-mapping enabled
@@ -1974,7 +2081,15 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
                     db_manager = DatabaseManager()
                     config = db_manager.get_carrier_mapping_config(brokerage_name)
                     if config.get('enable_auto_carrier_mapping', False):
-                        carrier_auto_mapping_text = " 🚛 Auto-mapped"
+                        # Special handling for DOT/MC fields
+                        if field in ['carrier.dotNumber', 'carrier.mcNumber']:
+                            # Check if carrier auto-mapping will provide this field
+                            if _will_carrier_auto_mapping_provide_dot_mc(updated_mappings):
+                                carrier_auto_mapping_text = " 🤖 Auto-populated from carrier database"
+                            else:
+                                carrier_auto_mapping_text = " 🚛 Auto-mapped"
+                        else:
+                            carrier_auto_mapping_text = " 🚛 Auto-mapped"
                 except:
                     pass
         
@@ -2487,12 +2602,35 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
         elif learning_confidence and learning_confidence > 0.5:
             learning_badge = f'<div style="display: inline-block; background: #f59e0b; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🧠 {learning_confidence:.1%}</div>'
         
+        # Check for carrier auto-mapping and DOT/MC auto-population
+        carrier_auto_mapping_badge = ""
+        if 'carrier' in field.lower():
+            # Check if brokerage has carrier auto-mapping enabled
+            brokerage_name = st.session_state.get('brokerage_name')
+            if brokerage_name:
+                try:
+                    from src.backend.database import DatabaseManager
+                    db_manager = DatabaseManager()
+                    config = db_manager.get_carrier_mapping_config(brokerage_name)
+                    if config.get('enable_auto_carrier_mapping', False):
+                        # Special handling for DOT/MC fields
+                        if field in ['carrier.dotNumber', 'carrier.mcNumber']:
+                            # Check if carrier auto-mapping will provide this field
+                            if _will_carrier_auto_mapping_provide_dot_mc(field_mappings):
+                                carrier_auto_mapping_badge = f'<div style="display: inline-block; background: #059669; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🤖 Auto-populated</div>'
+                            else:
+                                carrier_auto_mapping_badge = f'<div style="display: inline-block; background: #0369a1; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🚛 Auto-mapped</div>'
+                        else:
+                            carrier_auto_mapping_badge = f'<div style="display: inline-block; background: #0369a1; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🚛 Auto-mapped</div>'
+                except:
+                    pass
+        
         # Main field display
         st.markdown(f"""
             <div style="padding: 0.5rem; background: {'rgba(239, 68, 68, 0.05)' if required else 'rgba(248, 250, 252, 1)'}; 
                         border-radius: 0.5rem; border-left: 3px solid {color};">
                 <div style="font-weight: 600; color: {color};">
-                    {required_indicator} {field_info.get('description', field)} {learning_badge}
+                    {required_indicator} {field_info.get('description', field)} {learning_badge} {carrier_auto_mapping_badge}
                 </div>
                 <div style="font-size: 0.8rem; color: #64748b; margin-top: 0.25rem;">
                     <code>{field}</code>
