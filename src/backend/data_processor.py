@@ -291,6 +291,38 @@ class DataProcessor:
         
         return mappable_count / total_count
     
+    def validate_api_schema_compatibility(self, data: Dict[str, Any]) -> Tuple[bool, List[str]]:
+        """
+        Validate data structure for API schema compatibility.
+        
+        Detects deprecated fields that will cause API validation errors.
+        This prevents field compatibility issues between database and UI layers.
+        
+        Args:
+            data: Data dictionary to validate
+            
+        Returns:
+            Tuple of (is_valid, list_of_deprecated_fields_found)
+        """
+        deprecated_fields = [
+            'carrier.email',    # Direct carrier email - API rejects as excess property
+            'carrier.phone',    # Direct carrier phone - API rejects as excess property
+        ]
+        
+        found_deprecated = []
+        for field in deprecated_fields:
+            if field in data:
+                found_deprecated.append(field)
+        
+        is_valid = len(found_deprecated) == 0
+        
+        if not is_valid:
+            self.logger.warning(f"Deprecated API fields detected: {found_deprecated}. "
+                              f"These fields will cause API validation errors. "
+                              f"Use contacts array structure instead.")
+        
+        return is_valid, found_deprecated
+    
     def read_file(self, file_path: str) -> pd.DataFrame:
         """Read CSV or Excel file into DataFrame"""
         try:

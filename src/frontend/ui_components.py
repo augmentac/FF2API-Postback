@@ -21,6 +21,68 @@ logger = logging.getLogger(__name__)
 
 # Remove COMMON_ENUM_FIELDS since we're using schema-based enums directly
 
+# Backward Compatibility Helpers
+def get_carrier_field_with_fallback(carrier_data: Dict[str, Any], field_name: str, fallback_field: str = None, default: str = '') -> str:
+    """
+    Safely get carrier field with backward compatibility fallback.
+    
+    This prevents KeyError exceptions when deprecated fields are removed from the database layer
+    but still referenced in the UI layer.
+    
+    Args:
+        carrier_data: Carrier data dictionary from database
+        field_name: Primary field name to retrieve
+        fallback_field: Alternative field name if primary is missing
+        default: Default value if both fields are missing
+        
+    Returns:
+        Field value or default if not found
+        
+    Example:
+        # Safe access to deprecated carrier.phone with contact fallback
+        phone = get_carrier_field_with_fallback(data, 'carrier.phone', 'carrier.contacts.0.phone', 'N/A')
+    """
+    # Try primary field first
+    if field_name in carrier_data:
+        return carrier_data[field_name]
+    
+    # Try fallback field if provided
+    if fallback_field and fallback_field in carrier_data:
+        return carrier_data[fallback_field]
+    
+    # Return default
+    return default
+
+def ensure_carrier_contacts_structure(carrier_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Ensure carrier data has proper contacts array structure for API compatibility.
+    
+    This prevents API schema validation errors by removing deprecated direct fields
+    and ensuring all contact info is in the contacts array structure.
+    
+    Args:
+        carrier_data: Raw carrier data that may contain deprecated fields
+        
+    Returns:
+        Cleaned carrier data with proper API schema structure
+    """
+    cleaned_data = carrier_data.copy()
+    
+    # Remove deprecated direct fields that cause API validation errors
+    deprecated_fields = ['carrier.email', 'carrier.phone']
+    for field in deprecated_fields:
+        if field in cleaned_data:
+            # Move to contacts structure if contacts don't already have it
+            if field == 'carrier.email' and 'carrier.contacts.0.email' not in cleaned_data:
+                cleaned_data['carrier.contacts.0.email'] = cleaned_data[field]
+            elif field == 'carrier.phone' and 'carrier.contacts.0.phone' not in cleaned_data:
+                cleaned_data['carrier.contacts.0.phone'] = cleaned_data[field]
+            
+            # Remove the deprecated field
+            del cleaned_data[field]
+    
+    return cleaned_data
+
 def create_smart_manual_value_interface(field_path, field_info, current_value=None):
     """
     Intelligent manual value interface that adapts to field type - aligned with reference implementation
@@ -3033,12 +3095,17 @@ def create_carrier_mapping_interface(db_manager: DatabaseManager, brokerage_name
             # Create DataFrame for display
             mapping_data = []
             for carrier_id, data in current_mappings.items():
+                # Use backward compatibility helper to safely access deprecated fields
+                phone = get_carrier_field_with_fallback(data, 'carrier.phone', 'carrier.contacts.0.phone', 'N/A')
+                email = get_carrier_field_with_fallback(data, 'carrier.email', 'carrier.contacts.0.email', 'N/A')
+                email_display = email[:30] + '...' if len(email) > 30 else email
+                
                 mapping_data.append({
                     'Carrier Name': data['carrier.name'],
                     'SCAC': data['carrier.scac'],
                     'MC Number': data['carrier.mcNumber'],
-                    'Phone': data['carrier.phone'],
-                    'Email': data['carrier.email'][:30] + '...' if len(data['carrier.email']) > 30 else data['carrier.email']
+                    'Phone': phone,
+                    'Email': email_display
                 })
             
             df_display = pd.DataFrame(mapping_data)
@@ -3181,17 +3248,21 @@ def _render_add_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str)
             if st.form_submit_button("✅ Add Carrier", type="primary", use_container_width=True):
                 if carrier_name:
                     try:
-                        carrier_data = {
+                        # Build carrier data with all fields, then clean for API compatibility
+                        raw_carrier_data = {
                             'carrier.name': carrier_name,
                             'carrier.scac': carrier_scac,
                             'carrier.mcNumber': carrier_mc,
                             'carrier.dotNumber': carrier_dot,
-                            'carrier.email': carrier_email,
-                            'carrier.phone': carrier_phone,
+                            'carrier.email': carrier_email,  # Temporary - will be cleaned
+                            'carrier.phone': carrier_phone,  # Temporary - will be cleaned
                             'carrier.contacts.0.name': contact_name,
-                            'carrier.contacts.0.email': contact_email,
-                            'carrier.contacts.0.phone': contact_phone
+                            'carrier.contacts.0.email': contact_email or carrier_email,
+                            'carrier.contacts.0.phone': contact_phone or carrier_phone
                         }
+                        
+                        # Clean data to ensure API schema compatibility
+                        carrier_data = ensure_carrier_contacts_structure(raw_carrier_data)
                         
                         # Use carrier name as identifier
                         db_manager.save_carrier_mapping(brokerage_name, carrier_name, carrier_data)
@@ -3236,10 +3307,12 @@ def _render_edit_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str
                 carrier_name = st.text_input("Carrier Name*", value=carrier_data.get('carrier.name', ''))
                 carrier_scac = st.text_input("SCAC Code", value=carrier_data.get('carrier.scac', ''))
                 carrier_mc = st.text_input("MC Number", value=carrier_data.get('carrier.mcNumber', ''))
-                carrier_phone = st.text_input("Phone Number", value=carrier_data.get('carrier.phone', ''))
+                # Use backward compatibility helper for deprecated carrier.phone
+                carrier_phone = st.text_input("Phone Number", value=get_carrier_field_with_fallback(carrier_data, 'carrier.phone', 'carrier.contacts.0.phone', ''))
             
             with col2:
-                carrier_email = st.text_input("Email", value=carrier_data.get('carrier.email', ''))
+                # Use backward compatibility helper for deprecated carrier.email
+                carrier_email = st.text_input("Email", value=get_carrier_field_with_fallback(carrier_data, 'carrier.email', 'carrier.contacts.0.email', ''))
                 carrier_dot = st.text_input("DOT Number", value=carrier_data.get('carrier.dotNumber', ''))
                 contact_name = st.text_input("Contact Name", value=carrier_data.get('carrier.contacts.0.name', ''))
                 contact_phone = st.text_input("Contact Phone", value=carrier_data.get('carrier.contacts.0.phone', ''))
@@ -3252,17 +3325,21 @@ def _render_edit_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str
                 if st.form_submit_button("✅ Save Changes", type="primary", use_container_width=True):
                     if carrier_name:
                         try:
-                            updated_data = {
+                            # Build carrier data with all fields, then clean for API compatibility
+                            raw_updated_data = {
                                 'carrier.name': carrier_name,
                                 'carrier.scac': carrier_scac,
                                 'carrier.mcNumber': carrier_mc,
                                 'carrier.dotNumber': carrier_dot,
-                                'carrier.email': carrier_email,
-                                'carrier.phone': carrier_phone,
+                                'carrier.email': carrier_email,  # Temporary - will be cleaned  
+                                'carrier.phone': carrier_phone,  # Temporary - will be cleaned
                                 'carrier.contacts.0.name': contact_name,
-                                'carrier.contacts.0.email': contact_email,
-                                'carrier.contacts.0.phone': contact_phone
+                                'carrier.contacts.0.email': contact_email or carrier_email,
+                                'carrier.contacts.0.phone': contact_phone or carrier_phone
                             }
+                            
+                            # Clean data to ensure API schema compatibility
+                            updated_data = ensure_carrier_contacts_structure(raw_updated_data)
                             
                             db_manager.save_carrier_mapping(brokerage_name, selected_carrier, updated_data)
                             
