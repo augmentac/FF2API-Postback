@@ -1814,6 +1814,25 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
                     enriched_row['PRO'] = load_mapping.pro_number
                 if load_mapping.carrier_name:
                     enriched_row['carrier'] = load_mapping.carrier_name
+            
+            # Also check for PRO and carrier in original CSV fields as fallback
+            if 'PRO' not in enriched_row or not enriched_row.get('PRO'):
+                # Try common PRO field names from CSV
+                pro_fields = ['Carrier Pro#', 'PRO', 'pro_number', 'ProNumber', 'tracking_number']
+                for field in pro_fields:
+                    if field in enriched_row and enriched_row[field]:
+                        enriched_row['PRO'] = str(enriched_row[field]).strip()
+                        logger.info(f"🔍 DEBUG: Set PRO from CSV field '{field}': {enriched_row['PRO']}")
+                        break
+            
+            if 'carrier' not in enriched_row or not enriched_row.get('carrier'):
+                # Try common carrier field names from CSV
+                carrier_fields = ['Carrier Name', 'carrier', 'carrier_name', 'scac_code']
+                for field in carrier_fields:
+                    if field in enriched_row and enriched_row[field]:
+                        enriched_row['carrier'] = str(enriched_row[field]).strip()
+                        logger.info(f"🔍 DEBUG: Set carrier from CSV field '{field}': {enriched_row['carrier']}")
+                        break
                 
                 if load_mapping.error_message:
                     enriched_row['load_id_error'] = load_mapping.error_message

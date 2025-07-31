@@ -362,7 +362,7 @@ class TrackingAPIEnricher(EnrichmentSource):
         pro_number = None
         # First priority: PRO numbers from FF2API load details
         ff2api_pro_fields = ['ff2api_pro_number', 'PRO']  # PRO is set by workflow from FF2API data
-        csv_pro_fields = [self.pro_column, 'pro_number', 'ProNumber', 'tracking_number']
+        csv_pro_fields = [self.pro_column, 'Carrier Pro#', 'PRO', 'pro_number', 'ProNumber', 'tracking_number']
         
         # Try FF2API fields first
         for pro_field in ff2api_pro_fields:
@@ -390,7 +390,7 @@ class TrackingAPIEnricher(EnrichmentSource):
         carrier = None
         # First priority: Carrier names from FF2API load details
         ff2api_carrier_fields = ['ff2api_carrier_name', 'carrier']  # carrier is set by workflow from FF2API data
-        csv_carrier_fields = [self.carrier_column, 'Carrier Name', 'carrier_name', 'scac_code']
+        csv_carrier_fields = [self.carrier_column, 'Carrier Name', 'carrier', 'carrier_name', 'scac_code']
         
         # Try FF2API fields first
         for carrier_field in ff2api_carrier_fields:
