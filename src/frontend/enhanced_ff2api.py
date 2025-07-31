@@ -1951,10 +1951,13 @@ def _render_enriched_dataset_export(result):
         st.write("Combine your original CSV data with all processing results into a comprehensive dataset.")
         
         # Get original CSV data from session state
-        original_csv_data = st.session_state.get('uploaded_data_records', [])
-        if not original_csv_data:
+        uploaded_df = st.session_state.get('uploaded_df')
+        if uploaded_df is None:
             st.error("❌ Original CSV data not found. Please re-upload your file.")
             return
+        
+        # Convert DataFrame to records format
+        original_csv_data = uploaded_df.to_dict('records')
         
         # Get FF2API results from the processing result
         ff2api_results = result.get('ff2api_results', [])
