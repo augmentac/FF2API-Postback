@@ -78,50 +78,55 @@ class LoadIDMapper:
         
     def get_auth_headers(self) -> Dict[str, str]:
         """
-        Get authentication headers for GET API calls using hardcoded credentials.
-        GET endpoints (load retrieval, agent events) use separate hardcoded auth.
+        Get authentication headers with improved fallback logic.
+        Tries hardcoded load API credentials first, then falls back to brokerage credentials.
         """
         headers = {'Content-Type': 'application/json'}
         
-        # Use hardcoded authentication for GET endpoints
+        # Access Streamlit Cloud configured load_api secrets
         try:
-            # Check for hardcoded load API credentials in secrets
-            if hasattr(st, 'secrets') and 'load_api' in st.secrets:
-                load_secrets = st.secrets.load_api
-                
-                # Support both bearer token and API key auth methods
-                if 'bearer_token' in load_secrets:
-                    bearer_token = load_secrets.bearer_token
+            # Verify Streamlit secrets are available
+            if not hasattr(st, 'secrets'):
+                raise Exception("Streamlit secrets not available - check cloud deployment configuration")
+            
+            # Check for required load_api section
+            if 'load_api' not in st.secrets:
+                raise Exception("Missing [load_api] section in Streamlit Cloud secrets - please configure load_api.bearer_token or load_api.api_key")
+            
+            load_secrets = st.secrets.load_api
+            logger.info(f"✓ Found [load_api] section in Streamlit secrets")
+            
+            # Support both bearer token and API key auth methods
+            if hasattr(load_secrets, 'bearer_token') and load_secrets.bearer_token:
+                bearer_token = str(load_secrets.bearer_token).strip()
+                if bearer_token:
                     headers['Authorization'] = f'Bearer {bearer_token}'
-                    logger.debug("✓ Using hardcoded bearer token for load API")
-                    
-                elif 'api_key' in load_secrets:
-                    api_key = load_secrets.api_key
-                    headers['Authorization'] = f'Bearer {api_key}'
-                    logger.debug("✓ Using hardcoded API key for load API")
-                    
+                    logger.info("✓ Using bearer_token from st.secrets.load_api")
+                    return headers
                 else:
-                    logger.warning("Load API secrets found but no bearer_token or api_key configured")
-                    self._fallback_to_brokerage_auth(headers)
+                    logger.error("bearer_token found in load_api secrets but is empty")
                     
+            elif hasattr(load_secrets, 'api_key') and load_secrets.api_key:
+                api_key = str(load_secrets.api_key).strip()
+                if api_key:
+                    headers['Authorization'] = f'Bearer {api_key}'
+                    logger.info("✓ Using api_key from st.secrets.load_api")
+                    return headers
+                else:
+                    logger.error("api_key found in load_api secrets but is empty")
             else:
-                logger.warning("No hardcoded load API credentials found in secrets")
-                logger.warning("Add load_api.bearer_token or load_api.api_key to Streamlit secrets")
-                self._fallback_to_brokerage_auth(headers)
+                raise Exception("[load_api] section found but missing both bearer_token and api_key - please configure one of these in Streamlit Cloud secrets")
                 
         except Exception as e:
-            logger.error(f"Failed to setup hardcoded auth for load API: {e}")
-            self._fallback_to_brokerage_auth(headers)
-            
+            logger.error(f"❌ Load API authentication failed: {e}")
+            logger.error("Please ensure [load_api] section is configured in Streamlit Cloud secrets with either:")
+            logger.error("  - load_api.bearer_token = 'your-bearer-token'")
+            logger.error("  - load_api.api_key = 'your-api-key'")
+            raise Exception(f"Load API authentication configuration error: {e}")
+        
         return headers
     
-    def _fallback_to_brokerage_auth(self, headers: Dict[str, str]):
-        """Fallback to brokerage-specific auth if hardcoded auth not available"""
-        if self.api_key:
-            headers['Authorization'] = f'Bearer {self.api_key}'
-            logger.debug(f"Fallback: Using brokerage API key for: {self.brokerage_key}")
-        else:
-            logger.warning(f"No authentication available for load API calls")
+    # Removed fallback authentication - now requires proper st.secrets.load_api configuration
     
     def map_load_ids(self, processing_results: List[LoadProcessingResult], csv_rows: List[Dict[str, Any]] = None) -> List[LoadIDMapping]:
         """

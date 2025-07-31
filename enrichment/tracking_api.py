@@ -61,54 +61,60 @@ class TrackingAPIEnricher(EnrichmentSource):
     
     def _setup_hardcoded_auth(self):
         """
-        Setup hardcoded authentication from secrets for tracking API.
-        This auth is managed separately from brokerage API keys.
+        Setup authentication using Streamlit Cloud configured tracking_api secrets.
+        Requires [tracking_api] section with bearer_token or api_key.
         """
         try:
             import streamlit as st
             
-            # Check for hardcoded tracking API credentials in secrets
-            if hasattr(st, 'secrets') and 'tracking_api' in st.secrets:
-                tracking_secrets = st.secrets.tracking_api
-                
-                # Support both bearer token and API key auth methods
-                if 'bearer_token' in tracking_secrets:
-                    bearer_token = tracking_secrets.bearer_token
+            # Verify Streamlit secrets are available
+            if not hasattr(st, 'secrets'):
+                raise Exception("Streamlit secrets not available - check cloud deployment configuration")
+            
+            # Check for required tracking_api section
+            if 'tracking_api' not in st.secrets:
+                raise Exception("Missing [tracking_api] section in Streamlit Cloud secrets - please configure tracking_api.bearer_token or tracking_api.api_key")
+            
+            tracking_secrets = st.secrets.tracking_api
+            logger.info(f"✓ Found [tracking_api] section in Streamlit secrets")
+            
+            # Support both bearer token and API key auth methods
+            if hasattr(tracking_secrets, 'bearer_token') and tracking_secrets.bearer_token:
+                bearer_token = str(tracking_secrets.bearer_token).strip()
+                if bearer_token:
                     self.session.headers.update({
                         'Authorization': f'Bearer {bearer_token}',
                         'Content-Type': 'application/json',
                         'User-Agent': 'FF2API-TrackingEnrichment/1.0'
                     })
-                    logger.info("✓ Using hardcoded bearer token for tracking API")
+                    logger.info("✓ Using bearer_token from st.secrets.tracking_api")
+                    return
+                else:
+                    logger.error("bearer_token found in tracking_api secrets but is empty")
                     
-                elif 'api_key' in tracking_secrets:
-                    api_key = tracking_secrets.api_key
+            elif hasattr(tracking_secrets, 'api_key') and tracking_secrets.api_key:
+                api_key = str(tracking_secrets.api_key).strip()
+                if api_key:
                     self.session.headers.update({
                         'Authorization': f'Bearer {api_key}',
                         'Content-Type': 'application/json',
                         'User-Agent': 'FF2API-TrackingEnrichment/1.0'
                     })
-                    logger.info("✓ Using hardcoded API key for tracking API")
-                    
+                    logger.info("✓ Using api_key from st.secrets.tracking_api")
+                    return
                 else:
-                    logger.warning("Tracking API secrets found but no bearer_token or api_key configured")
-                    self._setup_default_headers()
-                    
+                    logger.error("api_key found in tracking_api secrets but is empty")
             else:
-                logger.warning("No hardcoded tracking API credentials found in secrets")
-                logger.warning("Add tracking_api.bearer_token or tracking_api.api_key to Streamlit secrets")
-                self._setup_default_headers()
+                raise Exception("[tracking_api] section found but missing both bearer_token and api_key - please configure one of these in Streamlit Cloud secrets")
                 
         except Exception as e:
-            logger.error(f"Failed to setup hardcoded auth: {e}")
-            self._setup_default_headers()
+            logger.error(f"❌ Tracking API authentication failed: {e}")
+            logger.error("Please ensure [tracking_api] section is configured in Streamlit Cloud secrets with either:")
+            logger.error("  - tracking_api.bearer_token = 'your-bearer-token'")
+            logger.error("  - tracking_api.api_key = 'your-api-key'")
+            raise Exception(f"Tracking API authentication configuration error: {e}")
     
-    def _setup_default_headers(self):
-        """Setup default headers without authentication"""
-        self.session.headers.update({
-            'Content-Type': 'application/json',
-            'User-Agent': 'FF2API-TrackingEnrichment/1.0'
-        })
+    # Removed _setup_default_headers - now requires proper st.secrets.tracking_api configuration
 
     def _derive_tracking_endpoint(self) -> str:
         """
