@@ -554,8 +554,15 @@ class DataProcessor:
              },
              
              'carrier.dotNumber': {
-                 'regex': r'(dot[\s_]*(number|#)?|usdot|mc[\s_]*(number|#)?)',
-                 'aliases': ['dot number', 'dot#', 'usdot', 'mc number', 'mc#', 'dot', 'carrier dot'],
+                 'regex': r'(dot[\s_]*(number|#)?|usdot)',
+                 'aliases': ['dot number', 'dot#', 'usdot', 'dot', 'carrier dot'],
+                 'value_patterns': [r'^\d+$'],
+                 'priority': 1
+             },
+             
+             'carrier.mcNumber': {
+                 'regex': r'(mc[\s_]*(number|#)?)',
+                 'aliases': ['mc number', 'mc#', 'mc', 'carrier mc'],
                  'value_patterns': [r'^\d+$'],
                  'priority': 1
              },
@@ -1110,6 +1117,21 @@ class DataProcessor:
                     field_description = self._get_field_description(field)
                     row_errors.append(f"Missing required field: {field} ({field_description})")
             
+            # Special validation for carrier identification: Either DOT Number OR MC Number is sufficient
+            # Check if carrier fields are being used (carrier.name is required)
+            if 'carrier.name' in row and not (pd.isna(row.get('carrier.name')) or str(row.get('carrier.name', '')).strip() == ''):
+                # Carrier information is being used, check for carrier identification
+                dot_present = ('carrier.dotNumber' in row and 
+                              not pd.isna(row.get('carrier.dotNumber')) and 
+                              str(row.get('carrier.dotNumber', '')).strip() != '')
+                mc_present = ('carrier.mcNumber' in row and 
+                             not pd.isna(row.get('carrier.mcNumber')) and 
+                             str(row.get('carrier.mcNumber', '')).strip() != '')
+                
+                # If neither DOT nor MC is present, add validation error
+                if not dot_present and not mc_present:
+                    row_errors.append("Missing carrier identification: Either DOT Number (carrier.dotNumber) OR MC Number (carrier.mcNumber) is required when carrier information is provided")
+            
             # Validate data types and formats
             pickup_date_field = 'load.route.0.expectedArrivalWindowStart'
             if pickup_date_field in row and not pd.isna(row.get(pickup_date_field)):
@@ -1460,26 +1482,51 @@ class DataProcessor:
                     if 'stateOrProvince' in address and 'state' in address:
                         del address['state']
         
-        # Fix 2: Add missing carrier.dotNumber from auto-mapping
+        # Fix 2: Add missing carrier DOT/MC numbers from auto-mapping
         if 'carrier' in load_payload and 'name' in load_payload['carrier']:
             carrier_name = load_payload['carrier']['name']
-            # Check if dotNumber is missing and try to populate from carrier name
-            if 'dotNumber' not in load_payload['carrier'] or not load_payload['carrier']['dotNumber']:
+            
+            # Check if both DOT and MC numbers are missing and try to populate from carrier name
+            dot_missing = 'dotNumber' not in load_payload['carrier'] or not load_payload['carrier']['dotNumber']
+            mc_missing = 'mcNumber' not in load_payload['carrier'] or not load_payload['carrier']['mcNumber']
+            
+            if dot_missing or mc_missing:
                 # Import carrier config to get details
                 try:
                     import sys
                     sys.path.append('.')
                     from carrier_config_parser import carrier_config_parser
                     
-                    # Find carrier details
+                    # Find carrier details with fuzzy matching
+                    matched_carrier = None
                     for config_name, details in carrier_config_parser.carrier_details.items():
-                        if config_name.lower() == carrier_name.lower() or carrier_name.lower() in config_name.lower():
-                            if 'dotNumber' in details and details['dotNumber']:
-                                load_payload['carrier']['dotNumber'] = str(details['dotNumber'])
-                                self.logger.info(f"Auto-populated carrier.dotNumber: {details['dotNumber']} for {carrier_name}")
+                        # Try exact match first
+                        if config_name.lower() == carrier_name.lower():
+                            matched_carrier = details
                             break
+                        # Try partial match
+                        elif carrier_name.lower() in config_name.lower() or config_name.lower() in carrier_name.lower():
+                            matched_carrier = details
+                            # Continue searching for better match, but keep this as fallback
+                    
+                    if matched_carrier:
+                        # Auto-populate DOT number if missing and available
+                        if dot_missing and 'dotNumber' in matched_carrier and matched_carrier['dotNumber']:
+                            load_payload['carrier']['dotNumber'] = str(matched_carrier['dotNumber'])
+                            self.logger.info(f"Auto-populated carrier.dotNumber: {matched_carrier['dotNumber']} for {carrier_name}")
+                        
+                        # Auto-populate MC number if missing and available
+                        if mc_missing and 'mcNumber' in matched_carrier and matched_carrier['mcNumber']:
+                            load_payload['carrier']['mcNumber'] = str(matched_carrier['mcNumber'])
+                            self.logger.info(f"Auto-populated carrier.mcNumber: {matched_carrier['mcNumber']} for {carrier_name}")
+                        
+                        # Also populate SCAC if missing
+                        if ('scac' not in load_payload['carrier'] or not load_payload['carrier']['scac']) and 'scac' in matched_carrier:
+                            load_payload['carrier']['scac'] = matched_carrier['scac']
+                            self.logger.info(f"Auto-populated carrier.scac: {matched_carrier['scac']} for {carrier_name}")
+                    
                 except ImportError:
-                    self.logger.warning("Could not import carrier_config_parser for dotNumber auto-population")
+                    self.logger.warning("Could not import carrier_config_parser for carrier auto-population")
         
         # Fix 3: Fix carrier contacts requirement (must be done after cleaning to avoid removal)
         if 'carrier' in load_payload:

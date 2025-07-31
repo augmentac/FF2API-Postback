@@ -330,8 +330,8 @@ def get_full_api_schema():
         # Carrier Information (Optional object)
         'carrier.carrierId': {'type': 'string', 'required': False, 'description': 'Carrier ID'},
         'carrier.name': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Name'},
-        'carrier.dotNumber': {'type': 'number', 'required': 'conditional', 'description': 'DOT Number'},
-        'carrier.mcNumber': {'type': 'number', 'required': False, 'description': 'MC Number'},
+        'carrier.dotNumber': {'type': 'number', 'required': 'conditional', 'description': 'DOT Number (OR MC Number - either is sufficient)'},
+        'carrier.mcNumber': {'type': 'number', 'required': False, 'description': 'MC Number (OR DOT Number - either is sufficient)'},
         'carrier.scac': {'type': 'string', 'required': False, 'description': 'SCAC Code'},
         'carrier.address.street1': {'type': 'string', 'required': 'conditional', 'description': 'Carrier Address Street'},
         'carrier.address.street2': {'type': 'string', 'required': False, 'description': 'Carrier Address Street 2'},
@@ -365,6 +365,8 @@ def get_effective_required_fields(api_schema, current_mappings):
     Determine which fields are effectively required based on current mappings.
     Conditional fields become required only when their immediate parent objects are being used.
     For example, load.equipment.equipmentType becomes required only when load.equipment.* fields are mapped.
+    
+    Special handling for carrier identification: Either DOT Number OR MC Number is sufficient.
     """
     always_required = {k: v for k, v in api_schema.items() if v.get('required') == True}
     conditional_fields = {k: v for k, v in api_schema.items() if v.get('required') == 'conditional'}
@@ -406,6 +408,20 @@ def get_effective_required_fields(api_schema, current_mappings):
                     name_field = field_path.replace('.value', '.name')
                     if (field_path in current_mappings and current_mappings.get(field_path) and current_mappings[field_path] != 'Select column...') or \
                        (name_field in current_mappings and current_mappings.get(name_field) and current_mappings[name_field] != 'Select column...'):
+                        effective_required[field_path] = field_info
+            # Special handling for carrier identification - either DOT or MC Number is sufficient
+            elif field_path == 'carrier.dotNumber':
+                # DOT number only required if neither DOT nor MC is mapped/available
+                immediate_parent = '.'.join(parts[:-1])
+                clean_parent = '.'.join([p for p in immediate_parent.split('.') if not p.isdigit()])
+                
+                if clean_parent in specific_objects_in_use:
+                    # Check if either DOT or MC number is mapped
+                    dot_mapped = field_path in current_mappings and current_mappings.get(field_path) and current_mappings[field_path] != 'Select column...'
+                    mc_mapped = 'carrier.mcNumber' in current_mappings and current_mappings.get('carrier.mcNumber') and current_mappings['carrier.mcNumber'] != 'Select column...'
+                    
+                    # Only require DOT number if neither DOT nor MC is mapped
+                    if not dot_mapped and not mc_mapped:
                         effective_required[field_path] = field_info
             else:
                 # Standard conditional logic for non-reference-number fields
