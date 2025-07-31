@@ -1820,6 +1820,14 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
             
             # Apply enrichment - THIS IS THE KEY MISSING CALL
             logger.info(f"Applying enrichment to row {i}")
+            
+            # DEBUG: Log row data being passed to enrichment
+            logger.info(f"🔍 DEBUG Row {i}: PRO field = '{enriched_row.get('PRO')}'")
+            logger.info(f"🔍 DEBUG Row {i}: carrier field = '{enriched_row.get('carrier')}'") 
+            logger.info(f"🔍 DEBUG Row {i}: pro_number field = '{enriched_row.get('pro_number')}'")
+            logger.info(f"🔍 DEBUG Row {i}: carrier_name field = '{enriched_row.get('carrier_name')}'")
+            logger.info(f"🔍 DEBUG Row {i}: All fields available: {list(enriched_row.keys())}")
+            
             pre_enrichment_columns = set(enriched_row.keys())
             enriched_row = enrichment_manager.enrich_row(enriched_row)
             post_enrichment_columns = set(enriched_row.keys())

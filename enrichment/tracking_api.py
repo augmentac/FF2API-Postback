@@ -337,6 +337,15 @@ class TrackingAPIEnricher(EnrichmentSource):
             True if row has required PRO and carrier fields
         """
         pro_number, carrier = self._extract_row_data(row)
+        
+        # DEBUG: Log detailed applicability check
+        logger.info(f"🔍 DEBUG is_applicable: PRO='{pro_number}', Carrier='{carrier}'")
+        logger.info(f"🔍 DEBUG is_applicable: Result = {bool(pro_number and carrier)}")
+        if not pro_number:
+            logger.info(f"🔍 DEBUG is_applicable: No PRO number found in row")
+        if not carrier:
+            logger.info(f"🔍 DEBUG is_applicable: No carrier found in row")
+        
         return bool(pro_number and carrier)
     
     def _extract_row_data(self, row_data: Dict[str, Any]) -> tuple[Optional[str], Optional[str]]:
@@ -371,7 +380,10 @@ class TrackingAPIEnricher(EnrichmentSource):
                     break
         
         if not pro_number:
-            logger.debug(f"No PRO number found in row data. Checked FF2API fields: {ff2api_pro_fields}, CSV fields: {csv_pro_fields}")
+            logger.info(f"🔍 DEBUG _extract_row_data: No PRO number found in row data")
+            logger.info(f"🔍 DEBUG _extract_row_data: Checked FF2API fields: {ff2api_pro_fields}")
+            logger.info(f"🔍 DEBUG _extract_row_data: Checked CSV fields: {csv_pro_fields}")
+            logger.info(f"🔍 DEBUG _extract_row_data: Available row fields: {list(row_data.keys())}")
             return None, None
         
         # Extract carrier - prioritize FF2API-sourced data over CSV fields
@@ -396,7 +408,10 @@ class TrackingAPIEnricher(EnrichmentSource):
                     break
         
         if not carrier:
-            logger.debug(f"No carrier found in row data. Checked FF2API fields: {ff2api_carrier_fields}, CSV fields: {csv_carrier_fields}")
+            logger.info(f"🔍 DEBUG _extract_row_data: No carrier found in row data")
+            logger.info(f"🔍 DEBUG _extract_row_data: Checked FF2API carrier fields: {ff2api_carrier_fields}")
+            logger.info(f"🔍 DEBUG _extract_row_data: Checked CSV carrier fields: {csv_carrier_fields}")
+            logger.info(f"🔍 DEBUG _extract_row_data: Available row fields: {list(row_data.keys())}")
             return None, None
         
         return pro_number, carrier
