@@ -1756,26 +1756,75 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
         # Initialize enrichment manager
         enrichment_manager = EnrichmentManager(enrichment_config, brokerage_config)
         
-        # Prepare data for enrichment
-        enrichment_data = []
-        for result in ff2api_results:
-            if result.get('success', False):
-                data = result.get('data', {})
-                
-                # Add load ID if available
-                load_mapping = next((lm for lm in load_mappings 
-                                   if lm.load_number == data.get('load_number')), None)
-                if load_mapping:
-                    data['load_id'] = load_mapping.internal_load_id
-                
-                enrichment_data.append(data)
+        # Get original CSV data to merge with enrichment
+        uploaded_df = st.session_state.get('uploaded_df')
+        if uploaded_df is None:
+            logger.error("Cannot access original CSV data for enrichment")
+            return []
         
-        # Apply enrichment
+        original_csv_data = uploaded_df.to_dict('records')
+        
+        # Create enriched dataset by merging original CSV, FF2API results, load mappings, and enrichment
         enriched_data = []
-        for row in enrichment_data:
-            enriched_row = enrichment_manager.enrich_data(row)
+        
+        for i, csv_row in enumerate(original_csv_data):
+            # Start with original CSV data
+            enriched_row = csv_row.copy()
+            
+            # Add FF2API results
+            if i < len(ff2api_results):
+                ff2api_result = ff2api_results[i]
+                enriched_row.update({
+                    'ff2api_success': ff2api_result.get('success', False),
+                    'ff2api_data': ff2api_result.get('data', {}),
+                    'ff2api_status_code': ff2api_result.get('status_code'),
+                    'ff2api_load_number': ff2api_result.get('load_number', ''),
+                    'ff2api_row_index': ff2api_result.get('row_index', i)
+                })
+            
+            # Add load ID mapping data
+            load_mapping = next((lm for lm in load_mappings if lm.csv_row_index == i), None)
+            if load_mapping:
+                enriched_row.update({
+                    'load_number': load_mapping.load_number,
+                    'internal_load_id': load_mapping.internal_load_id,
+                    'load_id_status': load_mapping.api_status,
+                    'pro_number': load_mapping.pro_number,
+                    'carrier_name': load_mapping.carrier_name,
+                    'workflow_path': load_mapping.workflow_path,
+                    'pro_source_type': load_mapping.pro_source_type,
+                    'pro_confidence': load_mapping.pro_confidence,
+                    'pro_context': load_mapping.pro_context
+                })
+                
+                # Set PRO and carrier fields for tracking enrichment
+                if load_mapping.pro_number:
+                    enriched_row['PRO'] = load_mapping.pro_number
+                if load_mapping.carrier_name:
+                    enriched_row['carrier'] = load_mapping.carrier_name
+                
+                if load_mapping.error_message:
+                    enriched_row['load_id_error'] = load_mapping.error_message
+            
+            # Apply enrichment - THIS IS THE KEY MISSING CALL
+            logger.info(f"Applying enrichment to row {i}")
+            pre_enrichment_columns = set(enriched_row.keys())
+            enriched_row = enrichment_manager.enrich_row(enriched_row)
+            post_enrichment_columns = set(enriched_row.keys())
+            new_columns = post_enrichment_columns - pre_enrichment_columns
+            
+            if new_columns:
+                logger.info(f"Row {i}: Enrichment added columns: {new_columns}")
+            else:
+                logger.warning(f"Row {i}: No new columns added by enrichment")
+            
+            # Add processing metadata
+            enriched_row['processing_status'] = 'processed'
+            enriched_row['enrichment_timestamp'] = pd.Timestamp.now().isoformat()
+            
             enriched_data.append(enriched_row)
         
+        logger.info(f"Data enrichment complete: processed {len(enriched_data)} rows")
         return enriched_data
         
     except Exception as e:
