@@ -883,7 +883,8 @@ class DataProcessor:
                 # Look for carrier identifier in various columns
                 potential_carrier_columns = [
                     'carrier_name', 'carrier', 'scac', 'carrier_scac', 
-                    'Carrier', 'Carrier Name', 'SCAC', 'Carrier SCAC'
+                    'Carrier', 'Carrier Name', 'SCAC', 'Carrier SCAC',
+                    'carrier.name'  # Include mapped field name for API preview
                 ]
                 
                 for col in potential_carrier_columns:

@@ -982,15 +982,20 @@ def _render_data_preview_section():
             
             # Import data processor dynamically to avoid circular imports
             from src.backend.data_processor import DataProcessor
+            from src.backend.database import DatabaseManager
             from src.frontend.ui_components import generate_sample_api_preview
             
             data_processor = DataProcessor()
+            db_manager = DatabaseManager()
+            brokerage_name = st.session_state.get('brokerage_name')
             
-            # Generate API preview
+            # Generate API preview with carrier auto-mapping
             api_preview_data = generate_sample_api_preview(
                 st.session_state.uploaded_df, 
                 field_mappings, 
-                data_processor
+                data_processor,
+                db_manager=db_manager,
+                brokerage_name=brokerage_name
             )
             
             # Display message about the preview - with null-safe handling
