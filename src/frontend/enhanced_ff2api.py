@@ -1483,35 +1483,54 @@ def _render_simplified_results():
         col1, col2, col3 = st.columns(3)
         exports = st.session_state.enriched_exports
         
+        # CSV Download
         with col1:
-            if 'csv' in exports and exports['csv'].get('success'):
+            csv_export = exports.get('csv', {})
+            if csv_export.get('success') and csv_export.get('data'):
                 st.download_button(
                     label="📄 CSV",
-                    data=exports['csv']['data'],
-                    file_name=exports['csv']['filename'],
-                    mime=exports['csv']['mime_type'],
+                    data=csv_export['data'],
+                    file_name=csv_export.get('filename', 'enriched_data.csv'),
+                    mime=csv_export.get('mime_type', 'text/csv'),
                     use_container_width=True
                 )
+            else:
+                st.button("📄 CSV", disabled=True, use_container_width=True, help="Export failed or not available")
         
+        # Excel Download  
         with col2:
-            if 'xlsx' in exports and exports['xlsx'].get('success'):
+            xlsx_export = exports.get('xlsx', {})
+            if xlsx_export.get('success') and xlsx_export.get('data'):
                 st.download_button(
                     label="📊 Excel", 
-                    data=exports['xlsx']['data'],
-                    file_name=exports['xlsx']['filename'],
-                    mime=exports['xlsx']['mime_type'],
+                    data=xlsx_export['data'],
+                    file_name=xlsx_export.get('filename', 'enriched_data.xlsx'),
+                    mime=xlsx_export.get('mime_type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
                     use_container_width=True
                 )
+            else:
+                st.button("📊 Excel", disabled=True, use_container_width=True, help="Export failed or not available")
                 
+        # JSON Download
         with col3:
-            if 'json' in exports and exports['json'].get('success'):
+            json_export = exports.get('json', {})
+            if json_export.get('success') and json_export.get('data'):
                 st.download_button(
                     label="🔧 JSON",
-                    data=exports['json']['data'],
-                    file_name=exports['json']['filename'], 
-                    mime=exports['json']['mime_type'],
+                    data=json_export['data'],
+                    file_name=json_export.get('filename', 'enriched_data.json'), 
+                    mime=json_export.get('mime_type', 'application/json'),
                     use_container_width=True
                 )
+            else:
+                st.button("🔧 JSON", disabled=True, use_container_width=True, help="Export failed or not available")
+        
+        # Show export status if any failed
+        failed_exports = [fmt for fmt, exp in exports.items() if fmt != 'dataset_info' and not exp.get('success')]
+        if failed_exports:
+            st.warning(f"⚠️ Some exports failed: {', '.join(failed_exports).upper()}")
+    else:
+        st.info("ℹ️ Processing exports... Please wait a moment and refresh if downloads don't appear.")
 
 def _render_enhanced_results_section():
     """Enhanced results section with end-to-end capabilities"""

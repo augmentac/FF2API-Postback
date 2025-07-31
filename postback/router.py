@@ -185,6 +185,25 @@ class PostbackRouter:
                 export_summary['ff2api_success_count'] = success_count
                 export_summary['ff2api_success_rate'] = f"{(success_count / len(enriched_df) * 100):.1f}%"
             
+            # READ FILE DATA FOR STREAMLIT DOWNLOADS
+            try:
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                export_summary['data'] = file_data
+                
+                # Add MIME type for proper download handling
+                mime_types = {
+                    'csv': 'text/csv',
+                    'xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    'json': 'application/json'
+                }
+                export_summary['mime_type'] = mime_types.get(export_format.lower(), 'application/octet-stream')
+                
+            except Exception as read_error:
+                logger.error(f"Error reading exported file: {read_error}")
+                export_summary['data'] = None
+                export_summary['mime_type'] = 'application/octet-stream'
+            
             logger.info(f"Successfully exported {len(enriched_df)} rows to {filename} ({export_summary['file_size_mb']} MB)")
             
             return export_summary
