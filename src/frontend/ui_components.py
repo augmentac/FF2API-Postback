@@ -1292,11 +1292,12 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
         field_mappings = {}
     
     # Get effective required fields based on current mappings
-    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    brokerage_name = st.session_state.get('brokerage_name')
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings, brokerage_name)
     optional_fields = {k: v for k, v in api_schema.items() if v.get('required') in [False, 'conditional']}
     
     # Progress indicator for mapping completeness with intelligent conditional detection
-    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings, brokerage_name)
     total_effective_required = len(effective_required_fields)
     mapped_effective_required = len([f for f in effective_required_fields.keys() if f in field_mappings and field_mappings[f] and field_mappings[f] != 'Select column...'])
     
@@ -1375,7 +1376,7 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     with col1:
         if st.button("✅ Apply All Mappings", type="primary", use_container_width=True, key="enhanced_apply_mappings"):
             st.session_state.field_mappings = updated_mappings
-            effective_after = get_effective_required_fields(api_schema, updated_mappings)
+            effective_after = get_effective_required_fields(api_schema, updated_mappings, st.session_state.get('brokerage_name'))
             mapped_effective_after = len([f for f in effective_after.keys() if f in updated_mappings and updated_mappings[f] and updated_mappings[f] != 'Select column...'])
             st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_effective_after}/{len(effective_after)} effective required fields mapped)")
             if mapped_effective_after == len(effective_after):
@@ -1402,7 +1403,7 @@ def create_enhanced_mapping_interface(df, existing_mappings, data_processor):
     with col4:
         if st.button("💾 Save & Continue", type="secondary", use_container_width=True, key="enhanced_save_continue"):
             st.session_state.field_mappings = updated_mappings
-            effective_after = get_effective_required_fields(api_schema, updated_mappings)
+            effective_after = get_effective_required_fields(api_schema, updated_mappings, st.session_state.get('brokerage_name'))
             mapped_effective_after = len([f for f in effective_after.keys() if f in updated_mappings and updated_mappings[f] and updated_mappings[f] != 'Select column...'])
             if mapped_effective_after == len(effective_after):
                 st.session_state.current_step = max(st.session_state.get('current_step', 1), 5)
@@ -1795,7 +1796,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
         field_mappings = {}
     
     # Get effective required fields based on current mappings
-    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings, st.session_state.get('brokerage_name'))
     optional_fields = {k: v for k, v in api_schema.items() if v.get('required') in [False, 'conditional']}
     
     # Handle header changes
@@ -1827,7 +1828,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
     
     # Enhanced progress tracking with intelligent conditional requirement detection
     # Get effective required fields based on current mappings
-    effective_required_fields = get_effective_required_fields(api_schema, field_mappings)
+    effective_required_fields = get_effective_required_fields(api_schema, field_mappings, st.session_state.get('brokerage_name'))
     
     # Separate always-required from conditionally-required that became effective
     always_required = {k: v for k, v in api_schema.items() if v.get('required') == True}
@@ -2014,7 +2015,7 @@ def create_enhanced_mapping_with_validation(df, existing_configuration, data_pro
             if st.button("✅ Apply Current Mappings", type="primary", use_container_width=True, key="enhanced_apply_partial_v2"):
                 st.session_state.field_mappings = updated_mappings
                 # Recalculate with updated mappings
-                effective_after = get_effective_required_fields(api_schema, updated_mappings)
+                effective_after = get_effective_required_fields(api_schema, updated_mappings, st.session_state.get('brokerage_name'))
                 mapped_effective_after = len([f for f in effective_after.keys() if f in updated_mappings and updated_mappings[f] and updated_mappings[f] != 'Select column...'])
                 st.success(f"Applied {len(updated_mappings)} mappings! ({mapped_effective_after}/{len(effective_after)} effective required fields mapped)")
                 # Don't rerun - just update the state and let the interface update naturally
@@ -2084,7 +2085,7 @@ def create_enhanced_field_mapping_row(field: str, field_info: dict, df, updated_
                         # Special handling for DOT/MC fields
                         if field in ['carrier.dotNumber', 'carrier.mcNumber']:
                             # Check if carrier auto-mapping will provide this field
-                            if _will_carrier_auto_mapping_provide_dot_mc(updated_mappings):
+                            if _will_carrier_auto_mapping_provide_dot_mc(updated_mappings, st.session_state.get('brokerage_name')):
                                 carrier_auto_mapping_text = " 🤖 Auto-populated from carrier database"
                             else:
                                 carrier_auto_mapping_text = " 🚛 Auto-mapped"
@@ -2299,7 +2300,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
     
     # Progress tracking - use current session state if available with intelligent conditional detection
     current_mappings = st.session_state.get('field_mappings', field_mappings)
-    effective_required_fields = get_effective_required_fields(api_schema, current_mappings)
+    effective_required_fields = get_effective_required_fields(api_schema, current_mappings, st.session_state.get('brokerage_name'))
     total_effective_required = len(effective_required_fields)
     mapped_effective_required = len([f for f in effective_required_fields.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
     
@@ -2446,7 +2447,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             # updated_mappings is already in sync with session state via field row updates
             current_mappings = st.session_state.get('field_mappings', updated_mappings)
             st.session_state.field_mappings = current_mappings
-            effective_after = get_effective_required_fields(api_schema, current_mappings)
+            effective_after = get_effective_required_fields(api_schema, current_mappings, st.session_state.get('brokerage_name'))
             mapped_effective_after = len([f for f in effective_after.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
             st.success(f"Applied {len(current_mappings)} mappings! ({mapped_effective_after}/{len(effective_after)} effective required fields mapped)")
             
@@ -2505,7 +2506,7 @@ def create_learning_enhanced_mapping_interface(df, existing_mappings, data_proce
             # updated_mappings is already in sync with session state via field row updates
             current_mappings = st.session_state.get('field_mappings', updated_mappings)
             st.session_state.field_mappings = current_mappings
-            effective_after = get_effective_required_fields(api_schema, current_mappings)
+            effective_after = get_effective_required_fields(api_schema, current_mappings, st.session_state.get('brokerage_name'))
             mapped_effective_after = len([f for f in effective_after.keys() if f in current_mappings and current_mappings[f] and current_mappings[f] != 'Select column...'])
             
             if mapped_effective_after == len(effective_after):
@@ -2616,7 +2617,7 @@ def create_learning_enhanced_field_mapping_row(field: str, field_info: dict, df,
                         # Special handling for DOT/MC fields
                         if field in ['carrier.dotNumber', 'carrier.mcNumber']:
                             # Check if carrier auto-mapping will provide this field
-                            if _will_carrier_auto_mapping_provide_dot_mc(field_mappings):
+                            if _will_carrier_auto_mapping_provide_dot_mc(field_mappings, st.session_state.get('brokerage_name')):
                                 carrier_auto_mapping_badge = f'<div style="display: inline-block; background: #059669; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🤖 Auto-populated</div>'
                             else:
                                 carrier_auto_mapping_badge = f'<div style="display: inline-block; background: #0369a1; color: white; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.75rem; margin-left: 0.5rem;">🚛 Auto-mapped</div>'

@@ -1954,15 +1954,16 @@ class DatabaseManager:
         for row in results:
             carrier_identifier = row[0]
             mappings[carrier_identifier] = {
-                'carrier_name': row[1],
-                'carrier_mc_number': row[2],
-                'carrier_dot_number': row[3],
-                'carrier_scac': row[4],
-                'carrier_email': row[5],
-                'carrier_phone': row[6],
-                'carrier_contact_name': row[7],
-                'carrier_contact_email': row[8],
-                'carrier_contact_phone': row[9]
+                'carrier.name': row[1],
+                'carrier.mcNumber': row[2],
+                'carrier.dotNumber': row[3],
+                'carrier.scac': row[4],
+                'carrier.email': row[5],
+                'carrier.phone': row[6],
+                'carrier.contacts.0.name': row[7],
+                'carrier.contacts.0.email': row[8],
+                'carrier.contacts.0.phone': row[9],
+                'carrier.contacts.0.role': 'DISPATCHER'  # Default role for auto-mapping
             }
         
         return mappings
@@ -1982,15 +1983,16 @@ class DatabaseManager:
         ''', (
             brokerage_name,
             carrier_identifier,
-            carrier_data.get('carrier_name', ''),
-            carrier_data.get('carrier_mc_number', ''),
-            carrier_data.get('carrier_dot_number', ''),
-            carrier_data.get('carrier_scac', ''),
-            carrier_data.get('carrier_email', ''),
-            carrier_data.get('carrier_phone', ''),
-            carrier_data.get('carrier_contact_name', ''),
-            carrier_data.get('carrier_contact_email', ''),
-            carrier_data.get('carrier_contact_phone', ''),
+            # Handle both old format (carrier_name) and new format (carrier.name)
+            carrier_data.get('carrier.name', carrier_data.get('carrier_name', '')),
+            carrier_data.get('carrier.mcNumber', carrier_data.get('carrier_mc_number', '')),
+            carrier_data.get('carrier.dotNumber', carrier_data.get('carrier_dot_number', '')),
+            carrier_data.get('carrier.scac', carrier_data.get('carrier_scac', '')),
+            carrier_data.get('carrier.email', carrier_data.get('carrier_email', '')),
+            carrier_data.get('carrier.phone', carrier_data.get('carrier_phone', '')),
+            carrier_data.get('carrier.contacts.0.name', carrier_data.get('carrier_contact_name', '')),
+            carrier_data.get('carrier.contacts.0.email', carrier_data.get('carrier_contact_email', '')),
+            carrier_data.get('carrier.contacts.0.phone', carrier_data.get('carrier_contact_phone', '')),
             True
         ))
         
@@ -2028,15 +2030,16 @@ class DatabaseManager:
                 ''', (
                     brokerage_name,
                     carrier_identifier,
-                    carrier_data.get('carrier_name', ''),
-                    carrier_data.get('carrier_mc_number', ''),
-                    carrier_data.get('carrier_dot_number', ''),
-                    carrier_data.get('carrier_scac', ''),
-                    carrier_data.get('carrier_email', ''),
-                    carrier_data.get('carrier_phone', ''),
-                    carrier_data.get('carrier_contact_name', ''),
-                    carrier_data.get('carrier_contact_email', ''),
-                    carrier_data.get('carrier_contact_phone', ''),
+                    # Handle both old format (carrier_name) and new format (carrier.name)
+                    carrier_data.get('carrier.name', carrier_data.get('carrier_name', '')),
+                    carrier_data.get('carrier.mcNumber', carrier_data.get('carrier_mc_number', '')),
+                    carrier_data.get('carrier.dotNumber', carrier_data.get('carrier_dot_number', '')),
+                    carrier_data.get('carrier.scac', carrier_data.get('carrier_scac', '')),
+                    carrier_data.get('carrier.email', carrier_data.get('carrier_email', '')),
+                    carrier_data.get('carrier.phone', carrier_data.get('carrier_phone', '')),
+                    carrier_data.get('carrier.contacts.0.name', carrier_data.get('carrier_contact_name', '')),
+                    carrier_data.get('carrier.contacts.0.email', carrier_data.get('carrier_contact_email', '')),
+                    carrier_data.get('carrier.contacts.0.phone', carrier_data.get('carrier_contact_phone', '')),
                     True
                 ))
             

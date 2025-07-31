@@ -432,18 +432,19 @@ class CarrierConfigParser:
         """
         api_format = {}
         
-        # Map basic fields
-        api_format['carrier_mc_number'] = str(carrier_data.get('mcNumber', ''))
-        api_format['carrier_dot_number'] = str(carrier_data.get('dotNumber', ''))
-        api_format['carrier_scac'] = carrier_data.get('scac', '')
-        api_format['carrier_email'] = carrier_data.get('email', '')
-        api_format['carrier_phone'] = carrier_data.get('phone', '')
+        # Map basic fields using API schema format
+        api_format['carrier.mcNumber'] = str(carrier_data.get('mcNumber', ''))
+        api_format['carrier.dotNumber'] = str(carrier_data.get('dotNumber', ''))
+        api_format['carrier.scac'] = carrier_data.get('scac', '')
+        api_format['carrier.email'] = carrier_data.get('email', '')
+        api_format['carrier.phone'] = carrier_data.get('phone', '')
         
-        # Map dispatcher info
+        # Map dispatcher info using nested API schema format
         dispatcher = carrier_data.get('dispatcher', {})
-        api_format['carrier_contact_email'] = dispatcher.get('email', carrier_data.get('email', ''))
-        api_format['carrier_contact_phone'] = dispatcher.get('phone', carrier_data.get('phone', ''))
-        api_format['carrier_contact_name'] = 'Customer Service'  # Default contact name
+        api_format['carrier.contacts.0.email'] = dispatcher.get('email', carrier_data.get('email', ''))
+        api_format['carrier.contacts.0.phone'] = dispatcher.get('phone', carrier_data.get('phone', ''))
+        api_format['carrier.contacts.0.name'] = 'Customer Service'  # Default contact name
+        api_format['carrier.contacts.0.role'] = 'DISPATCHER'  # Default role from API enum
         
         return api_format
     
@@ -470,7 +471,7 @@ class CarrierConfigParser:
             
             # Convert to API schema format and add carrier name
             api_format = self.convert_to_api_schema_format(carrier_data)
-            api_format['carrier_name'] = carrier_name
+            api_format['carrier.name'] = carrier_name
             
             template[carrier_name] = api_format
         
