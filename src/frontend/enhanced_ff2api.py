@@ -261,6 +261,10 @@ def main():
     if 'sidebar_state' not in st.session_state:
         st.session_state.sidebar_state = 'expanded'
     
+    # Initialize simplified UI mode (default: True for cleaner user experience)
+    if 'use_simplified_ui' not in st.session_state:
+        st.session_state.use_simplified_ui = True
+    
     # Load custom CSS
     load_custom_css()
     
@@ -743,6 +747,22 @@ def _render_email_automation_sidebar():
                     key="sidebar_email_formats"
                 )
                 st.session_state.email_formats = email_formats
+    
+    # Admin: UI Mode Toggle (for debugging/fallback)
+    with st.expander("🔧 Advanced UI Options", expanded=False):
+        current_ui_mode = st.session_state.get('use_simplified_ui', True)
+        ui_mode = st.selectbox(
+            "Results Display Mode:",
+            options=[True, False],
+            format_func=lambda x: "Simplified (Clean)" if x else "Detailed (Legacy)",
+            index=0 if current_ui_mode else 1,
+            help="Choose between simplified results display or detailed legacy view",
+            key="ui_mode_selector"
+        )
+        
+        if ui_mode != current_ui_mode:
+            st.session_state.use_simplified_ui = ui_mode
+            st.rerun()
 
 def _render_enhanced_landing_page():
     """Enhanced landing page - original FF2API + processing mode selection"""
@@ -1436,19 +1456,83 @@ def _render_email_results_dashboard():
             st.rerun()
 
 
+def _render_simplified_results():
+    """Simplified results display - clean and focused UI"""
+    if 'enhanced_processing_results' not in st.session_state:
+        return
+    
+    result = st.session_state.enhanced_processing_results
+    
+    st.markdown("---")
+    st.subheader("📊 Processing Complete")
+    
+    # Simple success message with record count
+    total_records = result.get('total_rows', 0)
+    success_rate = result.get('success_rate', 0)
+    
+    if success_rate > 0:
+        st.success(f"✅ {total_records} record(s) processed successfully")
+    else:
+        st.error(f"❌ Processing failed for {total_records} record(s)")
+        return
+    
+    # Direct download buttons - only show if exports are available
+    if 'enriched_exports' in st.session_state and st.session_state.enriched_exports:
+        st.subheader("📥 Download Results")
+        
+        col1, col2, col3 = st.columns(3)
+        exports = st.session_state.enriched_exports
+        
+        with col1:
+            if 'csv' in exports and exports['csv'].get('success'):
+                st.download_button(
+                    label="📄 CSV",
+                    data=exports['csv']['data'],
+                    file_name=exports['csv']['filename'],
+                    mime=exports['csv']['mime_type'],
+                    use_container_width=True
+                )
+        
+        with col2:
+            if 'xlsx' in exports and exports['xlsx'].get('success'):
+                st.download_button(
+                    label="📊 Excel", 
+                    data=exports['xlsx']['data'],
+                    file_name=exports['xlsx']['filename'],
+                    mime=exports['xlsx']['mime_type'],
+                    use_container_width=True
+                )
+                
+        with col3:
+            if 'json' in exports and exports['json'].get('success'):
+                st.download_button(
+                    label="🔧 JSON",
+                    data=exports['json']['data'],
+                    file_name=exports['json']['filename'], 
+                    mime=exports['json']['mime_type'],
+                    use_container_width=True
+                )
+
 def _render_enhanced_results_section():
     """Enhanced results section with end-to-end capabilities"""
     if 'enhanced_processing_results' not in st.session_state:
         return
+    
+    # Check if simplified UI mode is enabled (default: True)
+    use_simplified_ui = st.session_state.get('use_simplified_ui', True)
+    
+    if use_simplified_ui:
+        _render_simplified_results()
+    else:
+        # Keep existing complex UI as fallback
+        st.markdown("---")
+        st.subheader("📊 Processing Results")
         
-    st.markdown("---")
-    st.subheader("📊 Processing Results")
-    
-    result = st.session_state.enhanced_processing_results
-    processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
-    
-    # Display results based on processing mode
-    _display_enhanced_results(result, processing_mode)
+        result = st.session_state.enhanced_processing_results
+        processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
+        
+        # Display results based on processing mode
+        _display_enhanced_results(result, processing_mode)
 
 def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerage_name, 
                                  processing_mode, data_processor, db_manager, session_id):
@@ -1864,6 +1948,47 @@ def _process_data_enrichment(ff2api_results, load_mappings, brokerage_key):
             enriched_data.append(enriched_row)
         
         logger.info(f"Data enrichment complete: processed {len(enriched_data)} rows")
+        
+        # AUTO-GENERATE EXPORTS: Automatically create all export formats after enrichment
+        logger.info("Auto-generating enriched dataset exports...")
+        try:
+            # Import required modules
+            from src.backend.data_processor import DataProcessor
+            from postback.router import PostbackRouter
+            
+            # Create enriched DataFrame
+            enriched_df = pd.DataFrame(enriched_data)
+            
+            # Generate timestamp for filenames
+            timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+            filename_prefix = f"enriched_dataset_{timestamp}"
+            
+            # Initialize postback router for exports
+            postback_router = PostbackRouter([])
+            
+            # Generate all export formats automatically
+            csv_result = postback_router.export_enriched_data(enriched_df, 'csv', filename_prefix)
+            xlsx_result = postback_router.export_enriched_data(enriched_df, 'xlsx', filename_prefix)
+            json_result = postback_router.export_enriched_data(enriched_df, 'json', filename_prefix)
+            
+            # Store export results in session state for immediate download availability
+            st.session_state.enriched_exports = {
+                'csv': csv_result,
+                'xlsx': xlsx_result,
+                'json': json_result,
+                'dataset_info': {
+                    'total_rows': len(enriched_df),
+                    'total_columns': len(enriched_df.columns),
+                    'processed_count': len(enriched_df[enriched_df.get('processing_status', '') == 'processed'])
+                }
+            }
+            
+            logger.info("Auto-generated all export formats successfully")
+            
+        except Exception as export_error:
+            logger.error(f"Auto-export generation failed: {export_error}")
+            # Don't fail the entire enrichment process if exports fail
+        
         return enriched_data
         
     except Exception as e:
