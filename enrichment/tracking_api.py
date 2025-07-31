@@ -276,11 +276,11 @@ class TrackingAPIEnricher(EnrichmentSource):
             True if tracking API responds (even with 404 for specific PRO)
         """
         try:
-            # Test with a dummy PRO number using correct brokerage key
+            # Test with a dummy PRO number using correct brokerage key and valid carrier
             test_url = f"{self.tracking_base_url}/pro-number/TEST123"
             params = {
                 'brokerageKey': self.brokerage_key,  # Use actual brokerage key
-                'browserTask': 'TEST'
+                'browserTask': 'ESTES'  # Use valid carrier name that API accepts
             }
             
             logger.info(f"🔍 DEBUG: Testing tracking API with URL: {test_url}")

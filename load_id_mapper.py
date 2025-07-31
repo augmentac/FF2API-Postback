@@ -301,11 +301,25 @@ class LoadIDMapper:
             try:
                 logger.info(f"Fetching load ID for {load_number} (attempt {attempt + 1})")
                 
+                logger.info(f"🔍 DEBUG: Making request to URL: {url}")
+                logger.info(f"🔍 DEBUG: Request headers: {headers}")
+                
                 response = requests.get(
                     url, 
                     headers=headers, 
                     timeout=self.timeout
                 )
+                
+                logger.info(f"🔍 DEBUG: Load API response status: {response.status_code}")
+                logger.info(f"🔍 DEBUG: Load API response headers: {dict(response.headers)}")
+                
+                if response.status_code != 200:
+                    # Log response body for all non-200 responses
+                    try:
+                        response_body = response.text[:1000]  # First 1000 chars
+                        logger.error(f"🔍 DEBUG: Load API response body: {response_body}")
+                    except Exception as body_error:
+                        logger.error(f"🔍 DEBUG: Could not read response body: {body_error}")
                 
                 if response.status_code == 200:
                     data = response.json()
@@ -342,19 +356,25 @@ class LoadIDMapper:
                     return None, 'not_found', f'Load {load_number} not found', None, None, None
                     
                 elif response.status_code == 401:
-                    logger.error("API authentication failed")
-                    return None, 'auth_failed', 'API authentication failed', None, None, None
+                    logger.error("🔍 DEBUG: Load API returned 401 Unauthorized")
+                    logger.error(f"🔍 DEBUG: This means the bearer token is not valid or expired")
+                    logger.error(f"🔍 DEBUG: Token being used: {headers.get('Authorization', 'NO AUTH HEADER')[:50]}...")
+                    return None, 'auth_failed', '401 Unauthorized - token invalid or expired', None, None, None
                     
                 elif response.status_code == 403:
-                    logger.error("API access forbidden")
-                    return None, 'access_forbidden', 'Access forbidden', None, None, None
+                    logger.error("🔍 DEBUG: Load API returned 403 Forbidden")
+                    logger.error(f"🔍 DEBUG: Token is valid but lacks permissions for this endpoint")
+                    logger.error(f"🔍 DEBUG: Endpoint: {url}")
+                    return None, 'access_forbidden', '403 Forbidden - insufficient permissions', None, None, None
                     
                 else:
-                    logger.warning(f"API returned status {response.status_code} for {load_number}: {response.text}")
+                    logger.error(f"🔍 DEBUG: Load API returned unexpected status {response.status_code} for {load_number}")
+                    logger.error(f"🔍 DEBUG: Full response details logged above")
                     error_msg = f"API error: {response.status_code}"
                     
                     # Don't retry on client errors (4xx)
                     if 400 <= response.status_code < 500:
+                        logger.error(f"🔍 DEBUG: Client error - will not retry")
                         return None, 'client_error', error_msg, None, None, None
                         
             except requests.exceptions.Timeout:
