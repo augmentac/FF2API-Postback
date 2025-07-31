@@ -74,9 +74,9 @@ def ensure_carrier_contacts_structure(carrier_data: Dict[str, Any]) -> Dict[str,
         if field in cleaned_data:
             # Move to contacts structure if contacts don't already have it
             if field == 'carrier.email' and 'carrier.contacts.0.email' not in cleaned_data:
-                cleaned_data['carrier.contacts.0.email'] = cleaned_data[field]
+                cleaned_data['carrier.contacts.0.email'] = cleaned_data.get(field, '')
             elif field == 'carrier.phone' and 'carrier.contacts.0.phone' not in cleaned_data:
-                cleaned_data['carrier.contacts.0.phone'] = cleaned_data[field]
+                cleaned_data['carrier.contacts.0.phone'] = cleaned_data.get(field, '')
             
             # Remove the deprecated field
             del cleaned_data[field]
@@ -3101,9 +3101,9 @@ def create_carrier_mapping_interface(db_manager: DatabaseManager, brokerage_name
                 email_display = email[:30] + '...' if len(email) > 30 else email
                 
                 mapping_data.append({
-                    'Carrier Name': data['carrier.name'],
-                    'SCAC': data['carrier.scac'],
-                    'MC Number': data['carrier.mcNumber'],
+                    'Carrier Name': data.get('carrier.name', 'N/A'),
+                    'SCAC': data.get('carrier.scac', 'N/A'),
+                    'MC Number': data.get('carrier.mcNumber', 'N/A'),
                     'Phone': phone,
                     'Email': email_display
                 })
@@ -3376,7 +3376,7 @@ def _render_remove_carrier_dialog(db_manager: DatabaseManager, brokerage_name: s
     if selected_carrier:
         carrier_data = current_mappings[selected_carrier]
         
-        st.warning(f"⚠️ **Are you sure you want to remove '{carrier_data['carrier.name']}'?**")
+        st.warning(f"⚠️ **Are you sure you want to remove '{carrier_data.get('carrier.name', 'Unknown Carrier')}'?**")
         st.caption("This action cannot be undone. The carrier mapping will be permanently deleted.")
         
         col1, col2 = st.columns(2)
@@ -3385,7 +3385,7 @@ def _render_remove_carrier_dialog(db_manager: DatabaseManager, brokerage_name: s
             if st.button("🗑️ Yes, Remove", type="primary", use_container_width=True):
                 try:
                     db_manager.delete_carrier_mapping(brokerage_name, selected_carrier)
-                    st.success(f"✅ Removed carrier '{carrier_data['carrier.name']}' successfully!")
+                    st.success(f"✅ Removed carrier '{carrier_data.get('carrier.name', 'Unknown Carrier')}' successfully!")
                     st.session_state.show_remove_carrier = False
                     st.rerun()
                     
