@@ -1957,19 +1957,39 @@ def _generate_enriched_dataset_exports(result):
         # Convert DataFrame to records format
         original_csv_data = uploaded_df.to_dict('records')
         
-        # Get FF2API results from the processing result
-        ff2api_results = result.get('ff2api_results', [])
-        if not ff2api_results:
-            st.warning("⚠️ No FF2API results found. Cannot create enriched dataset.")
-            return
+        # Check if we have fully enriched data (from full_endtoend mode)
+        enriched_data = result.get('enriched_data', [])
         
-        # Create enriched dataset
         data_processor = DataProcessor()
         postback_router = PostbackRouter([])
         
         with st.spinner("Creating enriched dataset and generating all export formats..."):
-            # Create enriched dataset
-            enriched_df = data_processor.create_enriched_dataset(original_csv_data, ff2api_results)
+            if enriched_data:
+                # Use the already-enriched data that includes tracking and other enrichments
+                logger.info("Using fully enriched data with tracking and enrichment information")
+                enriched_df = pd.DataFrame(enriched_data)
+                
+                # Verify tracking columns are included
+                tracking_columns = ['tracking_status', 'tracking_location', 'tracking_date', 'tracking_detailed_status']
+                found_tracking_columns = [col for col in tracking_columns if col in enriched_df.columns]
+                
+                if found_tracking_columns:
+                    logger.info(f"Found tracking columns: {found_tracking_columns}")
+                    st.info(f"✅ Tracking data included: {', '.join(found_tracking_columns)}")
+                else:
+                    logger.info("No tracking columns found, but using enriched data from workflow")
+                
+            else:
+                # Fallback: create basic enriched dataset from FF2API results only
+                logger.info("Using FF2API results only (no pre-enriched data available)")
+                ff2api_results = result.get('ff2api_results', [])
+                if not ff2api_results:
+                    st.warning("⚠️ No processing results found. Cannot create enriched dataset.")
+                    return
+                
+                # Create enriched dataset from FF2API results
+                enriched_df = data_processor.create_enriched_dataset(original_csv_data, ff2api_results)
+                st.warning("⚠️ Using basic enrichment only. For tracking data, use 'Full End-to-End' processing mode.")
             
             # Generate timestamp for filenames
             timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
