@@ -3034,11 +3034,11 @@ def create_carrier_mapping_interface(db_manager: DatabaseManager, brokerage_name
             mapping_data = []
             for carrier_id, data in current_mappings.items():
                 mapping_data.append({
-                    'Carrier Name': data['carrier_name'],
-                    'SCAC': data['carrier_scac'],
-                    'MC Number': data['carrier_mc_number'],
-                    'Phone': data['carrier_phone'],
-                    'Email': data['carrier_email'][:30] + '...' if len(data['carrier_email']) > 30 else data['carrier_email']
+                    'Carrier Name': data['carrier.name'],
+                    'SCAC': data['carrier.scac'],
+                    'MC Number': data['carrier.mcNumber'],
+                    'Phone': data['carrier.phone'],
+                    'Email': data['carrier.email'][:30] + '...' if len(data['carrier.email']) > 30 else data['carrier.email']
                 })
             
             df_display = pd.DataFrame(mapping_data)
@@ -3182,15 +3182,15 @@ def _render_add_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str)
                 if carrier_name:
                     try:
                         carrier_data = {
-                            'carrier_name': carrier_name,
-                            'carrier_scac': carrier_scac,
-                            'carrier_mc_number': carrier_mc,
-                            'carrier_dot_number': carrier_dot,
-                            'carrier_email': carrier_email,
-                            'carrier_phone': carrier_phone,
-                            'carrier_contact_name': contact_name,
-                            'carrier_contact_email': contact_email,
-                            'carrier_contact_phone': contact_phone
+                            'carrier.name': carrier_name,
+                            'carrier.scac': carrier_scac,
+                            'carrier.mcNumber': carrier_mc,
+                            'carrier.dotNumber': carrier_dot,
+                            'carrier.email': carrier_email,
+                            'carrier.phone': carrier_phone,
+                            'carrier.contacts.0.name': contact_name,
+                            'carrier.contacts.0.email': contact_email,
+                            'carrier.contacts.0.phone': contact_phone
                         }
                         
                         # Use carrier name as identifier
@@ -3233,18 +3233,18 @@ def _render_edit_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str
             col1, col2 = st.columns(2)
             
             with col1:
-                carrier_name = st.text_input("Carrier Name*", value=carrier_data.get('carrier_name', ''))
-                carrier_scac = st.text_input("SCAC Code", value=carrier_data.get('carrier_scac', ''))
-                carrier_mc = st.text_input("MC Number", value=carrier_data.get('carrier_mc_number', ''))
-                carrier_phone = st.text_input("Phone Number", value=carrier_data.get('carrier_phone', ''))
+                carrier_name = st.text_input("Carrier Name*", value=carrier_data.get('carrier.name', ''))
+                carrier_scac = st.text_input("SCAC Code", value=carrier_data.get('carrier.scac', ''))
+                carrier_mc = st.text_input("MC Number", value=carrier_data.get('carrier.mcNumber', ''))
+                carrier_phone = st.text_input("Phone Number", value=carrier_data.get('carrier.phone', ''))
             
             with col2:
-                carrier_email = st.text_input("Email", value=carrier_data.get('carrier_email', ''))
-                carrier_dot = st.text_input("DOT Number", value=carrier_data.get('carrier_dot_number', ''))
-                contact_name = st.text_input("Contact Name", value=carrier_data.get('carrier_contact_name', ''))
-                contact_phone = st.text_input("Contact Phone", value=carrier_data.get('carrier_contact_phone', ''))
+                carrier_email = st.text_input("Email", value=carrier_data.get('carrier.email', ''))
+                carrier_dot = st.text_input("DOT Number", value=carrier_data.get('carrier.dotNumber', ''))
+                contact_name = st.text_input("Contact Name", value=carrier_data.get('carrier.contacts.0.name', ''))
+                contact_phone = st.text_input("Contact Phone", value=carrier_data.get('carrier.contacts.0.phone', ''))
             
-            contact_email = st.text_input("Contact Email", value=carrier_data.get('carrier_contact_email', ''))
+            contact_email = st.text_input("Contact Email", value=carrier_data.get('carrier.contacts.0.email', ''))
             
             col1, col2 = st.columns(2)
             
@@ -3253,15 +3253,15 @@ def _render_edit_carrier_dialog(db_manager: DatabaseManager, brokerage_name: str
                     if carrier_name:
                         try:
                             updated_data = {
-                                'carrier_name': carrier_name,
-                                'carrier_scac': carrier_scac,
-                                'carrier_mc_number': carrier_mc,
-                                'carrier_dot_number': carrier_dot,
-                                'carrier_email': carrier_email,
-                                'carrier_phone': carrier_phone,
-                                'carrier_contact_name': contact_name,
-                                'carrier_contact_email': contact_email,
-                                'carrier_contact_phone': contact_phone
+                                'carrier.name': carrier_name,
+                                'carrier.scac': carrier_scac,
+                                'carrier.mcNumber': carrier_mc,
+                                'carrier.dotNumber': carrier_dot,
+                                'carrier.email': carrier_email,
+                                'carrier.phone': carrier_phone,
+                                'carrier.contacts.0.name': contact_name,
+                                'carrier.contacts.0.email': contact_email,
+                                'carrier.contacts.0.phone': contact_phone
                             }
                             
                             db_manager.save_carrier_mapping(brokerage_name, selected_carrier, updated_data)
@@ -3299,7 +3299,7 @@ def _render_remove_carrier_dialog(db_manager: DatabaseManager, brokerage_name: s
     if selected_carrier:
         carrier_data = current_mappings[selected_carrier]
         
-        st.warning(f"⚠️ **Are you sure you want to remove '{carrier_data['carrier_name']}'?**")
+        st.warning(f"⚠️ **Are you sure you want to remove '{carrier_data['carrier.name']}'?**")
         st.caption("This action cannot be undone. The carrier mapping will be permanently deleted.")
         
         col1, col2 = st.columns(2)
@@ -3308,7 +3308,7 @@ def _render_remove_carrier_dialog(db_manager: DatabaseManager, brokerage_name: s
             if st.button("🗑️ Yes, Remove", type="primary", use_container_width=True):
                 try:
                     db_manager.delete_carrier_mapping(brokerage_name, selected_carrier)
-                    st.success(f"✅ Removed carrier '{carrier_data['carrier_name']}' successfully!")
+                    st.success(f"✅ Removed carrier '{carrier_data['carrier.name']}' successfully!")
                     st.session_state.show_remove_carrier = False
                     st.rerun()
                     
