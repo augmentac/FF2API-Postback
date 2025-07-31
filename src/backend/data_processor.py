@@ -222,14 +222,14 @@ class DataProcessor:
             'load.route.0.stopActivity': 'pickup or delivery activity',
             'load.route.0.address.addressLine1': 'pickup street address',
             'load.route.0.address.city': 'pickup city',
-            'load.route.0.address.state': 'pickup state/province',
+            'load.route.0.address.stateOrProvince': 'pickup state/province',
             'load.route.0.address.postalCode': 'pickup ZIP/postal code',
             'load.route.0.address.country': 'pickup country code',
             'load.route.0.expectedArrivalWindowStart': 'pickup appointment start time',
             'load.route.0.expectedArrivalWindowEnd': 'pickup appointment end time',
             'load.route.1.address.addressLine1': 'delivery street address',
             'load.route.1.address.city': 'delivery city',
-            'load.route.1.address.state': 'delivery state/province',
+            'load.route.1.address.stateOrProvince': 'delivery state/province',
             'load.route.1.address.postalCode': 'delivery ZIP/postal code',
             'load.route.1.expectedArrivalWindowStart': 'delivery appointment start time',
             'customer.customerId': 'customer account identifier',
@@ -921,7 +921,7 @@ class DataProcessor:
                 
                 for col in potential_carrier_columns:
                     if col in df_copy.columns and pd.notna(row.get(col)):
-                        carrier_value = str(row[col]).strip()
+                        carrier_value = str(row.get(col, '')).strip()
                         if carrier_value:
                             # Use fuzzy matching to find best carrier match
                             carrier_match = carrier_config_parser.find_best_carrier_match(
@@ -1169,7 +1169,7 @@ class DataProcessor:
             pickup_date_field = 'load.route.0.expectedArrivalWindowStart'
             if pickup_date_field in row and not pd.isna(row.get(pickup_date_field)):
                 try:
-                    pd.to_datetime(row[pickup_date_field])
+                    pd.to_datetime(row.get(pickup_date_field))
                 except (ValueError, TypeError, pd.errors.ParserError) as date_error:
                     self.logger.warning(f"Invalid pickup date format for value '{row.get(pickup_date_field)}': {date_error}")
                     row_errors.append("Invalid pickup date format")
@@ -1177,14 +1177,14 @@ class DataProcessor:
             delivery_date_field = 'load.route.1.expectedArrivalWindowStart'
             if delivery_date_field in row and not pd.isna(row.get(delivery_date_field)):
                 try:
-                    pd.to_datetime(row[delivery_date_field])
+                    pd.to_datetime(row.get(delivery_date_field))
                 except (ValueError, TypeError, pd.errors.ParserError) as date_error:
                     self.logger.warning(f"Invalid delivery date format for value '{row.get(delivery_date_field)}': {date_error}")
                     row_errors.append("Invalid delivery date format")
             
             rate_field = 'bidCriteria.targetCostUsd'
             if rate_field in row and not pd.isna(row.get(rate_field)):
-                rate_value = str(row[rate_field]).strip()
+                rate_value = str(row.get(rate_field, '')).strip()
                 if rate_value:  # Only validate if there's actually a value
                     # Skip validation for obvious enum values that shouldn't be in a rate field
                     if rate_value.upper() in ['CONTRACT', 'SPOT', 'DEDICATED', 'PROJECT', 'FTL', 'LTL', 'DRAYAGE']:

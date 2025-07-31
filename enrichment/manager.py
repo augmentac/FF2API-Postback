@@ -113,6 +113,17 @@ class EnrichmentManager:
                 
         logger.info(f"Successfully enriched {len(enriched_rows)} rows")
         return enriched_rows
+    
+    def enrich_data(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Enrich a single data row (alias for enrich_row for backward compatibility).
+        
+        Args:
+            row: Dictionary containing row data to enrich
+            
+        Returns:
+            Dictionary with enriched data
+        """
+        return self.enrich_row(row)
         
     def get_source_count(self) -> int:
         """Get number of active enrichment sources."""
