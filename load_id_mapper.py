@@ -287,13 +287,15 @@ class LoadIDMapper:
         Returns:
             Tuple of (internal_load_id, status, error_message, pro_number, carrier_name, load_details)
         """
-        # Check if we have API credentials
-        if not self.api_key:
-            logger.error(f"No API credentials for brokerage {self.brokerage_key}")
-            return None, 'no_credentials', f'No API credentials configured for {self.brokerage_key}', None, None, None
-        
+        # Get authentication headers using new debug method
         url = f"{self.base_url}/brokerage-key/{self.brokerage_key}/brokerage-load-id/{load_number}"
-        headers = self.get_auth_headers()
+        
+        try:
+            headers = self.get_auth_headers()
+            logger.info(f"✅ DEBUG: Successfully got auth headers for {load_number}")
+        except Exception as auth_error:
+            logger.error(f"❌ DEBUG: Failed to get auth headers for {load_number}: {auth_error}")
+            return None, 'auth_failed', f'Authentication failed: {auth_error}', None, None, None
         
         for attempt in range(self.retry_count):
             try:
