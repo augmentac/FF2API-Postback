@@ -438,7 +438,7 @@ class TrackingAPIEnricher(EnrichmentSource):
         url = f"{self.tracking_base_url}/pro-number/{pro_number}"
         params = {
             'brokerageKey': self.brokerage_key,  # Use actual brokerage key
-            'browserTask': carrier
+            'browserTask': 'ESTES'  # Always use ESTES regardless of carrier
         }
         
         logger.debug(f"🔍 DEBUG: Tracking API call - URL: {url}")
