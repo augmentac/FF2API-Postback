@@ -70,17 +70,16 @@ class CredentialManager:
             from src.backend.database import DatabaseManager
             import sqlite3
             import json
-            from cryptography.fernet import Fernet
             
             db_manager = DatabaseManager()
             conn = sqlite3.connect(db_manager.db_path)
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT api_credentials, encryption_key 
+                SELECT api_credentials, auth_type, bearer_token 
                 FROM brokerage_configurations 
                 WHERE brokerage_name = ? AND is_active = 1 
-                ORDER BY last_used DESC 
+                ORDER BY last_used_at DESC 
                 LIMIT 1
             ''', (brokerage_key,))
             
@@ -88,17 +87,39 @@ class CredentialManager:
             conn.close()
             
             if result:
-                encrypted_credentials, encryption_key = result
+                encrypted_credentials, auth_type, encrypted_bearer_token = result
                 
-                # Decrypt credentials
-                fernet = Fernet(encryption_key.encode())
-                decrypted_credentials = fernet.decrypt(encrypted_credentials.encode()).decode()
-                credentials_dict = json.loads(decrypted_credentials)
+                # Get encryption key from DatabaseManager (proper way)
+                encryption_key = db_manager._get_encryption_key()
+                if not encryption_key:
+                    logger.error(f"Could not get encryption key for {brokerage_key}")
+                    return None
                 
-                api_key = credentials_dict.get('api_key')
-                if api_key:
-                    logger.info(f"Found API credentials in database for brokerage: {brokerage_key}")
-                    return api_key
+                from cryptography.fernet import Fernet
+                f = Fernet(encryption_key)
+                
+                # Decrypt credentials based on auth type
+                if auth_type == 'bearer_token' and encrypted_bearer_token:
+                    # For bearer token auth, return the decrypted bearer token
+                    try:
+                        decrypted_token = f.decrypt(encrypted_bearer_token).decode()
+                        if decrypted_token:
+                            logger.info(f"Found bearer token in database for brokerage: {brokerage_key}")
+                            return decrypted_token
+                    except Exception as decrypt_error:
+                        logger.error(f"Failed to decrypt bearer token for {brokerage_key}: {decrypt_error}")
+                elif encrypted_credentials:
+                    # For API key auth, decrypt the credentials JSON
+                    try:
+                        decrypted_credentials = f.decrypt(encrypted_credentials).decode()
+                        if decrypted_credentials:
+                            credentials_dict = json.loads(decrypted_credentials)
+                            api_key = credentials_dict.get('api_key')
+                            if api_key:
+                                logger.info(f"Found API credentials in database for brokerage: {brokerage_key}")
+                                return api_key
+                    except Exception as decrypt_error:
+                        logger.error(f"Failed to decrypt API credentials for {brokerage_key}: {decrypt_error}")
                     
         except Exception as e:
             logger.error(f"Error checking database credentials for {brokerage_key}: {e}")
@@ -126,17 +147,16 @@ class CredentialManager:
             from src.backend.database import DatabaseManager
             import sqlite3
             import json
-            from cryptography.fernet import Fernet
             
             db_manager = DatabaseManager()
             conn = sqlite3.connect(db_manager.db_path)
             cursor = conn.cursor()
             
             cursor.execute('''
-                SELECT api_credentials, encryption_key 
+                SELECT api_credentials, auth_type, bearer_token 
                 FROM brokerage_configurations 
                 WHERE brokerage_name = ? AND is_active = 1 
-                ORDER BY last_used DESC 
+                ORDER BY last_used_at DESC 
                 LIMIT 1
             ''', (brokerage_key,))
             
@@ -144,18 +164,26 @@ class CredentialManager:
             conn.close()
             
             if result:
-                encrypted_credentials, encryption_key = result
+                encrypted_credentials, auth_type, encrypted_bearer_token = result
                 
-                # Decrypt credentials
-                fernet = Fernet(encryption_key.encode())
-                decrypted_credentials = fernet.decrypt(encrypted_credentials.encode()).decode()
-                credentials_dict = json.loads(decrypted_credentials)
-                
-                # Use database config if available
-                if credentials_dict.get('base_url'):
-                    base_url = credentials_dict['base_url']
-                if credentials_dict.get('timeout'):
-                    timeout = credentials_dict['timeout']
+                # Get encryption key from DatabaseManager (proper way)
+                encryption_key = db_manager._get_encryption_key()
+                if encryption_key and encrypted_credentials:
+                    # Decrypt credentials JSON to get additional config
+                    try:
+                        from cryptography.fernet import Fernet
+                        f = Fernet(encryption_key)
+                        decrypted_credentials = f.decrypt(encrypted_credentials).decode()
+                        if decrypted_credentials:
+                            credentials_dict = json.loads(decrypted_credentials)
+                            
+                            # Use database config if available
+                            if credentials_dict.get('base_url'):
+                                base_url = credentials_dict['base_url']
+                            if credentials_dict.get('timeout'):
+                                timeout = credentials_dict['timeout']
+                    except Exception as decrypt_error:
+                        logger.debug(f"Failed to decrypt credentials for config lookup for {brokerage_key}: {decrypt_error}")
                     
         except Exception as e:
             logger.debug(f"Could not get additional config from database for {brokerage_key}: {e}")
