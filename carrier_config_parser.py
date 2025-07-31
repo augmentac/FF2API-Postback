@@ -436,8 +436,8 @@ class CarrierConfigParser:
         api_format['carrier.mcNumber'] = str(carrier_data.get('mcNumber', ''))
         api_format['carrier.dotNumber'] = str(carrier_data.get('dotNumber', ''))
         api_format['carrier.scac'] = carrier_data.get('scac', '')
-        api_format['carrier.email'] = carrier_data.get('email', '')
-        api_format['carrier.phone'] = carrier_data.get('phone', '')
+        # Remove direct carrier.email and carrier.phone - API rejects them as excess properties
+        # Email and phone are only accepted in contacts array structure
         
         # Map dispatcher info using nested API schema format
         dispatcher = carrier_data.get('dispatcher', {})

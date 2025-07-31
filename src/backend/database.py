@@ -1958,8 +1958,8 @@ class DatabaseManager:
                 'carrier.mcNumber': row[2],
                 'carrier.dotNumber': row[3],
                 'carrier.scac': row[4],
-                'carrier.email': row[5],
-                'carrier.phone': row[6],
+                # Remove direct carrier.email and carrier.phone - API rejects them as excess properties
+                # Email and phone are only accepted in contacts array structure
                 'carrier.contacts.0.name': row[7],
                 'carrier.contacts.0.email': row[8],
                 'carrier.contacts.0.phone': row[9],
@@ -1988,8 +1988,10 @@ class DatabaseManager:
             carrier_data.get('carrier.mcNumber', carrier_data.get('carrier_mc_number', '')),
             carrier_data.get('carrier.dotNumber', carrier_data.get('carrier_dot_number', '')),
             carrier_data.get('carrier.scac', carrier_data.get('carrier_scac', '')),
-            carrier_data.get('carrier.email', carrier_data.get('carrier_email', '')),
-            carrier_data.get('carrier.phone', carrier_data.get('carrier_phone', '')),
+            # Store empty strings for direct email/phone since API rejects them
+            # All contact info goes through contacts array structure only
+            '',  # carrier_email - deprecated
+            '',  # carrier_phone - deprecated
             carrier_data.get('carrier.contacts.0.name', carrier_data.get('carrier_contact_name', '')),
             carrier_data.get('carrier.contacts.0.email', carrier_data.get('carrier_contact_email', '')),
             carrier_data.get('carrier.contacts.0.phone', carrier_data.get('carrier_contact_phone', '')),
@@ -2035,8 +2037,10 @@ class DatabaseManager:
                     carrier_data.get('carrier.mcNumber', carrier_data.get('carrier_mc_number', '')),
                     carrier_data.get('carrier.dotNumber', carrier_data.get('carrier_dot_number', '')),
                     carrier_data.get('carrier.scac', carrier_data.get('carrier_scac', '')),
-                    carrier_data.get('carrier.email', carrier_data.get('carrier_email', '')),
-                    carrier_data.get('carrier.phone', carrier_data.get('carrier_phone', '')),
+                    # Store empty strings for direct email/phone since API rejects them
+                    # All contact info goes through contacts array structure only
+                    '',  # carrier_email - deprecated
+                    '',  # carrier_phone - deprecated
                     carrier_data.get('carrier.contacts.0.name', carrier_data.get('carrier_contact_name', '')),
                     carrier_data.get('carrier.contacts.0.email', carrier_data.get('carrier_contact_email', '')),
                     carrier_data.get('carrier.contacts.0.phone', carrier_data.get('carrier_contact_phone', '')),
