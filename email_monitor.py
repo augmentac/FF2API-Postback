@@ -776,63 +776,51 @@ class EmailMonitorService:
                     'received_time': attachment.received_time.isoformat()
                 }
             
-            # Get saved field mappings for this brokerage
+            # Use the email automation bridge to process via manual workflow
             try:
-                from src.backend.database import DatabaseManager
-                from src.backend.data_processor import DataProcessor
+                from src.frontend.email_automation import EmailAutomationManager
                 
-                db_manager = DatabaseManager()
-                data_processor = DataProcessor()
+                # Initialize email automation manager for this brokerage
+                automation_manager = EmailAutomationManager(brokerage_key)
                 
-                # Get the most recent configuration for this brokerage
-                configurations = db_manager.get_all_brokerage_configurations()
-                brokerage_configs = [c for c in configurations if c['brokerage_name'] == brokerage_key]
+                # Process the attachment using the manual workflow bridge
+                processing_result = automation_manager.process_email_attachment(
+                    attachment.content, attachment.filename
+                )
                 
-                if brokerage_configs:
-                    # Use the most recent configuration
-                    recent_config = max(brokerage_configs, key=lambda x: x.get('updated_at', ''))
-                    field_mappings = json.loads(recent_config['field_mappings'])
-                else:
-                    field_mappings = {}
-                
-                # Apply field mappings if available
-                mapping_errors = []
-                if field_mappings:
-                    mapped_df, mapping_errors = data_processor.apply_mapping(df, field_mappings)
+                if processing_result['success']:
+                    # Convert the result to the format expected by email monitor
+                    result = {
+                        'success': True,
+                        'filename': attachment.filename,
+                        'sender': attachment.sender,
+                        'subject': attachment.subject,
+                        'received_time': attachment.received_time.isoformat(),
+                        'processed_time': datetime.now().isoformat(),
+                        'record_count': processing_result.get('processed_records', len(df)),
+                        'processing_status': 'success',
+                        'processing_mode': processing_result.get('processing_mode', 'standard'),
+                        'was_email_automated': True,
+                        'manual_workflow_used': True
+                    }
                     
-                    # Apply carrier auto-mapping
-                    mapped_df = data_processor.apply_carrier_mapping(mapped_df, brokerage_key, db_manager)
+                    logger.info(f"Successfully processed {attachment.filename} via manual workflow bridge - {result['record_count']} records")
+                    return result
                 else:
-                    mapped_df = df.copy()
-                
-                # Store processed data for pickup by main application
-                self._store_processed_data(mapped_df, attachment, brokerage_key, config)
-                
-                # Prepare detailed result
-                result = {
-                    'success': True,
-                    'filename': attachment.filename,
-                    'sender': attachment.sender,
-                    'subject': attachment.subject,
-                    'received_time': attachment.received_time.isoformat(),
-                    'processed_time': datetime.now().isoformat(),
-                    'record_count': len(df),
-                    'original_columns': list(df.columns),
-                    'mapped_columns': list(mapped_df.columns) if field_mappings else list(df.columns),
-                    'field_mappings_applied': len(field_mappings),
-                    'mapping_errors': mapping_errors,
-                    'processing_status': 'success' if not mapping_errors else 'partial',
-                    'data_preview': mapped_df.head(3).to_dict('records') if len(mapped_df) > 0 else []
-                }
-                
-                logger.info(f"Successfully processed {attachment.filename} - {len(df)} records with detailed tracking")
-                return result
+                    return {
+                        'success': False,
+                        'error': processing_result.get('error', 'Unknown processing error'),
+                        'filename': attachment.filename,
+                        'sender': attachment.sender,
+                        'received_time': attachment.received_time.isoformat(),
+                        'record_count': len(df) if df is not None else 0
+                    }
                 
             except Exception as e:
-                logger.error(f"Error during detailed processing: {e}")
+                logger.error(f"Error processing via manual workflow bridge: {e}")
                 return {
                     'success': False,
-                    'error': f"Processing error: {str(e)}",
+                    'error': f"Manual workflow bridge error: {str(e)}",
                     'filename': attachment.filename,
                     'sender': attachment.sender,
                     'received_time': attachment.received_time.isoformat(),

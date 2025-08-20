@@ -140,7 +140,7 @@ class EmailAutomationManager:
             return False
     
     def process_email_attachment(self, file_data: bytes, filename: str) -> Dict[str, Any]:
-        """Process an email attachment using the unified processor."""
+        """Process an email attachment using the same workflow as manual processing."""
         try:
             # Load attachment data
             if filename.endswith('.csv'):
@@ -150,90 +150,145 @@ class EmailAutomationManager:
             else:
                 return {'success': False, 'error': 'Unsupported file format'}
             
-            # Get automation configuration
-            config = self.get_email_automation_config()
-            if not config:
-                return {'success': False, 'error': 'No automation configuration found'}
-            
-            # Build processor configuration
-            processor_config = {
-                'brokerage_key': self.brokerage_key,
-                'api_timeout': 30,
-                'retry_count': 3,
-                'enrichment': {'sources': []},
-                'postback': {'handlers': []}
-            }
-            
-            # Add enrichment sources from configuration
-            processing_options = config.get('processing_options', {})
-            if processing_options.get('add_tracking'):
-                processor_config['enrichment']['sources'].append({
-                    'type': 'tracking_api',
-                    'pro_column': 'PRO',
-                    'carrier_column': 'carrier'
-                })
-            
-            # Add postback handlers
-            output_format = processing_options.get('output_format', 'CSV').lower()
-            processor_config['postback']['handlers'].append({
-                'type': output_format,
-                'output_path': f'/tmp/email_auto_results.{output_format}'
-            })
-            
-            if processing_options.get('send_email') and processing_options.get('email_recipient'):
-                processor_config['postback']['handlers'].append({
-                    'type': 'email',
-                    'recipient': processing_options['email_recipient'],
-                    'subject': f'Automated Processing Results - {filename}'
-                })
-            
-            # Initialize processor and process data
-            processor = UnifiedLoadProcessor(processor_config, 'endtoend')
-            
-            # Get field mapping from configuration
-            field_mapping = config.get('field_mappings', {})
-            if not field_mapping:
-                # Auto-detect field mapping
-                field_mapping = processor.get_suggested_field_mapping(df.columns.tolist())
-            
-            # Get API configuration
-            brokerage_creds = credential_manager.get_brokerage_api_key(self.brokerage_key)
-            api_config = {
-                'base_url': 'https://load.prod.goaugment.com/unstable/loads',
-                'api_key': brokerage_creds
-            }
-            
-            # Process the data
-            result = processor.process_unified_workflow(df, field_mapping, api_config)
-            
-            # Store result for tracking
-            processed_data = {
-                'filename': filename,
-                'brokerage_key': self.brokerage_key,
-                'processed_time': datetime.now(),
-                'record_count': len(df),
-                'success_count': result.summary.get('ff2api_success', 0),
-                'error_count': len(result.errors),
-                'dataframe': df,
-                'result': result
-            }
-            
-            # Store in session state for UI display
-            if 'email_processed_data' not in st.session_state:
-                st.session_state.email_processed_data = []
-            
-            st.session_state.email_processed_data.append(processed_data)
-            
-            return {
-                'success': True,
-                'processed_records': len(df),
-                'successful_records': result.summary.get('ff2api_success', 0),
-                'errors': result.errors
-            }
+            # Use the manual workflow bridge to process this file
+            return self._process_via_manual_workflow(df, filename)
             
         except Exception as e:
             logger.error(f"Error processing email attachment: {e}")
             return {'success': False, 'error': str(e)}
+    
+    def _process_via_manual_workflow(self, df: pd.DataFrame, filename: str) -> Dict[str, Any]:
+        """
+        Process email attachment using the exact same workflow as manual processing.
+        This ensures email automation produces identical results to manual processing.
+        """
+        try:
+            # Import the manual processing function
+            from .enhanced_ff2api import process_enhanced_data_workflow
+            from .enhanced_ff2api import ensure_session_id
+            from src.backend.data_processor import DataProcessor
+            
+            # Get saved field mappings for this brokerage from the database
+            field_mappings = self._get_saved_field_mappings()
+            
+            if not field_mappings:
+                # If no saved mappings, try to auto-detect
+                data_processor = DataProcessor()
+                suggested_mappings = data_processor.suggest_field_mapping(df.columns.tolist())
+                field_mappings = suggested_mappings
+                logger.info(f"No saved field mappings found for {self.brokerage_key}, using auto-detected mappings")
+            else:
+                logger.info(f"Using saved field mappings for {self.brokerage_key}")
+            
+            # Get API credentials (same as manual workflow)
+            api_credentials = credential_manager.get_brokerage_credentials(self.brokerage_key)
+            if not api_credentials:
+                return {'success': False, 'error': f'No API credentials found for {self.brokerage_key}'}
+            
+            # Determine processing mode based on email automation config
+            config = self.get_email_automation_config()
+            processing_options = config.get('processing_options', {}) if config else {}
+            
+            # Use full_endtoend mode if tracking is enabled, otherwise standard
+            processing_mode = 'full_endtoend' if processing_options.get('add_tracking', True) else 'standard'
+            
+            # Initialize components (same as manual workflow)
+            data_processor = DataProcessor()
+            db_manager = self.db_manager
+            session_id = ensure_session_id()
+            
+            # Store in session state temporarily (required by manual workflow)
+            original_uploaded_df = st.session_state.get('uploaded_df')
+            original_field_mappings = st.session_state.get('field_mappings')
+            original_api_credentials = st.session_state.get('api_credentials')
+            original_brokerage_name = st.session_state.get('brokerage_name')
+            
+            try:
+                # Set session state for manual workflow
+                st.session_state.uploaded_df = df
+                st.session_state.field_mappings = field_mappings
+                st.session_state.api_credentials = api_credentials
+                st.session_state.brokerage_name = self.brokerage_key
+                
+                # Call the exact same processing function as manual workflow
+                result = process_enhanced_data_workflow(
+                    df, field_mappings, api_credentials, self.brokerage_key,
+                    processing_mode, data_processor, db_manager, session_id
+                )
+                
+                # Store result in the same session state as manual processing would
+                # This makes the results appear in the same UI
+                if result:
+                    # Add email processing metadata
+                    if 'email_processing_metadata' not in st.session_state:
+                        st.session_state.email_processing_metadata = []
+                    
+                    email_metadata = {
+                        'filename': filename,
+                        'brokerage_key': self.brokerage_key,
+                        'processed_time': datetime.now(),
+                        'processing_mode': processing_mode,
+                        'was_email_automated': True,
+                        'result': result
+                    }
+                    st.session_state.email_processing_metadata.append(email_metadata)
+                    
+                    logger.info(f"Successfully processed {filename} via manual workflow for {self.brokerage_key}")
+                
+                return {
+                    'success': True,
+                    'processed_records': len(df),
+                    'result': result,
+                    'processing_mode': processing_mode
+                }
+                
+            finally:
+                # Restore original session state
+                if original_uploaded_df is not None:
+                    st.session_state.uploaded_df = original_uploaded_df
+                else:
+                    st.session_state.pop('uploaded_df', None)
+                    
+                if original_field_mappings is not None:
+                    st.session_state.field_mappings = original_field_mappings
+                else:
+                    st.session_state.pop('field_mappings', None)
+                    
+                if original_api_credentials is not None:
+                    st.session_state.api_credentials = original_api_credentials
+                else:
+                    st.session_state.pop('api_credentials', None)
+                    
+                if original_brokerage_name is not None:
+                    st.session_state.brokerage_name = original_brokerage_name
+                else:
+                    st.session_state.pop('brokerage_name', None)
+            
+        except Exception as e:
+            logger.error(f"Error in manual workflow bridge: {e}")
+            return {'success': False, 'error': f'Manual workflow error: {str(e)}'}
+    
+    def _get_saved_field_mappings(self) -> Dict[str, str]:
+        """Get the most recent saved field mappings for this brokerage."""
+        try:
+            # Get all configurations for this brokerage
+            configurations = self.db_manager.get_all_brokerage_configurations()
+            brokerage_configs = [c for c in configurations if c['brokerage_name'] == self.brokerage_key]
+            
+            if not brokerage_configs:
+                logger.info(f"No saved configurations found for {self.brokerage_key}")
+                return {}
+            
+            # Get the most recent configuration
+            recent_config = max(brokerage_configs, key=lambda x: x.get('updated_at', ''))
+            field_mappings = json.loads(recent_config.get('field_mappings', '{}'))
+            
+            logger.info(f"Retrieved saved field mappings for {self.brokerage_key}: {list(field_mappings.keys())}")
+            return field_mappings
+            
+        except Exception as e:
+            logger.error(f"Error retrieving saved field mappings for {self.brokerage_key}: {e}")
+            return {}
 
 
 def render_email_automation_setup(brokerage_key: str):
