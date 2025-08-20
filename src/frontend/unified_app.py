@@ -906,17 +906,54 @@ def main():
     with col1:
         # Email processing dashboard (show if there's email automation activity)
         try:
-            # Check if there are any email processing jobs to show
-            email_jobs_exist = (
-                'email_processing_jobs' in st.session_state and 
-                st.session_state.email_processing_jobs.get(brokerage_key, [])
-            )
+            # Check both shared storage and session state for email processing activity
+            email_jobs_exist = False
             
-            if email_jobs_exist:
+            # First check shared storage
+            try:
+                from shared_storage_bridge import shared_storage
+                active_jobs = shared_storage.get_active_jobs(brokerage_key)
+                completed_jobs = shared_storage.get_completed_jobs(brokerage_key)
+                recent_activity = shared_storage.has_recent_activity(brokerage_key, minutes=60)
+                
+                if active_jobs or completed_jobs or recent_activity:
+                    email_jobs_exist = True
+                    logger.info(f"Found email processing activity for {brokerage_key} in shared storage")
+            except ImportError:
+                logger.debug("Shared storage not available, checking session state")
+            
+            # Fallback to session state check
+            if not email_jobs_exist:
+                email_jobs_exist = (
+                    'email_processing_jobs' in st.session_state and 
+                    st.session_state.email_processing_jobs.get(brokerage_key, [])
+                )
+                if email_jobs_exist:
+                    logger.info(f"Found email processing activity for {brokerage_key} in session state")
+            
+            # Also check email processing metadata (from logs)
+            if not email_jobs_exist:
+                email_jobs_exist = (
+                    'email_processing_metadata' in st.session_state and
+                    len([item for item in st.session_state.email_processing_metadata 
+                         if item.get('brokerage_key') == brokerage_key]) > 0
+                )
+                if email_jobs_exist:
+                    logger.info(f"Found email processing metadata for {brokerage_key} in session state")
+            
+            # Always show the dashboard section - it will display appropriate content
+            if email_jobs_exist or True:  # Show dashboard even if no activity to display status
                 render_email_processing_dashboard(brokerage_key)
                 st.markdown("---")
+                
         except Exception as e:
-            logger.debug(f"Error checking email processing jobs: {e}")
+            logger.error(f"Error checking email processing jobs: {e}")
+            # Show dashboard anyway in case of errors
+            try:
+                render_email_processing_dashboard(brokerage_key)
+                st.markdown("---")
+            except:
+                pass
         
         # File upload section
         st.subheader("📁 File Upload")
