@@ -194,7 +194,7 @@ class EmailAutomationManager:
             # Use the manual workflow bridge to process this file
             result = self._process_via_manual_workflow(df, filename, job_id)
             
-            # Update final job status
+            # Update final job status and store result object
             if job_id and result.get('success'):
                 update_email_job_progress(
                     job_id, self.brokerage_key, "completed", 100.0, status="completed"
@@ -203,6 +203,11 @@ class EmailAutomationManager:
                 update_email_job_progress(
                     job_id, self.brokerage_key, "failed", 0.0, status="failed"
                 )
+            
+            # Add result object for session state storage
+            if result.get('success'):
+                result['result_object'] = st.session_state.get('processing_result')
+                result['processed_records'] = len(df) if df is not None else 0
             
             return result
             

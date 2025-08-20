@@ -1059,6 +1059,21 @@ def main():
             
             if result.errors:
                 st.error(f"{len(result.errors)} errors occurred")
+        
+        # Email automation processing history (additional display)
+        if 'email_processing_metadata' in st.session_state:
+            email_files = st.session_state.email_processing_metadata
+            if email_files:
+                st.markdown("---")
+                st.subheader("📧 Recent Email Processing")
+                recent_files = sorted(email_files, key=lambda x: x['processed_time'], reverse=True)[:2]
+                
+                for file_info in recent_files:
+                    with st.expander(f"📄 {file_info['filename']}"):
+                        st.write(f"**Time:** {file_info['processed_time'].strftime('%H:%M')}")
+                        st.write(f"**Source:** {file_info.get('email_source', 'Unknown')}")
+                        st.write(f"**Records:** {file_info.get('record_count', 0)}")
+                        st.write(f"**Automated:** ✅" if file_info.get('was_email_automated') else "Manual")
     
     # Logout option
     with st.sidebar:

@@ -783,12 +783,15 @@ class EmailMonitorService:
                 # Initialize email automation manager for this brokerage
                 automation_manager = EmailAutomationManager(brokerage_key)
                 
-                # Process the attachment using the manual workflow bridge
+                # Process the attachment using the manual workflow bridge with email source
                 processing_result = automation_manager.process_email_attachment(
-                    attachment.content, attachment.filename
+                    attachment.content, attachment.filename, attachment.sender
                 )
                 
                 if processing_result['success']:
+                    # Store in session state for UI pickup (email_processing_metadata)
+                    self._store_email_processing_result(attachment, processing_result, brokerage_key)
+                    
                     # Convert the result to the format expected by email monitor
                     result = {
                         'success': True,
@@ -836,6 +839,43 @@ class EmailMonitorService:
                 'sender': attachment.sender if hasattr(attachment, 'sender') else 'Unknown',
                 'received_time': attachment.received_time.isoformat() if hasattr(attachment, 'received_time') else datetime.now().isoformat()
             }
+    
+    def _store_email_processing_result(self, attachment: EmailAttachment, processing_result: Dict[str, Any], brokerage_key: str):
+        """Store email processing result in session state for UI pickup."""
+        try:
+            import streamlit as st
+            if not hasattr(st, 'session_state') or st.session_state is None:
+                logger.debug("Session state not available for storing email processing result")
+                return
+            
+            # Store in email_processing_metadata (what unified_app.py looks for)
+            if 'email_processing_metadata' not in st.session_state:
+                st.session_state.email_processing_metadata = []
+            
+            # Create result metadata that matches what the UI expects
+            result_metadata = {
+                'filename': attachment.filename,
+                'processed_time': datetime.now(),
+                'processing_mode': processing_result.get('processing_mode', 'email_automation'),
+                'was_email_automated': True,
+                'email_source': attachment.sender,
+                'subject': attachment.subject,
+                'record_count': processing_result.get('processed_records', 0),
+                'success': processing_result.get('success', False),
+                'result': processing_result.get('result_object'),  # The actual processing result
+                'brokerage_key': brokerage_key
+            }
+            
+            st.session_state.email_processing_metadata.append(result_metadata)
+            
+            # Keep only recent results (last 20)
+            if len(st.session_state.email_processing_metadata) > 20:
+                st.session_state.email_processing_metadata = st.session_state.email_processing_metadata[-20:]
+            
+            logger.info(f"Stored email processing result for UI: {attachment.filename}")
+            
+        except Exception as e:
+            logger.error(f"Error storing email processing result: {e}")
     
     def _refresh_oauth_token(self, brokerage_key: str, current_auth: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
