@@ -271,9 +271,8 @@ class EmailAutomationManager:
     def _get_saved_field_mappings(self) -> Dict[str, str]:
         """Get the most recent saved field mappings for this brokerage."""
         try:
-            # Get all configurations for this brokerage
-            configurations = self.db_manager.get_all_brokerage_configurations()
-            brokerage_configs = [c for c in configurations if c['brokerage_name'] == self.brokerage_key]
+            # Get configurations for this specific brokerage
+            brokerage_configs = self.db_manager.get_brokerage_configurations(self.brokerage_key)
             
             if not brokerage_configs:
                 logger.info(f"No saved configurations found for {self.brokerage_key}")
@@ -281,7 +280,7 @@ class EmailAutomationManager:
             
             # Get the most recent configuration
             recent_config = max(brokerage_configs, key=lambda x: x.get('updated_at', ''))
-            field_mappings = json.loads(recent_config.get('field_mappings', '{}'))
+            field_mappings = recent_config.get('field_mappings', {})
             
             logger.info(f"Retrieved saved field mappings for {self.brokerage_key}: {list(field_mappings.keys())}")
             return field_mappings
