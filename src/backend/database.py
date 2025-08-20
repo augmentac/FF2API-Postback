@@ -1037,7 +1037,7 @@ class DatabaseManager:
         
         cursor.execute('''
             SELECT id, configuration_name, created_at, updated_at, last_used_at, 
-                   version, description, field_mappings, api_credentials, auth_type, bearer_token
+                   version, description, field_mappings, api_credentials, auth_type, bearer_token, email_automation_config
             FROM brokerage_configurations 
             WHERE brokerage_name = ? AND is_active = 1
             ORDER BY last_used_at DESC, updated_at DESC
@@ -1048,7 +1048,7 @@ class DatabaseManager:
         
         configurations = []
         for row in results:
-            config_id, config_name, created_at, updated_at, last_used_at, version, desc, mappings, creds, auth_type, bearer_token = row
+            config_id, config_name, created_at, updated_at, last_used_at, version, desc, mappings, creds, auth_type, bearer_token, email_config = row
             
             # Decrypt API credentials
             key = self._get_encryption_key()
@@ -1072,6 +1072,7 @@ class DatabaseManager:
                 'api_credentials': decrypted_credentials,
                 'auth_type': auth_type or 'api_key',  # Default to api_key for backward compatibility
                 'bearer_token': decrypted_bearer_token,
+                'email_automation_config': json.loads(email_config) if email_config else None,
                 'field_count': len(json.loads(mappings))
             })
         

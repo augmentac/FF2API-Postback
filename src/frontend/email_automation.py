@@ -53,10 +53,9 @@ class EmailAutomationManager:
                     return config
             
             # Check database for saved configuration
-            saved_configs = self.db_manager.get_configurations_for_company(self.brokerage_key)
+            saved_configs = self.db_manager.get_brokerage_configurations(self.brokerage_key)
             for config in saved_configs:
-                config_data = json.loads(config[3]) if config[3] else {}  # field_mappings column
-                email_config = json.loads(config[14]) if config[14] else None  # email_automation_config column
+                email_config = config.get('email_automation_config')
                 if email_config:
                     return email_config
             
