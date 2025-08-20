@@ -841,38 +841,58 @@ class EmailMonitorService:
             }
     
     def _store_email_processing_result(self, attachment: EmailAttachment, processing_result: Dict[str, Any], brokerage_key: str):
-        """Store email processing result in session state for UI pickup."""
+        """Store email processing result using shared storage bridge."""
         try:
-            import streamlit as st
-            if not hasattr(st, 'session_state') or st.session_state is None:
-                logger.debug("Session state not available for storing email processing result")
-                return
+            # Use shared storage instead of session state
+            from shared_storage_bridge import add_email_result
             
-            # Store in email_processing_metadata (what unified_app.py looks for)
-            if 'email_processing_metadata' not in st.session_state:
-                st.session_state.email_processing_metadata = []
+            # Extract result summary if available
+            result_summary = None
+            if processing_result.get('result_object'):
+                result_obj = processing_result['result_object']
+                if hasattr(result_obj, 'summary'):
+                    result_summary = result_obj.summary
             
-            # Create result metadata that matches what the UI expects
-            result_metadata = {
-                'filename': attachment.filename,
-                'processed_time': datetime.now(),
-                'processing_mode': processing_result.get('processing_mode', 'email_automation'),
-                'was_email_automated': True,
-                'email_source': attachment.sender,
-                'subject': attachment.subject,
-                'record_count': processing_result.get('processed_records', 0),
-                'success': processing_result.get('success', False),
-                'result': processing_result.get('result_object'),  # The actual processing result
-                'brokerage_key': brokerage_key
-            }
+            # Store result in shared storage
+            add_email_result(
+                filename=attachment.filename,
+                brokerage_key=brokerage_key,
+                email_source=attachment.sender,
+                subject=attachment.subject,
+                success=processing_result.get('success', False),
+                record_count=processing_result.get('processed_records', 0),
+                result_summary=result_summary,
+                processing_mode=processing_result.get('processing_mode', 'email_automation')
+            )
             
-            st.session_state.email_processing_metadata.append(result_metadata)
+            logger.info(f"Stored email processing result in shared storage: {attachment.filename}")
             
-            # Keep only recent results (last 20)
-            if len(st.session_state.email_processing_metadata) > 20:
-                st.session_state.email_processing_metadata = st.session_state.email_processing_metadata[-20:]
-            
-            logger.info(f"Stored email processing result for UI: {attachment.filename}")
+        except ImportError:
+            logger.warning("Shared storage bridge not available, falling back to session state")
+            # Fallback to session state (original method)
+            try:
+                import streamlit as st
+                if hasattr(st, 'session_state') and st.session_state is not None:
+                    if 'email_processing_metadata' not in st.session_state:
+                        st.session_state.email_processing_metadata = []
+                    
+                    result_metadata = {
+                        'filename': attachment.filename,
+                        'processed_time': datetime.now(),
+                        'processing_mode': processing_result.get('processing_mode', 'email_automation'),
+                        'was_email_automated': True,
+                        'email_source': attachment.sender,
+                        'subject': attachment.subject,
+                        'record_count': processing_result.get('processed_records', 0),
+                        'success': processing_result.get('success', False),
+                        'result': processing_result.get('result_object'),
+                        'brokerage_key': brokerage_key
+                    }
+                    
+                    st.session_state.email_processing_metadata.append(result_metadata)
+                    logger.info(f"Stored email processing result in session state fallback: {attachment.filename}")
+            except Exception as fallback_error:
+                logger.error(f"Fallback storage also failed: {fallback_error}")
             
         except Exception as e:
             logger.error(f"Error storing email processing result: {e}")

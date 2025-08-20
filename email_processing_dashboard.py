@@ -259,14 +259,72 @@ class EmailProcessingDashboard:
                 )
     
     def _get_processing_jobs(self, brokerage_key: str) -> Tuple[List[EmailProcessingJob], List[EmailProcessingJob]]:
-        """Get active and completed processing jobs."""
-        # Get jobs from session state (in real implementation, this would come from database/queue)
-        all_jobs = self._get_jobs_from_storage(brokerage_key)
+        """Get active and completed processing jobs from shared storage."""
+        try:
+            # Try to get jobs from shared storage first
+            from shared_storage_bridge import shared_storage
+            
+            # Convert shared storage jobs to EmailProcessingJob format
+            active_jobs = []
+            completed_jobs = []
+            
+            # Get active jobs from shared storage
+            shared_active = shared_storage.get_active_jobs(brokerage_key)
+            for shared_job in shared_active:
+                job = EmailProcessingJob(
+                    job_id=shared_job.job_id,
+                    filename=shared_job.filename,
+                    brokerage_key=shared_job.brokerage_key,
+                    email_source=shared_job.email_source,
+                    file_size=0,  # Not stored in shared storage
+                    record_count=shared_job.record_count,
+                    started_at=datetime.fromisoformat(shared_job.started_at),
+                    current_step=shared_job.current_step,
+                    progress_percent=shared_job.progress_percent,
+                    status=shared_job.status,
+                    error_message=shared_job.error_message,
+                    success_count=shared_job.success_count,
+                    failure_count=shared_job.failure_count,
+                    processing_time=shared_job.processing_time,
+                    result_data=shared_job.result_data
+                )
+                active_jobs.append(job)
+            
+            # Get completed jobs from shared storage
+            shared_completed = shared_storage.get_completed_jobs(brokerage_key)
+            for shared_job in shared_completed:
+                job = EmailProcessingJob(
+                    job_id=shared_job.job_id,
+                    filename=shared_job.filename,
+                    brokerage_key=shared_job.brokerage_key,
+                    email_source=shared_job.email_source,
+                    file_size=0,  # Not stored in shared storage
+                    record_count=shared_job.record_count,
+                    started_at=datetime.fromisoformat(shared_job.started_at),
+                    current_step=shared_job.current_step,
+                    progress_percent=shared_job.progress_percent,
+                    status=shared_job.status,
+                    error_message=shared_job.error_message,
+                    success_count=shared_job.success_count,
+                    failure_count=shared_job.failure_count,
+                    processing_time=shared_job.processing_time,
+                    result_data=shared_job.result_data
+                )
+                completed_jobs.append(job)
+            
+            return active_jobs, completed_jobs
+            
+        except ImportError:
+            logger.debug("Shared storage not available, falling back to session state")
+            # Fallback to session state method
+            all_jobs = self._get_jobs_from_storage(brokerage_key)
+            active_jobs = [job for job in all_jobs if job.status in ["pending", "processing"]]
+            completed_jobs = [job for job in all_jobs if job.status in ["completed", "failed"]]
+            return active_jobs, completed_jobs
         
-        active_jobs = [job for job in all_jobs if job.status in ["pending", "processing"]]
-        completed_jobs = [job for job in all_jobs if job.status in ["completed", "failed"]]
-        
-        return active_jobs, completed_jobs
+        except Exception as e:
+            logger.error(f"Error getting processing jobs from shared storage: {e}")
+            return [], []
     
     def _get_jobs_from_storage(self, brokerage_key: str) -> List[EmailProcessingJob]:
         """Get jobs from session state storage."""
@@ -296,27 +354,46 @@ class EmailProcessingDashboard:
             return []
     
     def _get_queue_status(self, brokerage_key: str) -> Dict[str, int]:
-        """Get processing queue status."""
-        jobs = self._get_jobs_from_storage(brokerage_key)
-        
-        # Count jobs by status
-        total = len(jobs)
-        processing = len([j for j in jobs if j.status == "processing"])
-        queued = len([j for j in jobs if j.status == "pending"]) 
-        
-        # Count completed today
-        today = datetime.now().date()
-        completed_today = len([
-            j for j in jobs 
-            if j.status == "completed" and j.started_at.date() == today
-        ])
-        
-        return {
-            'total': total,
-            'processing': processing,
-            'queued': queued,
-            'completed_today': completed_today
-        }
+        """Get processing queue status from shared storage."""
+        try:
+            # Try to get stats from shared storage first
+            from shared_storage_bridge import shared_storage
+            
+            stats = shared_storage.get_processing_stats(brokerage_key)
+            return {
+                'total': stats.get('total', 0),
+                'processing': stats.get('processing', 0),
+                'queued': stats.get('pending', 0),  # 'pending' in shared storage = 'queued' in UI
+                'completed_today': stats.get('completed_today', 0)
+            }
+            
+        except ImportError:
+            logger.debug("Shared storage not available, falling back to session state")
+            # Fallback to session state method
+            jobs = self._get_jobs_from_storage(brokerage_key)
+            
+            # Count jobs by status
+            total = len(jobs)
+            processing = len([j for j in jobs if j.status == "processing"])
+            queued = len([j for j in jobs if j.status == "pending"]) 
+            
+            # Count completed today
+            today = datetime.now().date()
+            completed_today = len([
+                j for j in jobs 
+                if j.status == "completed" and j.started_at.date() == today
+            ])
+            
+            return {
+                'total': total,
+                'processing': processing,
+                'queued': queued,
+                'completed_today': completed_today
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting queue status from shared storage: {e}")
+            return {'total': 0, 'processing': 0, 'queued': 0, 'completed_today': 0}
     
     def _get_step_index_from_status(self, current_step: str) -> int:
         """Map current step status to step index."""

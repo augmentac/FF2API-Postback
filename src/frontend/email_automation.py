@@ -152,10 +152,10 @@ class EmailAutomationManager:
     def process_email_attachment(self, file_data: bytes, filename: str, email_source: str = "unknown") -> Dict[str, Any]:
         """Process an email attachment using the same workflow as manual processing."""
         try:
-            # Create processing job for dashboard tracking
+            # Create processing job for dashboard tracking using shared storage
             job_id = None
             try:
-                from email_processing_dashboard import add_email_processing_job, update_email_job_progress
+                from shared_storage_bridge import add_email_job, update_job_status
                 
                 # Load attachment data first to get record count
                 if filename.endswith('.csv'):
@@ -165,21 +165,20 @@ class EmailAutomationManager:
                 else:
                     return {'success': False, 'error': 'Unsupported file format'}
                 
-                # Create dashboard job
-                job_id = add_email_processing_job(
+                # Create dashboard job in shared storage
+                job_id = add_email_job(
                     filename=filename,
                     brokerage_key=self.brokerage_key,
                     email_source=email_source,
-                    record_count=len(df),
-                    file_size=len(file_data)
+                    record_count=len(df)
                 )
                 
                 # Update progress: parsing email
-                update_email_job_progress(job_id, self.brokerage_key, "parsing_email", 10.0)
+                update_job_status(job_id, self.brokerage_key, "processing", 10.0, "parsing_email")
                 
             except ImportError:
-                logger.debug("Email processing dashboard not available")
-                # Load attachment data if dashboard wasn't available
+                logger.debug("Shared storage bridge not available")
+                # Load attachment data if shared storage wasn't available
                 if filename.endswith('.csv'):
                     df = pd.read_csv(pd.io.common.StringIO(file_data.decode('utf-8')))
                 elif filename.endswith(('.xlsx', '.xls')):
@@ -189,20 +188,28 @@ class EmailAutomationManager:
             
             # Update progress: analyzing data
             if job_id:
-                update_email_job_progress(job_id, self.brokerage_key, "analyzing_data", 20.0)
+                try:
+                    from shared_storage_bridge import update_job_status
+                    update_job_status(job_id, self.brokerage_key, "processing", 20.0, "analyzing_data")
+                except ImportError:
+                    pass  # Fallback: no progress tracking
             
             # Use the manual workflow bridge to process this file
             result = self._process_via_manual_workflow(df, filename, job_id)
             
-            # Update final job status and store result object
-            if job_id and result.get('success'):
-                update_email_job_progress(
-                    job_id, self.brokerage_key, "completed", 100.0, status="completed"
-                )
-            elif job_id:
-                update_email_job_progress(
-                    job_id, self.brokerage_key, "failed", 0.0, status="failed"
-                )
+            # Update final job status using shared storage
+            if job_id:
+                try:
+                    from shared_storage_bridge import update_job_status
+                    if result.get('success'):
+                        update_job_status(job_id, self.brokerage_key, "completed", 100.0, "completed",
+                                        success_count=result.get('processed_records', 0),
+                                        failure_count=0)
+                    else:
+                        update_job_status(job_id, self.brokerage_key, "failed", 0.0, "failed",
+                                        error_message=result.get('error', 'Processing failed'))
+                except ImportError:
+                    pass  # Fallback: no progress tracking
             
             # Add result object for session state storage
             if result.get('success'):
@@ -230,14 +237,14 @@ class EmailAutomationManager:
         This ensures email automation produces identical results to manual processing.
         """
         try:
-            # Helper function to update progress
+            # Helper function to update progress using shared storage
             def update_progress(step: str, progress: float):
                 if job_id:
                     try:
-                        from email_processing_dashboard import update_email_job_progress
-                        update_email_job_progress(job_id, self.brokerage_key, step, progress)
-                    except:
-                        pass
+                        from shared_storage_bridge import update_job_status
+                        update_job_status(job_id, self.brokerage_key, "processing", progress, step)
+                    except ImportError:
+                        pass  # Fallback: no progress tracking
             # Import the manual processing function
             from .enhanced_ff2api import process_enhanced_data_workflow
             from .enhanced_ff2api import ensure_session_id
