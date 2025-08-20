@@ -45,6 +45,21 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from credential_manager import credential_manager
 from streamlit_google_sso import streamlit_google_sso
 
+# Import email processing dashboard
+try:
+    from email_processing_dashboard import (
+        render_email_processing_dashboard, 
+        render_email_activity_sidebar
+    )
+except ImportError as e:
+    logger.error(f"Failed to import email processing dashboard: {e}")
+    # Fallback functions
+    def render_email_processing_dashboard(brokerage_key: str):
+        st.info("📧 Email processing dashboard not available")
+    
+    def render_email_activity_sidebar(brokerage_key: str):
+        pass
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -889,6 +904,20 @@ def main():
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        # Email processing dashboard (show if there's email automation activity)
+        try:
+            # Check if there are any email processing jobs to show
+            email_jobs_exist = (
+                'email_processing_jobs' in st.session_state and 
+                st.session_state.email_processing_jobs.get(brokerage_key, [])
+            )
+            
+            if email_jobs_exist:
+                render_email_processing_dashboard(brokerage_key)
+                st.markdown("---")
+        except Exception as e:
+            logger.debug(f"Error checking email processing jobs: {e}")
+        
         # File upload section
         st.subheader("📁 File Upload")
         
@@ -1017,6 +1046,9 @@ def main():
                 st.success("✅ Email delivery available")
             else:
                 st.warning("⚠️ Email delivery not configured")
+        
+        # Email automation activity sidebar
+        render_email_activity_sidebar(brokerage_key)
         
         # Processing statistics
         if 'processing_result' in st.session_state:

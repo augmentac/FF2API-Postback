@@ -149,34 +149,97 @@ class EmailAutomationManager:
             logger.error(f"Error stopping email automation: {e}")
             return False
     
-    def process_email_attachment(self, file_data: bytes, filename: str) -> Dict[str, Any]:
+    def process_email_attachment(self, file_data: bytes, filename: str, email_source: str = "unknown") -> Dict[str, Any]:
         """Process an email attachment using the same workflow as manual processing."""
         try:
-            # Load attachment data
-            if filename.endswith('.csv'):
-                df = pd.read_csv(pd.io.common.StringIO(file_data.decode('utf-8')))
-            elif filename.endswith(('.xlsx', '.xls')):
-                df = pd.read_excel(pd.io.common.BytesIO(file_data))
-            else:
-                return {'success': False, 'error': 'Unsupported file format'}
+            # Create processing job for dashboard tracking
+            job_id = None
+            try:
+                from email_processing_dashboard import add_email_processing_job, update_email_job_progress
+                
+                # Load attachment data first to get record count
+                if filename.endswith('.csv'):
+                    df = pd.read_csv(pd.io.common.StringIO(file_data.decode('utf-8')))
+                elif filename.endswith(('.xlsx', '.xls')):
+                    df = pd.read_excel(pd.io.common.BytesIO(file_data))
+                else:
+                    return {'success': False, 'error': 'Unsupported file format'}
+                
+                # Create dashboard job
+                job_id = add_email_processing_job(
+                    filename=filename,
+                    brokerage_key=self.brokerage_key,
+                    email_source=email_source,
+                    record_count=len(df),
+                    file_size=len(file_data)
+                )
+                
+                # Update progress: parsing email
+                update_email_job_progress(job_id, self.brokerage_key, "parsing_email", 10.0)
+                
+            except ImportError:
+                logger.debug("Email processing dashboard not available")
+                # Load attachment data if dashboard wasn't available
+                if filename.endswith('.csv'):
+                    df = pd.read_csv(pd.io.common.StringIO(file_data.decode('utf-8')))
+                elif filename.endswith(('.xlsx', '.xls')):
+                    df = pd.read_excel(pd.io.common.BytesIO(file_data))
+                else:
+                    return {'success': False, 'error': 'Unsupported file format'}
+            
+            # Update progress: analyzing data
+            if job_id:
+                update_email_job_progress(job_id, self.brokerage_key, "analyzing_data", 20.0)
             
             # Use the manual workflow bridge to process this file
-            return self._process_via_manual_workflow(df, filename)
+            result = self._process_via_manual_workflow(df, filename, job_id)
+            
+            # Update final job status
+            if job_id and result.get('success'):
+                update_email_job_progress(
+                    job_id, self.brokerage_key, "completed", 100.0, status="completed"
+                )
+            elif job_id:
+                update_email_job_progress(
+                    job_id, self.brokerage_key, "failed", 0.0, status="failed"
+                )
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error processing email attachment: {e}")
+            # Update job as failed if we have one
+            if 'job_id' in locals() and job_id:
+                try:
+                    from email_processing_dashboard import update_email_job_progress
+                    update_email_job_progress(
+                        job_id, self.brokerage_key, "failed", 0.0, status="failed"
+                    )
+                except:
+                    pass
             return {'success': False, 'error': str(e)}
     
-    def _process_via_manual_workflow(self, df: pd.DataFrame, filename: str) -> Dict[str, Any]:
+    def _process_via_manual_workflow(self, df: pd.DataFrame, filename: str, job_id: str = None) -> Dict[str, Any]:
         """
         Process email attachment using the exact same workflow as manual processing.
         This ensures email automation produces identical results to manual processing.
         """
         try:
+            # Helper function to update progress
+            def update_progress(step: str, progress: float):
+                if job_id:
+                    try:
+                        from email_processing_dashboard import update_email_job_progress
+                        update_email_job_progress(job_id, self.brokerage_key, step, progress)
+                    except:
+                        pass
             # Import the manual processing function
             from .enhanced_ff2api import process_enhanced_data_workflow
             from .enhanced_ff2api import ensure_session_id
             from src.backend.data_processor import DataProcessor
+            
+            # Update progress: applying field mappings
+            update_progress("applying_mappings", 30.0)
             
             # Get saved field mappings for this brokerage from the database
             field_mappings = self._get_saved_field_mappings()
@@ -194,6 +257,9 @@ class EmailAutomationManager:
             api_credentials = credential_manager.get_brokerage_credentials(self.brokerage_key)
             if not api_credentials:
                 return {'success': False, 'error': f'No API credentials found for {self.brokerage_key}'}
+            
+            # Update progress: preparing API calls
+            update_progress("submitting_api", 50.0)
             
             # Determine processing mode based on email automation config
             config = self.get_email_automation_config()
@@ -220,11 +286,17 @@ class EmailAutomationManager:
                 st.session_state.api_credentials = api_credentials
                 st.session_state.brokerage_name = self.brokerage_key
                 
+                # Update progress: processing data
+                update_progress("enriching_data", 70.0)
+                
                 # Call the exact same processing function as manual workflow
                 result = process_enhanced_data_workflow(
                     df, field_mappings, api_credentials, self.brokerage_key,
                     processing_mode, data_processor, db_manager, session_id
                 )
+                
+                # Update progress: generating results
+                update_progress("generating_results", 90.0)
                 
                 # Store result in the same session state as manual processing would
                 # This makes the results appear in the same UI
