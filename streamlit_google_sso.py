@@ -517,8 +517,21 @@ client_secret = "your-universal-client-secret"
             return None
     
     def _clear_stored_auth(self, brokerage_key: str):
-        """Clear stored authentication data."""
+        """Clear stored authentication data using comprehensive clear function."""
         try:
+            # Use the comprehensive clear function from auth_state_sync if available
+            try:
+                from auth_state_sync import clear_auth_state_for_ui
+                clear_result = clear_auth_state_for_ui(brokerage_key)
+                if clear_result:
+                    logger.info(f"Successfully cleared all auth data for {brokerage_key} using auth_state_sync")
+                    return
+                else:
+                    logger.warning(f"Auth state sync clear had issues for {brokerage_key}, falling back to manual clear")
+            except ImportError:
+                logger.debug("Auth state sync not available, using manual clear")
+            
+            # Fallback to manual clearing
             # Clear from session state
             if 'google_sso_auth' in st.session_state:
                 st.session_state.google_sso_auth.pop(brokerage_key, None)
@@ -526,6 +539,21 @@ client_secret = "your-universal-client-secret"
             # Clear from credential manager
             from gmail_auth_service import gmail_auth_service
             gmail_auth_service.revoke_credentials(brokerage_key)
+            
+            # Clear additional session state keys that might cause conflicts
+            keys_to_clear = [
+                f'gmail_auth_success_{brokerage_key}',
+                f'processed_code_{brokerage_key}',
+                f'email_automation_authenticated_{brokerage_key}',
+                f'gmail_authenticated_{brokerage_key}',
+                f'gmail_user_email_{brokerage_key}'
+            ]
+            
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            logger.info(f"Manually cleared auth data for {brokerage_key}")
             
         except Exception as e:
             logger.error(f"Error clearing auth data: {e}")

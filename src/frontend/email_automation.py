@@ -33,6 +33,17 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from streamlit_google_sso import streamlit_google_sso
 from credential_manager import credential_manager
 
+# Import auth state synchronization
+try:
+    from auth_state_sync import auth_state_sync, validate_auth_state_for_ui, clear_auth_state_for_ui
+except ImportError:
+    logger.warning("Auth state sync module not available - some features may not work correctly")
+    # Fallback functions
+    def validate_auth_state_for_ui(brokerage_key: str):
+        return False, None
+    def clear_auth_state_for_ui(brokerage_key: str):
+        return False
+
 logger = logging.getLogger(__name__)
 
 
@@ -290,12 +301,72 @@ class EmailAutomationManager:
 
 
 def render_email_automation_setup(brokerage_key: str):
-    """Render email automation setup interface."""
+    """Render email automation setup interface with enhanced auth state management."""
     automation_manager = EmailAutomationManager(brokerage_key)
     
     st.subheader("📧 Email Automation Setup")
     
-    # Check current status
+    # Validate and sync authentication state first
+    try:
+        auth_validated, user_email = validate_auth_state_for_ui(brokerage_key)
+        
+        if auth_validated and user_email:
+            st.success(f"🔐 Gmail connected: {user_email}")
+            
+            # Add auth debugging info (can be removed in production)
+            with st.expander("🔍 Authentication Debug Info"):
+                auth_summary = auth_state_sync.get_auth_status_summary(brokerage_key)
+                st.json(auth_summary)
+                
+                if st.button("🔄 Refresh Auth State", key=f"refresh_auth_{brokerage_key}"):
+                    with st.spinner("Refreshing authentication state..."):
+                        sync_result = auth_state_sync.validate_and_sync_auth_state(brokerage_key)
+                        if sync_result['authenticated']:
+                            st.success("✅ Auth state refreshed successfully")
+                            if sync_result['sync_performed']:
+                                st.info("🔄 Synchronization was performed")
+                            if sync_result['issues_found']:
+                                st.warning(f"Issues found and fixed: {sync_result['issues_found']}")
+                        else:
+                            st.error("❌ Authentication validation failed")
+                        st.rerun()
+                
+                if st.button("🗑️ Clear All Auth Data", key=f"clear_auth_{brokerage_key}"):
+                    with st.spinner("Clearing authentication data..."):
+                        clear_result = clear_auth_state_for_ui(brokerage_key)
+                        if clear_result:
+                            st.success("✅ All authentication data cleared")
+                        else:
+                            st.warning("⚠️ Some auth data may not have been cleared completely")
+                        st.rerun()
+        
+        else:
+            st.warning("🔐 Gmail authentication required")
+            
+            # Show auth status and sync issues
+            try:
+                auth_summary = auth_state_sync.get_auth_status_summary(brokerage_key)
+                if auth_summary.get('issues'):
+                    with st.expander("⚠️ Authentication Issues Detected"):
+                        for issue in auth_summary['issues']:
+                            st.error(issue)
+                        
+                        if st.button("🔧 Attempt Auto-Fix", key=f"autofix_{brokerage_key}"):
+                            with st.spinner("Attempting to fix auth issues..."):
+                                sync_result = auth_state_sync.validate_and_sync_auth_state(brokerage_key)
+                                if sync_result['authenticated']:
+                                    st.success("✅ Auth issues resolved!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Could not resolve auth issues automatically")
+            except Exception as e:
+                logger.debug(f"Auth summary check failed: {e}")
+    
+    except Exception as e:
+        logger.error(f"Auth validation error: {e}")
+        st.error(f"Authentication validation error: {str(e)}")
+    
+    # Check current automation status
     is_active = automation_manager.is_email_automation_active()
     config = automation_manager.get_email_automation_config()
     
