@@ -301,10 +301,10 @@ class EmailAutomationManager:
                 # Update progress: processing data
                 update_progress("enriching_data", 70.0)
                 
-                # Call the exact same processing function as manual workflow
+                # Call the exact same processing function as manual workflow with silent mode
                 result = process_enhanced_data_workflow(
                     df, field_mappings, api_credentials, self.brokerage_key,
-                    processing_mode, data_processor, db_manager, session_id
+                    processing_mode, data_processor, db_manager, session_id, silent_mode=True
                 )
                 
                 # Update progress: generating results

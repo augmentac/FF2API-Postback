@@ -37,6 +37,13 @@ class XLSXPostbackHandler(PostbackHandler):
             logger.warning("No rows to write to XLSX")
             return True
             
+        # Filter out empty dictionaries and validate data
+        valid_rows = [row for row in rows if row and isinstance(row, dict) and any(row.values())]
+        
+        if not valid_rows:
+            logger.warning("No valid data rows to write to XLSX (all rows were empty or invalid)")
+            return True
+            
         try:
             # Ensure output directory exists
             os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
@@ -59,19 +66,25 @@ class XLSXPostbackHandler(PostbackHandler):
             
             # Write headers if this is the first row
             if next_row == 1:
-                headers = list(rows[0].keys())
+                headers = list(valid_rows[0].keys())
                 for col, header in enumerate(headers, 1):
                     ws.cell(row=1, column=col, value=header)
                 next_row = 2
             
             # Write data rows
-            for row_data in rows:
+            for row_data in valid_rows:
                 for col, key in enumerate(row_data.keys(), 1):
-                    ws.cell(row=next_row, column=col, value=row_data[key])
+                    value = row_data[key]
+                    # Handle None values and complex objects
+                    if value is None:
+                        value = ""
+                    elif isinstance(value, (dict, list)):
+                        value = str(value)
+                    ws.cell(row=next_row, column=col, value=value)
                 next_row += 1
                 
             wb.save(self.output_path)
-            logger.info(f"Successfully wrote {len(rows)} rows to {self.output_path}")
+            logger.info(f"Successfully wrote {len(valid_rows)} rows to {self.output_path}")
             return True
             
         except Exception as e:

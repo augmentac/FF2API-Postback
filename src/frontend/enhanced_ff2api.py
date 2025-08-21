@@ -1562,15 +1562,20 @@ def _render_enhanced_results_section():
         _display_enhanced_results(result, processing_mode)
 
 def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerage_name, 
-                                 processing_mode, data_processor, db_manager, session_id):
-    """Enhanced data processing workflow with end-to-end capabilities"""
+                                 processing_mode, data_processor, db_manager, session_id, silent_mode=False):
+    """Enhanced data processing workflow with end-to-end capabilities
+    
+    Args:
+        silent_mode: If True, suppress all Streamlit UI output (for email automation)
+    """
     
     # Debug logging for processing mode
     logger.info(f"🔍 DEBUG: process_enhanced_data_workflow called with processing_mode: {processing_mode}")
     logger.info(f"🔍 DEBUG: processing_mode type: {type(processing_mode)}")
     logger.info(f"🔍 DEBUG: Will run full_endtoend steps: {processing_mode == 'full_endtoend'}")
     
-    st.session_state.processing_in_progress = True
+    if not silent_mode:
+        st.session_state.processing_in_progress = True
     
     # Initialize progress tracking
     mode_steps = {
@@ -1579,19 +1584,26 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
     }
     
     total_steps = mode_steps.get(processing_mode, 2)
-    progress_container = st.container()
     
-    with progress_container:
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+    if not silent_mode:
+        progress_container = st.container()
+        with progress_container:
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+    else:
+        # Silent mode - no UI components
+        progress_bar = None
+        status_text = None
         
-        try:
-            # Step 1: Original FF2API Processing
+    try:
+        # Step 1: Original FF2API Processing
+        if not silent_mode and status_text:
             status_text.text("Step 1: Processing through FF2API...")
+        if not silent_mode and progress_bar:
             progress_bar.progress(1/total_steps)
             
-            # Use original FF2API processing exactly
-            ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
+        # Use original FF2API processing exactly
+        ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor, silent_mode)
             
             # Handle case where ff2api_results is None
             if ff2api_results is None:
@@ -1692,15 +1704,20 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             logger.error(f"Enhanced processing error: {e}")
             raise
 
-def _process_through_ff2api(df, field_mappings, api_credentials, data_processor):
-    """Process data through FF2API - aligned with reference implementation"""
+def _process_through_ff2api(df, field_mappings, api_credentials, data_processor, silent_mode=False):
+    """Process data through FF2API - aligned with reference implementation
+    
+    Args:
+        silent_mode: If True, suppress all Streamlit UI output (for email automation)
+    """
     from src.frontend.app import process_data_enhanced
     
     # Count manual values for logging
     manual_values = [v for v in field_mappings.values() if str(v).startswith("MANUAL_VALUE:")]
     if manual_values:
         logger.info(f"Processing with {len(manual_values)} manual values applied to {len(df)} records")
-        st.info(f"✅ Processing with {len(manual_values)} manual values applied to all records")
+        if not silent_mode:
+            st.info(f"✅ Processing with {len(manual_values)} manual values applied to all records")
     
     # Process with field mappings (which now include MANUAL_VALUE: prefixed entries)
     try:
