@@ -1698,7 +1698,20 @@ def _render_simplified_results():
     result = st.session_state.enhanced_processing_results
     
     st.markdown("---")
-    st.subheader("📊 Processing Complete")
+    
+    # Show different header based on source
+    source = result.get('source', 'manual')
+    if source == 'email_automation':
+        st.subheader("📧 Email Processing Complete")
+        # Show email context
+        email_info = f"**File:** {result.get('filename', 'Unknown')}"
+        if result.get('email_source'):
+            email_info += f" | **From:** {result.get('email_source')}"
+        if result.get('subject'):
+            email_info += f" | **Subject:** {result.get('subject')}"
+        st.markdown(email_info)
+    else:
+        st.subheader("📊 Processing Complete")
     
     # Always show processing summary
     total_records = result.get('total_rows', 0)
@@ -1790,8 +1803,44 @@ def _render_simplified_results():
 
 def _render_enhanced_results_section():
     """Enhanced results section with end-to-end capabilities"""
-    if 'enhanced_processing_results' not in st.session_state:
+    # Check for session state results first
+    has_session_results = 'enhanced_processing_results' in st.session_state
+    
+    # Check for email automation results from shared storage
+    has_email_results = False
+    email_results = None
+    
+    if not has_session_results:
+        try:
+            from shared_storage_bridge import shared_storage
+            brokerage_name = st.session_state.get('brokerage_name', 'default')
+            
+            # Try multiple brokerage name variations
+            brokerage_variations = [
+                brokerage_name, brokerage_name.lower(), brokerage_name.upper(), 
+                brokerage_name.title(), brokerage_name.capitalize(),
+                'eShipping', 'eshipping', 'ESHIPPING', 'Eshipping'
+            ]
+            
+            for variation in brokerage_variations:
+                recent_results = shared_storage.get_recent_results(variation, limit=1)
+                if recent_results:
+                    # Convert email processing result to enhanced processing result format
+                    email_result = recent_results[0]
+                    email_results = _convert_email_to_enhanced_result(email_result)
+                    has_email_results = True
+                    logger.info(f"Found recent email processing result for brokerage: {variation}")
+                    break
+        except Exception as e:
+            logger.debug(f"Could not load email automation results: {e}")
+    
+    # If no results from either source, return
+    if not has_session_results and not has_email_results:
         return
+    
+    # Set email results as session state if no manual results exist
+    if has_email_results and not has_session_results:
+        st.session_state.enhanced_processing_results = email_results
     
     # Check if simplified UI mode is enabled (default: True)
     use_simplified_ui = st.session_state.get('use_simplified_ui', True)
@@ -1808,6 +1857,70 @@ def _render_enhanced_results_section():
         
         # Display results based on processing mode
         _display_enhanced_results(result, processing_mode)
+
+def _convert_email_to_enhanced_result(email_result):
+    """Convert EmailProcessingResult to enhanced processing result format"""
+    try:
+        # Extract data from EmailProcessingResult dataclass
+        success = email_result.success
+        record_count = email_result.record_count
+        processing_mode = email_result.processing_mode
+        
+        # Create mock FF2API results based on email processing success
+        ff2api_results = []
+        if success and record_count > 0:
+            # Create successful results for each record
+            for i in range(record_count):
+                ff2api_results.append({
+                    'success': True,
+                    'row_index': i,
+                    'load_number': f'EMAIL_LOAD_{i+1}',
+                    'message': 'Processed via email automation'
+                })
+        else:
+            # Create failure result
+            ff2api_results.append({
+                'success': False,
+                'row_index': 0,
+                'load_number': 'EMAIL_PROCESSING',
+                'error': 'Email processing failed or no records found'
+            })
+        
+        # Calculate success rate
+        successful_count = len([r for r in ff2api_results if r.get('success', False)])
+        success_rate = successful_count / len(ff2api_results) if ff2api_results else 0
+        
+        # Create enhanced result format
+        enhanced_result = {
+            'total_rows': record_count,
+            'success_rate': success_rate,
+            'ff2api_results': ff2api_results,
+            'processing_mode': processing_mode,
+            'source': 'email_automation',
+            'filename': email_result.filename,
+            'email_source': email_result.email_source,
+            'subject': email_result.subject,
+            'processed_time': email_result.processed_time,
+            'brokerage_key': email_result.brokerage_key
+        }
+        
+        return enhanced_result
+        
+    except Exception as e:
+        logger.error(f"Error converting email result to enhanced format: {e}")
+        # Return minimal failure result
+        return {
+            'total_rows': 0,
+            'success_rate': 0,
+            'ff2api_results': [{
+                'success': False,
+                'row_index': 0,
+                'load_number': 'CONVERSION_ERROR',
+                'error': f'Failed to convert email result: {str(e)}'
+            }],
+            'processing_mode': 'email_automation',
+            'source': 'email_automation_error'
+        }
 
 def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerage_name, 
                                  processing_mode, data_processor, db_manager, session_id):
