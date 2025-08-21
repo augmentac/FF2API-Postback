@@ -1806,41 +1806,77 @@ def _render_enhanced_results_section():
     # Check for session state results first
     has_session_results = 'enhanced_processing_results' in st.session_state
     
-    # Check for email automation results from shared storage
+    # Always check for email automation results from shared storage
     has_email_results = False
     email_results = None
     
-    if not has_session_results:
-        try:
-            from shared_storage_bridge import shared_storage
-            brokerage_name = st.session_state.get('brokerage_name', 'default')
-            
-            # Try multiple brokerage name variations
-            brokerage_variations = [
-                brokerage_name, brokerage_name.lower(), brokerage_name.upper(), 
-                brokerage_name.title(), brokerage_name.capitalize(),
-                'eShipping', 'eshipping', 'ESHIPPING', 'Eshipping'
-            ]
-            
-            for variation in brokerage_variations:
-                recent_results = shared_storage.get_recent_results(variation, limit=1)
-                if recent_results:
-                    # Convert email processing result to enhanced processing result format
-                    email_result = recent_results[0]
-                    email_results = _convert_email_to_enhanced_result(email_result)
-                    has_email_results = True
-                    logger.info(f"Found recent email processing result for brokerage: {variation}")
-                    break
-        except Exception as e:
-            logger.debug(f"Could not load email automation results: {e}")
+    # Debug logging
+    brokerage_name = st.session_state.get('brokerage_name', 'default')
+    logger.info(f"🔍 _render_enhanced_results_section: has_session_results={has_session_results}, brokerage_name='{brokerage_name}'")
     
-    # If no results from either source, return
+    try:
+        from shared_storage_bridge import shared_storage
+        
+        # Try multiple brokerage name variations
+        brokerage_variations = [
+            brokerage_name, brokerage_name.lower(), brokerage_name.upper(), 
+            brokerage_name.title(), brokerage_name.capitalize(),
+            'eShipping', 'eshipping', 'ESHIPPING', 'Eshipping'
+        ]
+        
+        logger.info(f"🔍 Checking brokerage variations: {brokerage_variations}")
+        
+        for variation in brokerage_variations:
+            recent_results = shared_storage.get_recent_results(variation, limit=1)
+            logger.info(f"🔍 Checked '{variation}': found {len(recent_results) if recent_results else 0} results")
+            if recent_results:
+                # Convert email processing result to enhanced processing result format
+                email_result = recent_results[0]
+                logger.info(f"🔍 Email result: {email_result.filename}, success={email_result.success}, records={email_result.record_count}")
+                email_results = _convert_email_to_enhanced_result(email_result)
+                has_email_results = True
+                logger.info(f"✅ Found and converted email processing result for brokerage: {variation}")
+                break
+    except Exception as e:
+        logger.error(f"❌ Error loading email automation results: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+    
+    logger.info(f"🔍 Result summary: has_session_results={has_session_results}, has_email_results={has_email_results}")
+    
+    # If no results from either source, show debug info and return
     if not has_session_results and not has_email_results:
+        logger.info("❌ No results from either source - not rendering results section")
+        
+        # Always show some debug info to help troubleshoot
+        st.markdown("---")
+        st.markdown("### 🔧 Email Automation Results Debug")
+        st.info(f"**Debug Info**: No results found for brokerage '{brokerage_name}'. Checked {len(brokerage_variations)} variations.")
+        
+        with st.expander("🔍 Debug Details", expanded=False):
+            st.write(f"**Session State Keys**: {list(st.session_state.keys())}")
+            st.write(f"**Brokerage Name**: '{brokerage_name}'")
+            st.write(f"**Has Session Results**: {has_session_results}")
+            st.write(f"**Has Email Results**: {has_email_results}")
+            
+            # Test shared storage access directly in UI
+            if st.button("🧪 Test Shared Storage Access"):
+                try:
+                    from shared_storage_bridge import shared_storage
+                    test_results = shared_storage.get_recent_results('eShipping', limit=1)
+                    if test_results:
+                        st.success(f"✅ Found {len(test_results)} results in shared storage")
+                        st.write(f"Latest result: {test_results[0].filename}")
+                    else:
+                        st.error("❌ No results found in shared storage")
+                except Exception as e:
+                    st.error(f"❌ Shared storage error: {e}")
         return
     
-    # Set email results as session state if no manual results exist
-    if has_email_results and not has_session_results:
+    # Prioritize email results if no session results, or if user wants to see email results
+    if has_email_results and (not has_session_results or st.session_state.get('prefer_email_results', True)):
         st.session_state.enhanced_processing_results = email_results
+        logger.info("✅ Set email results as enhanced_processing_results in session state")
     
     # Check if simplified UI mode is enabled (default: True)
     use_simplified_ui = st.session_state.get('use_simplified_ui', True)
