@@ -1343,15 +1343,52 @@ def _render_email_results_dashboard():
     brokerage_name = st.session_state.get('brokerage_name', 'default')
     try:
         from shared_storage_bridge import shared_storage
-        recent_results = shared_storage.get_recent_results(brokerage_name, limit=5)
-        completed_jobs = shared_storage.get_completed_jobs(brokerage_name, limit=5)
-        stats = shared_storage.get_processing_stats(brokerage_name)
+        
+        # Try multiple case variations to handle inconsistent brokerage naming
+        brokerage_variations = [
+            brokerage_name,  # Original
+            brokerage_name.lower(),  # lowercase
+            brokerage_name.upper(),  # UPPERCASE  
+            brokerage_name.title(),  # Title Case
+            brokerage_name.capitalize(),  # First letter uppercase
+            brokerage_name.replace(' ', ''),  # No spaces
+            brokerage_name.replace('-', '').replace('_', ''),  # No separators
+            # Common eShipping variations
+            'eShipping',
+            'eshipping', 
+            'ESHIPPING',
+            'Eshipping'
+        ]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        brokerage_variations = [x for x in brokerage_variations if not (x in seen or seen.add(x))]
+        
+        # Try each variation until we find data
+        recent_results = []
+        completed_jobs = []
+        stats = {'completed_today': 0}
+        effective_brokerage = brokerage_name
+        
+        for variation in brokerage_variations:
+            test_results = shared_storage.get_recent_results(variation, limit=5)
+            test_jobs = shared_storage.get_completed_jobs(variation, limit=5)
+            test_stats = shared_storage.get_processing_stats(variation)
+            
+            if test_results or test_jobs or test_stats.get('completed_today', 0) > 0:
+                recent_results = test_results
+                completed_jobs = test_jobs
+                stats = test_stats
+                effective_brokerage = variation
+                logger.debug(f"Found shared storage data using brokerage key: '{variation}'")
+                break
         
         if recent_results or completed_jobs or stats.get('completed_today', 0) > 0:
             shared_results = {
                 'recent_results': recent_results,
                 'completed_jobs': completed_jobs,
                 'stats': stats,
+                'effective_brokerage': effective_brokerage,
                 'source': 'background_processing'
             }
     except Exception as e:
