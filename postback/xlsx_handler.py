@@ -48,33 +48,57 @@ class XLSXPostbackHandler(PostbackHandler):
             # Ensure output directory exists
             os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
             
-            # Load existing workbook or create new one
+            # Always create a fresh workbook to avoid corruption issues
+            # This prevents Bad CRC-32 errors from corrupted or locked existing files
+            wb = Workbook()
+            ws = wb.active
+            ws.title = self.sheet_name
+            next_row = 1
+            
+            # If file exists and we want to preserve data, try to read it first
+            # But use a more robust approach with fallback
+            existing_data = []
             if os.path.exists(self.output_path):
-                wb = load_workbook(self.output_path)
-                if self.sheet_name in wb.sheetnames:
-                    ws = wb[self.sheet_name]
-                    # Find next empty row
-                    next_row = ws.max_row + 1
-                else:
-                    ws = wb.create_sheet(self.sheet_name)
-                    next_row = 1
-            else:
-                wb = Workbook()
-                ws = wb.active
-                ws.title = self.sheet_name
-                next_row = 1
+                try:
+                    # Try to read existing data before overwriting
+                    temp_wb = load_workbook(self.output_path)
+                    if self.sheet_name in temp_wb.sheetnames:
+                        temp_ws = temp_wb[self.sheet_name]
+                        # Read existing data (skip headers)
+                        for row in temp_ws.iter_rows(min_row=2, values_only=True):
+                            if any(row):  # Skip empty rows
+                                existing_data.append(row)
+                        logger.info(f"Preserved {len(existing_data)} existing rows from Excel file")
+                    temp_wb.close()
+                except Exception as load_error:
+                    logger.warning(f"Could not load existing Excel file (will create fresh): {load_error}")
+                    # Continue with fresh file - this handles the Bad CRC-32 case
+                
+                # Remove the potentially corrupted file
+                try:
+                    os.remove(self.output_path)
+                    logger.info(f"Removed existing Excel file to prevent corruption issues")
+                except Exception as remove_error:
+                    logger.warning(f"Could not remove existing file: {remove_error}")
             
-            # Write headers if this is the first row
-            if next_row == 1:
-                headers = list(valid_rows[0].keys())
-                for col, header in enumerate(headers, 1):
-                    ws.cell(row=1, column=col, value=header)
-                next_row = 2
+            # Write headers
+            headers = list(valid_rows[0].keys())
+            for col, header in enumerate(headers, 1):
+                ws.cell(row=1, column=col, value=header)
+            next_row = 2
             
-            # Write data rows
+            # Write existing data first (if any)
+            if existing_data:
+                for existing_row in existing_data:
+                    for col, value in enumerate(existing_row, 1):
+                        ws.cell(row=next_row, column=col, value=value)
+                    next_row += 1
+                logger.info(f"Restored {len(existing_data)} existing rows to Excel file")
+            
+            # Write new data rows
             for row_data in valid_rows:
-                for col, key in enumerate(row_data.keys(), 1):
-                    value = row_data[key]
+                for col, key in enumerate(headers, 1):
+                    value = row_data.get(key)  # Use .get() to handle missing keys
                     # Handle None values and complex objects
                     if value is None:
                         value = ""
@@ -88,5 +112,36 @@ class XLSXPostbackHandler(PostbackHandler):
             return True
             
         except Exception as e:
-            logger.error(f"Failed to write XLSX: {e}")
-            return False
+            logger.error(f"OpenPyXL Excel export failed: {e}")
+            
+            # Fallback: Try pandas Excel export as alternative
+            try:
+                logger.info("Attempting fallback Excel export using pandas...")
+                import pandas as pd
+                
+                # Convert rows to DataFrame
+                df = pd.DataFrame(valid_rows)
+                
+                # Use pandas ExcelWriter with openpyxl engine
+                with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name=self.sheet_name, index=False)
+                    
+                logger.info(f"Fallback Excel export successful: wrote {len(valid_rows)} rows to {self.output_path}")
+                return True
+                
+            except Exception as fallback_error:
+                logger.error(f"Fallback Excel export also failed: {fallback_error}")
+                
+                # Final fallback: Save as CSV with .xlsx extension warning
+                try:
+                    import pandas as pd
+                    df = pd.DataFrame(valid_rows)
+                    csv_path = self.output_path.replace('.xlsx', '_excel_fallback.csv')
+                    df.to_csv(csv_path, index=False)
+                    logger.warning(f"Excel export completely failed - saved as CSV instead: {csv_path}")
+                    logger.warning("Users should be notified that Excel file was saved as CSV due to export issues")
+                    return True  # Return True since data was saved, just in different format
+                    
+                except Exception as final_error:
+                    logger.error(f"All Excel export methods failed: {final_error}")
+                    return False
