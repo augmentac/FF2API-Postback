@@ -348,6 +348,48 @@ def main():
 def enhanced_main_workflow(db_manager, data_processor):
     """Enhanced main workflow - original FF2API + optional end-to-end capabilities"""
     
+    # ========== EMAIL RESULTS DISPLAY - ALWAYS SHOW FIRST ==========
+    # Show automated email processing results BEFORE any other checks
+    st.markdown("---")
+    st.markdown("### 🔍 URGENT DEPLOYMENT TEST - EMAIL RESULTS")
+    st.success("✅ THIS DEPLOYMENT TEST SECTION SHOULD ALWAYS BE VISIBLE")
+    st.error("📧 Checking for automated email processing results...")
+    
+    # Try to get shared storage data
+    try:
+        from shared_storage_bridge import get_email_processing_data, shared_storage
+        
+        st.info("🔍 Attempting to load email processing data from shared storage...")
+        
+        # Get all available brokerage keys from shared storage
+        try:
+            jobs_file = shared_storage.storage_dir / "email_jobs.json"
+            results_file = shared_storage.storage_dir / "email_results.json" 
+            
+            st.code(f"Jobs file path: {jobs_file}")
+            st.code(f"Results file path: {results_file}")
+            st.code(f"Jobs file exists: {jobs_file.exists()}")
+            st.code(f"Results file exists: {results_file.exists()}")
+            
+            if jobs_file.exists():
+                jobs_data = shared_storage._read_json_file(jobs_file, shared_storage._jobs_lock)
+                st.json(jobs_data)
+                
+            if results_file.exists():
+                results_data = shared_storage._read_json_file(results_file, shared_storage._results_lock)
+                st.json(results_data)
+                
+        except Exception as e:
+            st.error(f"Error accessing shared storage files: {e}")
+            
+    except ImportError as e:
+        st.error(f"Could not import shared_storage_bridge: {e}")
+    except Exception as e:
+        st.error(f"Error with shared storage: {e}")
+    
+    st.markdown("---")
+    # ================================================================
+    
     # Preserve original FF2API progressive disclosure exactly
     if 'brokerage_name' not in st.session_state:
         st.info("👈 Please select or create a brokerage in the sidebar to continue")
