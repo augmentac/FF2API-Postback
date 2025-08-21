@@ -98,6 +98,48 @@ def ensure_session_id():
     return st.session_state.session_id
 
 # Authentication functions
+def get_email_automation_keys():
+    """Get all email automation related session keys that should be preserved during clearing operations"""
+    brokerage_name = st.session_state.get('brokerage_name', 'default')
+    
+    # Core email automation keys
+    email_keys = [
+        f'gmail_auth_{brokerage_name.replace("-", "_")}',
+        f'gmail_auth_success_{brokerage_name}',
+        'email_sender_filter',
+        'email_subject_filter', 
+        'send_email',
+        'email_recipient',
+        'email_formats',
+        'email_processing_results',
+        'show_email_results_dashboard',
+        'prefer_email_results',
+        'google_sso_auth'
+    ]
+    
+    # Add any additional brokerage-specific keys
+    for key in list(st.session_state.keys()):
+        if any(pattern in key.lower() for pattern in ['gmail_auth_', 'email_', 'oauth_']):
+            if key not in email_keys:
+                email_keys.append(key)
+    
+    return email_keys
+
+def safe_clear_session_keys(keys_to_clear: list):
+    """Clear session keys while preserving email automation state"""
+    # Get email automation keys to preserve
+    email_keys = get_email_automation_keys()
+    
+    # Filter out email automation keys from clearing list
+    safe_keys_to_clear = [key for key in keys_to_clear if key not in email_keys]
+    
+    # Clear only safe keys
+    for key in safe_keys_to_clear:
+        if key in st.session_state:
+            del st.session_state[key]
+    
+    logger.info(f"Cleared {len(safe_keys_to_clear)} keys, preserved {len([k for k in keys_to_clear if k in email_keys])} email automation keys")
+
 def check_password():
     """Check if the user is authenticated"""
     return st.session_state.get('authenticated', False)
@@ -186,11 +228,9 @@ def show_logout_option():
             if 'login_time' in st.session_state:
                 del st.session_state['login_time']
             
-            # Clear sensitive data
+            # Clear sensitive data while preserving email automation
             keys_to_clear = ['api_credentials', 'selected_configuration', 'uploaded_df']
-            for key in keys_to_clear:
-                if key in st.session_state:
-                    del st.session_state[key]
+            safe_clear_session_keys(keys_to_clear)
             
             st.info("👋 Logged out successfully")
             st.rerun()
@@ -440,6 +480,8 @@ def _render_email_automation_sidebar():
                         with col1:
                             if st.button("🔄 Reset & Reconfigure", key="reset_gmail_config"):
                                 # Clear all OAuth-related session state for this brokerage
+                                # Note: These are email automation keys that are being intentionally cleared
+                                # as part of Gmail disconnection process - this is expected behavior
                                 keys_to_clear = [
                                     auth_key,
                                     f'gmail_auth_success_{brokerage_name}',
@@ -792,16 +834,23 @@ def _render_enhanced_landing_page():
     
     st.session_state.enhanced_processing_mode = mode_mapping[processing_mode]
     
-    # Show mode description
+    # Show enhanced mode description with email automation info
     mode_descriptions = {
         "standard": "Process data through FF2API only - original functionality",
-        "full_endtoend": "Complete workflow with load ID mapping, data enrichment, multiple output formats, and email delivery"
+        "full_endtoend": "Complete workflow with load ID mapping, real-time tracking enrichment, multiple output formats, and email delivery. **📧 Includes Email Automation features in sidebar.**"
     }
     
-    st.info(f"**Selected**: {mode_descriptions[st.session_state.enhanced_processing_mode]}")
+    selected_mode = st.session_state.enhanced_processing_mode
+    st.info(f"**Selected**: {mode_descriptions[selected_mode]}")
+    
+    # Add email automation visibility note for full_endtoend mode
+    if selected_mode == 'full_endtoend':
+        st.success("✅ **Email Automation Active** - Configuration options now available in the left sidebar")
+    else:
+        st.warning("ℹ️ **Email Automation Available** - Select 'Full End-to-End Processing' above to enable email monitoring and automation features")
     
     # Email configuration for full end-to-end mode
-    if st.session_state.enhanced_processing_mode == 'full_endtoend':
+    if selected_mode == 'full_endtoend':
         st.markdown("---")
         st.subheader("📧 Email Configuration")
         
@@ -972,10 +1021,9 @@ def _render_current_file_info():
             st.metric("📊 Records", f"{record_count:,}")
         with col3:
             if st.button("🔄 Upload Different File", key="change_file_btn"):
+                # Clear file processing keys while preserving email automation state
                 keys_to_clear = ['uploaded_df', 'uploaded_file_name', 'file_headers', 'validation_passed', 'header_comparison', 'field_mappings', 'processing_results']
-                for key in keys_to_clear:
-                    if key in st.session_state:
-                        del st.session_state[key]
+                safe_clear_session_keys(keys_to_clear)
                 st.rerun()
         
         # Add preview data button - exactly like original
@@ -1477,6 +1525,7 @@ def _render_shared_storage_results(results):
     
     with col2:
         if st.button("❌ Close Results", use_container_width=True):
+            # Only hide the dashboard, don't clear email automation state
             st.session_state.show_email_results_dashboard = False
             st.rerun()
 
@@ -1582,19 +1631,19 @@ def _render_session_state_results(results):
     
     with col1:
         if st.button("🔄 Check Inbox Again", use_container_width=True):
+            # Hide current results but preserve email automation state
             st.session_state.show_email_results_dashboard = False
-            st.session_state.email_processing_results = None
+            st.session_state.email_processing_results = None  # OK to clear this specific result
             st.rerun()
     
     with col2:
         if st.button("📂 Process Another File", use_container_width=True):
+            # Clear current results and uploaded file but preserve email automation state
             st.session_state.show_email_results_dashboard = False
-            st.session_state.email_processing_results = None
-            # Clear uploaded file to start fresh
-            if 'uploaded_df' in st.session_state:
-                del st.session_state.uploaded_df
-            if 'uploaded_file_name' in st.session_state:
-                del st.session_state.uploaded_file_name
+            st.session_state.email_processing_results = None  # OK to clear this specific result
+            # Use safe clearing for uploaded file data
+            keys_to_clear = ['uploaded_df', 'uploaded_file_name']
+            safe_clear_session_keys(keys_to_clear)
             st.rerun()
     
     with col3:
