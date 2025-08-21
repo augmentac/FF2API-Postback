@@ -163,23 +163,30 @@ def _check_inbox_now(brokerage_name: str):
             if hasattr(email_monitor, 'check_inbox_now'):
                 result = email_monitor.check_inbox_now(brokerage_name)
                 
-                if result and result.success:
-                    if result.processed_count > 0:
-                        st.success(f"✅ Processed {result.processed_count} file(s)")
-                        # Store results for display
-                        st.session_state.email_processing_results = {
-                            'success': True,
-                            'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
-                            'timestamp': datetime.now(),
-                            'source': 'manual_check'
-                        }
-                        st.session_state.show_email_results_dashboard = True
-                        st.rerun()
+                if result:
+                    # Always store results for display, even if there are errors
+                    st.session_state.email_processing_results = {
+                        'success': result.success,
+                        'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
+                        'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {},
+                        'timestamp': datetime.now(),
+                        'source': 'manual_check',
+                        'error_details': result.error_details,
+                        'message': result.message
+                    }
+                    st.session_state.show_email_results_dashboard = True
+                    
+                    if result.success:
+                        if result.processed_count > 0:
+                            st.success(f"✅ Processed {result.processed_count} file(s) - View details in main interface")
+                        else:
+                            st.info("📭 No new emails with attachments found")
                     else:
-                        st.info("📭 No new emails with attachments found")
+                        st.warning(f"⚠️ Processing completed with issues - View details in main interface")
+                    
+                    st.rerun()
                 else:
-                    error_msg = result.message if result else 'No response'
-                    st.error(f"❌ Inbox check failed: {error_msg}")
+                    st.error(f"❌ Inbox check failed: No response from email monitor")
             else:
                 st.error("❌ Email monitor does not support manual inbox checking")
                 

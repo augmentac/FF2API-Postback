@@ -511,22 +511,21 @@ def _render_email_automation_sidebar():
                                     with st.spinner("🔍 Checking Gmail inbox..."):
                                         result = email_monitor.check_inbox_now(brokerage_name)
                                         
+                                        # Always store results for display, even if there are errors
+                                        st.session_state.email_processing_results = {
+                                            'success': result.success,
+                                            'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
+                                            'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {},
+                                            'timestamp': datetime.now(),
+                                            'source': 'email_automation',
+                                            'error_details': result.error_details,
+                                            'message': result.message
+                                        }
+                                        st.session_state.show_email_results_dashboard = True
+                                        
                                         if result.success:
                                             if result.processed_count > 0:
-                                                # Store detailed results in session state
-                                                st.session_state.email_processing_results = {
-                                                    'success': True,
-                                                    'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
-                                                    'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {},
-                                                    'timestamp': datetime.now(),
-                                                    'source': 'email_automation',
-                                                    'error_details': result.error_details
-                                                }
-                                                
-                                                # Trigger dashboard view
-                                                st.session_state.show_email_results_dashboard = True
                                                 st.success(f"✅ Processed {result.processed_count} file(s) - View details below")
-                                                st.rerun()
                                             else:
                                                 st.info("📭 No new emails with attachments found")
                                                 
@@ -546,7 +545,9 @@ def _render_email_automation_sidebar():
                                                     else:
                                                         st.caption("**Searching:** All emails with attachments")
                                         else:
-                                            st.error(f"❌ {result.message}")
+                                            st.warning(f"⚠️ Processing completed with issues - View details below")
+                                        
+                                        st.rerun()
                                             
                                 except Exception as e:
                                     st.error(f"❌ Error checking inbox: {e}")
@@ -1422,6 +1423,13 @@ def _render_email_results_dashboard():
                 # Processing details
                 if file_result.get('processed_time'):
                     st.caption(f"🕒 Processed: {file_result['processed_time']}")
+    
+    # Show overall processing message
+    if results.get('message'):
+        if results.get('success', True):
+            st.success(f"✅ {results['message']}")
+        else:
+            st.warning(f"⚠️ {results['message']}")
     
     # Error summary if any
     if results.get('error_details'):
