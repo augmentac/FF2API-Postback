@@ -348,6 +348,13 @@ def main():
 def enhanced_main_workflow(db_manager, data_processor):
     """Enhanced main workflow - original FF2API + optional end-to-end capabilities"""
     
+    # ========== ABSOLUTE EMERGENCY DEPLOYMENT TEST ==========
+    # THIS MUST BE VISIBLE OR DEPLOYMENT IS BROKEN
+    st.error("🚨🚨🚨 EMERGENCY TEST: IF YOU SEE THIS, DEPLOYMENT IS WORKING 🚨🚨🚨")
+    st.error("🚨🚨🚨 EMERGENCY TEST: IF YOU SEE THIS, DEPLOYMENT IS WORKING 🚨🚨🚨")
+    st.error("🚨🚨🚨 EMERGENCY TEST: IF YOU SEE THIS, DEPLOYMENT IS WORKING 🚨🚨🚨")
+    st.balloons()  # This will definitely be noticeable
+    
     # ========== EMAIL RESULTS DISPLAY - ALWAYS SHOW FIRST ==========
     # Show automated email processing results BEFORE any other checks
     st.markdown("---")
