@@ -99,7 +99,15 @@ def main():
 
 # Handle both direct execution and module import  
 if __name__ == "__main__":
+    # EMERGENCY OVERRIDE - TEST DEPLOYMENT
+    import streamlit as st
+    st.error("🚨🚨🚨 DIRECT EXECUTION TEST - __name__ == __main__ 🚨🚨🚨")
+    st.balloons()
     main()
 else:
     # For Streamlit Cloud (when imported as module)
+    # EMERGENCY OVERRIDE - TEST DEPLOYMENT  
+    import streamlit as st
+    st.error("🚨🚨🚨 MODULE IMPORT TEST - STREAMLIT CLOUD PATH 🚨🚨🚨")
+    st.balloons()
     main() 
