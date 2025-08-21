@@ -303,7 +303,9 @@ def main():
     )
     
     # Suppress expected Streamlit context warnings in background mode
-    logging.getLogger('streamlit.runtime.scriptrunner_utils.script_run_context').setLevel(logging.ERROR)
+    logging.getLogger('streamlit.runtime.scriptrunner_utils.script_run_context').setLevel(logging.CRITICAL)
+    logging.getLogger('streamlit.runtime.scriptrunner_utils').setLevel(logging.CRITICAL)
+    logging.getLogger('streamlit.runtime').setLevel(logging.CRITICAL)
     
     logger.info("Starting Email Automation Service as standalone application")
     

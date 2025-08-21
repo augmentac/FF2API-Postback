@@ -167,8 +167,10 @@ def _check_inbox_now(brokerage_name: str):
                     # Always store results for display, even if there are errors
                     st.session_state.email_processing_results = {
                         'success': result.success,
-                        'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
-                        'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {},
+                        'file_info': {
+                            'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
+                            'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {}
+                        },
                         'timestamp': datetime.now(),
                         'source': 'manual_check',
                         'error_details': result.error_details,

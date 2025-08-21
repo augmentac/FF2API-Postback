@@ -514,8 +514,11 @@ def _render_email_automation_sidebar():
                                         # Always store results for display, even if there are errors
                                         st.session_state.email_processing_results = {
                                             'success': result.success,
-                                            'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
-                                            'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {},
+                                            'processed_count': result.processed_count,
+                                            'file_info': {
+                                                'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
+                                                'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {}
+                                            },
                                             'timestamp': datetime.now(),
                                             'source': 'email_automation',
                                             'error_details': result.error_details,
@@ -1482,7 +1485,8 @@ def _render_session_state_results(results):
     """Render results from session state (manual checks)."""
     # Summary metrics (same as manual upload)
     col1, col2, col3, col4 = st.columns(4)
-    summary = results.get('processing_summary', {})
+    file_info = results.get('file_info', {})
+    summary = file_info.get('processing_summary', {})
     
     with col1:
         st.metric("Files Processed", summary.get('successful_files', 0))
@@ -1505,7 +1509,8 @@ def _render_session_state_results(results):
     st.caption(f"⏱️ Processed at: {processing_time.strftime('%Y-%m-%d %H:%M:%S')}")
     
     # Detailed results for each file
-    processed_files = results.get('processed_files', [])
+    file_info = results.get('file_info', {})
+    processed_files = file_info.get('processed_files', [])
     
     if processed_files:
         st.markdown("#### 📁 File Processing Details")
