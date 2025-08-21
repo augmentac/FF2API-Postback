@@ -1393,6 +1393,10 @@ def _render_email_results_dashboard():
     processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
     email_automation_active = processing_mode == 'full_endtoend'
     
+    # Debug what we're actually seeing
+    logger.info(f"🔍 EMAIL DEBUG: processing_mode = '{processing_mode}', email_automation_active = {email_automation_active}")
+    logger.info(f"🔍 EMAIL DEBUG: session_results exists = {session_results is not None}, shared_results exists = {shared_results is not None}")
+    
     # Check for shared storage results (background processing)
     shared_results = None
     brokerage_name = st.session_state.get('brokerage_name', 'default')
@@ -1425,6 +1429,8 @@ def _render_email_results_dashboard():
         stats = {'completed_today': 0}
         effective_brokerage = brokerage_name
         
+        logger.info(f"🔍 EMAIL DEBUG: Trying brokerage variations: {brokerage_variations}")
+        
         for variation in brokerage_variations:
             test_results = shared_storage.get_recent_results(variation, limit=5)
             test_jobs = shared_storage.get_completed_jobs(variation, limit=5)
@@ -1447,14 +1453,27 @@ def _render_email_results_dashboard():
                 'source': 'background_processing'
             }
     except Exception as e:
-        logger.debug(f"Could not load shared storage results: {e}")
+        logger.error(f"🔍 EMAIL DEBUG: Could not load shared storage results: {e}")
+        import traceback
+        logger.error(f"🔍 EMAIL DEBUG: Traceback: {traceback.format_exc()}")
     
-    # If no results from either source AND email automation is not active, return
-    if not session_results and not shared_results and not email_automation_active:
+    # ALWAYS show shared storage results if they exist (background processing)
+    if shared_results:
+        st.markdown("---")
+        st.markdown("### 📧 Background Email Processing Results")
+        st.info("🤖 Results from background email processing detected")
+        _render_shared_storage_results(shared_results)
         return
     
-    # If email automation is active but no results found, show a status message
-    if email_automation_active and not session_results and not shared_results:
+    # Show session results if available
+    if session_results:
+        st.markdown("---") 
+        st.markdown("### 📧 Email Processing Results")
+        _render_session_state_results(session_results)
+        return
+    
+    # If email automation mode is active, show status even without results
+    if email_automation_active:
         st.markdown("---")
         st.markdown("### 📧 Email Automation Status")
         st.info("🤖 **Email automation is active** - Monitoring for incoming emails and processing in background")
