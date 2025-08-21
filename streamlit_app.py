@@ -27,6 +27,11 @@ except (ImportError, KeyError, Exception) as e:
 def main():
     """Main application router."""
     
+    # ========== ABSOLUTE DEPLOYMENT TEST - STREAMLIT_APP.PY ==========
+    st.error("🚨 EMERGENCY: IF YOU SEE THIS, streamlit_app.py IS WORKING 🚨")
+    st.balloons()
+    # ==================================================================
+    
     # Set up page config (only call once)
     if 'page_config_set' not in st.session_state:
         st.set_page_config(
