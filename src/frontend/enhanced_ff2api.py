@@ -1562,20 +1562,15 @@ def _render_enhanced_results_section():
         _display_enhanced_results(result, processing_mode)
 
 def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerage_name, 
-                                 processing_mode, data_processor, db_manager, session_id, silent_mode=False):
-    """Enhanced data processing workflow with end-to-end capabilities
-    
-    Args:
-        silent_mode: If True, suppress all Streamlit UI output (for email automation)
-    """
+                                 processing_mode, data_processor, db_manager, session_id):
+    """Enhanced data processing workflow with end-to-end capabilities"""
     
     # Debug logging for processing mode
     logger.info(f"🔍 DEBUG: process_enhanced_data_workflow called with processing_mode: {processing_mode}")
     logger.info(f"🔍 DEBUG: processing_mode type: {type(processing_mode)}")
     logger.info(f"🔍 DEBUG: Will run full_endtoend steps: {processing_mode == 'full_endtoend'}")
     
-    if not silent_mode:
-        st.session_state.processing_in_progress = True
+    st.session_state.processing_in_progress = True
     
     # Initialize progress tracking
     mode_steps = {
@@ -1584,85 +1579,76 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
     }
     
     total_steps = mode_steps.get(processing_mode, 2)
+    progress_container = st.container()
     
-    if not silent_mode:
-        progress_container = st.container()
-        with progress_container:
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-    else:
-        # Silent mode - no UI components
-        progress_bar = None
-        status_text = None
+    with progress_container:
+        progress_bar = st.progress(0)
+        status_text = st.empty()
         
-    try:
-        # Step 1: Original FF2API Processing
-        if not silent_mode and status_text:
+        try:
+            # Step 1: Original FF2API Processing
             status_text.text("Step 1: Processing through FF2API...")
-        if not silent_mode and progress_bar:
             progress_bar.progress(1/total_steps)
             
-        # Use original FF2API processing exactly
-        ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor, silent_mode)
-        
-        # Handle case where ff2api_results is None
-        if ff2api_results is None:
-            logger.error("FF2API processing returned None")
-            ff2api_results = []
-        
-        # Handle case where ff2api_results is a dict instead of list
-        elif isinstance(ff2api_results, dict):
-            logger.info("FF2API returned dict instead of list, converting to list format")
-            # If it's a dict, it might contain results in a specific key, or be a single result
-            if 'results' in ff2api_results:
-                ff2api_results = ff2api_results['results']
-            elif 'data' in ff2api_results:
-                ff2api_results = ff2api_results['data']
-            else:
-                # Treat the entire dict as a single result
-                ff2api_results = [ff2api_results]
-        
-        # Ensure ff2api_results is a list
-        if not isinstance(ff2api_results, list):
-            logger.error(f"FF2API results is not a list: {type(ff2api_results)}")
-            ff2api_results = []
-        
-        logger.info(f"FF2API results count: {len(ff2api_results)}")
-        
-        # Debug: Log the actual FF2API results structure
-        for i, r in enumerate(ff2api_results):
-            logger.info(f"FF2API result {i}: {r}")
-        
-        # Safe success rate calculation
-        success_count = 0
-        for i, r in enumerate(ff2api_results):
-            try:
-                if isinstance(r, dict):
-                    success_status = r.get('success', False)
-                    logger.info(f"Result {i} success status: {success_status}")
-                    if success_status:
-                        success_count += 1
-                else:
-                    logger.error(f"Result {i} is not dict: {type(r)} = {r}")
-            except Exception as e:
-                logger.error(f"Error checking success for result {i}: {e}, type: {type(r)}, value: {r}")
-        
-        result = {
-            'ff2api_results': ff2api_results,
-            'total_rows': len(df),
-            'success_rate': success_count / len(df) if len(df) > 0 else 0,
-            'processing_mode': processing_mode
-        }
-        
-        # Step 2: Load ID Mapping (if enabled)
-        if processing_mode == 'full_endtoend':
-            if not silent_mode and status_text:
-                status_text.text("Step 2: Retrieving load IDs...")
-            if not silent_mode and progress_bar:
-                progress_bar.progress(2/total_steps)
+            # Use original FF2API processing exactly
+            ff2api_results = _process_through_ff2api(df, field_mappings, api_credentials, data_processor)
             
-            load_mappings = _process_load_id_mapping(ff2api_results, brokerage_name)
-            result['load_id_mappings'] = load_mappings
+            # Handle case where ff2api_results is None
+            if ff2api_results is None:
+                logger.error("FF2API processing returned None")
+                ff2api_results = []
+            
+            # Handle case where ff2api_results is a dict instead of list
+            elif isinstance(ff2api_results, dict):
+                logger.info("FF2API returned dict instead of list, converting to list format")
+                # If it's a dict, it might contain results in a specific key, or be a single result
+                if 'results' in ff2api_results:
+                    ff2api_results = ff2api_results['results']
+                elif 'data' in ff2api_results:
+                    ff2api_results = ff2api_results['data']
+                else:
+                    # Treat the entire dict as a single result
+                    ff2api_results = [ff2api_results]
+            
+            # Ensure ff2api_results is a list
+            if not isinstance(ff2api_results, list):
+                logger.error(f"FF2API results is not a list: {type(ff2api_results)}")
+                ff2api_results = []
+            
+            logger.info(f"FF2API results count: {len(ff2api_results)}")
+            
+            # Debug: Log the actual FF2API results structure
+            for i, r in enumerate(ff2api_results):
+                logger.info(f"FF2API result {i}: {r}")
+            
+            # Safe success rate calculation
+            success_count = 0
+            for i, r in enumerate(ff2api_results):
+                try:
+                    if isinstance(r, dict):
+                        success_status = r.get('success', False)
+                        logger.info(f"Result {i} success status: {success_status}")
+                        if success_status:
+                            success_count += 1
+                    else:
+                        logger.error(f"Result {i} is not dict: {type(r)} = {r}")
+                except Exception as e:
+                    logger.error(f"Error checking success for result {i}: {e}, type: {type(r)}, value: {r}")
+            
+            result = {
+                'ff2api_results': ff2api_results,
+                'total_rows': len(df),
+                'success_rate': success_count / len(df) if len(df) > 0 else 0,
+                'processing_mode': processing_mode
+            }
+            
+            # Step 2: Load ID Mapping (if enabled)
+            if processing_mode == 'full_endtoend':
+                status_text.text("Step 2: Retrieving load IDs...")
+                progress_bar.progress(2/total_steps)
+                
+                load_mappings = _process_load_id_mapping(ff2api_results, brokerage_name)
+                result['load_id_mappings'] = load_mappings
             
             # Step 3: Data Enrichment (if enabled)
             if processing_mode == 'full_endtoend':
@@ -1706,20 +1692,15 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             logger.error(f"Enhanced processing error: {e}")
             raise
 
-def _process_through_ff2api(df, field_mappings, api_credentials, data_processor, silent_mode=False):
-    """Process data through FF2API - aligned with reference implementation
-    
-    Args:
-        silent_mode: If True, suppress all Streamlit UI output (for email automation)
-    """
+def _process_through_ff2api(df, field_mappings, api_credentials, data_processor):
+    """Process data through FF2API - aligned with reference implementation"""
     from src.frontend.app import process_data_enhanced
     
     # Count manual values for logging
     manual_values = [v for v in field_mappings.values() if str(v).startswith("MANUAL_VALUE:")]
     if manual_values:
         logger.info(f"Processing with {len(manual_values)} manual values applied to {len(df)} records")
-        if not silent_mode:
-            st.info(f"✅ Processing with {len(manual_values)} manual values applied to all records")
+        st.info(f"✅ Processing with {len(manual_values)} manual values applied to all records")
     
     # Process with field mappings (which now include MANUAL_VALUE: prefixed entries)
     try:
