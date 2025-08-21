@@ -285,6 +285,12 @@ from src.frontend.app import (
 
 def main():
     """Main enhanced FF2API application - preserves original UX"""
+    
+    # ========== ABSOLUTE EMERGENCY TEST - BEFORE ANY CHECKS ==========
+    st.error("🚨🚨🚨 EMERGENCY: THIS MUST BE VISIBLE OR CODE ISN'T RUNNING 🚨🚨🚨")
+    st.balloons()
+    # ==================================================================
+    
     # Check authentication first
     if not check_password():
         show_login_page()
