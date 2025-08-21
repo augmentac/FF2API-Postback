@@ -302,8 +302,10 @@ class EmailMonitorService:
                 success=True,
                 message=f"Processed {processed_count} files from {oauth_creds.get('user_email')}",
                 processed_count=processed_count,
-                processed_files=processed_files,
-                processing_summary=processing_summary,
+                file_info={
+                    'processed_files': processed_files,
+                    'processing_summary': processing_summary
+                },
                 error_details='; '.join(processing_errors) if processing_errors else None
             )
             

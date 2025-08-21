@@ -516,8 +516,8 @@ def _render_email_automation_sidebar():
                                                 # Store detailed results in session state
                                                 st.session_state.email_processing_results = {
                                                     'success': True,
-                                                    'processed_files': result.processed_files or [],
-                                                    'processing_summary': result.processing_summary or {},
+                                                    'processed_files': result.file_info.get('processed_files', []) if result.file_info else [],
+                                                    'processing_summary': result.file_info.get('processing_summary', {}) if result.file_info else {},
                                                     'timestamp': datetime.now(),
                                                     'source': 'email_automation',
                                                     'error_details': result.error_details
