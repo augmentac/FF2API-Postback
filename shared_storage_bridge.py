@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 import fcntl  # For file locking on Unix systems
 from dataclasses import dataclass, asdict
+from brokerage_key_utils import BrokerageKeyManager, normalize_brokerage_key, find_brokerage_data
 
 logger = logging.getLogger(__name__)
 
@@ -135,20 +136,24 @@ class SharedStorageBridge:
         try:
             jobs_data = self._read_json_file(self.jobs_file, self._jobs_lock)
             
-            # Initialize brokerage jobs list if needed
-            if job.brokerage_key not in jobs_data:
-                jobs_data[job.brokerage_key] = []
+            # Normalize brokerage key for consistent storage
+            normalized_key = normalize_brokerage_key(job.brokerage_key)
             
-            # Add job
+            # Initialize brokerage jobs list if needed
+            if normalized_key not in jobs_data:
+                jobs_data[normalized_key] = []
+            
+            # Update job with normalized key
             job_dict = asdict(job)
-            jobs_data[job.brokerage_key].append(job_dict)
+            job_dict['brokerage_key'] = normalized_key
+            jobs_data[normalized_key].append(job_dict)
             
             # Keep only recent jobs (last 20 per brokerage)
-            jobs_data[job.brokerage_key] = jobs_data[job.brokerage_key][-20:]
+            jobs_data[normalized_key] = jobs_data[normalized_key][-20:]
             
             self._write_json_file(self.jobs_file, jobs_data, self._jobs_lock)
             
-            logger.info(f"Added processing job to shared storage: {job.job_id}")
+            logger.info(f"Added processing job to shared storage: {job.job_id} (brokerage: {normalized_key})")
             
         except Exception as e:
             logger.error(f"Error adding processing job: {e}")
@@ -158,24 +163,56 @@ class SharedStorageBridge:
         try:
             jobs_data = self._read_json_file(self.jobs_file, self._jobs_lock)
             
-            if brokerage_key in jobs_data:
-                for i, job in enumerate(jobs_data[brokerage_key]):
-                    if job.get('job_id') == job_id:
-                        # Update job with new data
-                        jobs_data[brokerage_key][i].update(updates)
-                        
-                        # Update timestamps
-                        if updates.get('status') == 'completed':
-                            jobs_data[brokerage_key][i]['completed_at'] = datetime.now().isoformat()
-                            jobs_data[brokerage_key][i]['processing_time'] = (
-                                datetime.now() - datetime.fromisoformat(job['started_at'])
-                            ).total_seconds()
-                        
-                        self._write_json_file(self.jobs_file, jobs_data, self._jobs_lock)
-                        logger.debug(f"Updated job progress: {job_id}")
-                        return
+            # Try to find the job using all possible brokerage key variations
+            normalized_key = normalize_brokerage_key(brokerage_key)
+            job_found = False
             
-            logger.warning(f"Job not found for progress update: {job_id}")
+            # Search all possible key variations
+            for key_variant in BrokerageKeyManager.get_all_variations(brokerage_key):
+                if key_variant in jobs_data:
+                    for i, job in enumerate(jobs_data[key_variant]):
+                        if job.get('job_id') == job_id:
+                            # Update job with new data
+                            jobs_data[key_variant][i].update(updates)
+                            
+                            # Update timestamps
+                            if updates.get('status') == 'completed':
+                                jobs_data[key_variant][i]['completed_at'] = datetime.now().isoformat()
+                                jobs_data[key_variant][i]['processing_time'] = (
+                                    datetime.now() - datetime.fromisoformat(job['started_at'])
+                                ).total_seconds()
+                            
+                            # If we found the job under a non-normalized key, migrate it
+                            if key_variant != normalized_key:
+                                logger.info(f"Migrating job {job_id} from {key_variant} to {normalized_key}")
+                                
+                                # Ensure normalized key list exists
+                                if normalized_key not in jobs_data:
+                                    jobs_data[normalized_key] = []
+                                
+                                # Move job to normalized key
+                                updated_job = jobs_data[key_variant][i]
+                                updated_job['brokerage_key'] = normalized_key
+                                jobs_data[normalized_key].append(updated_job)
+                                
+                                # Remove from old location
+                                jobs_data[key_variant].pop(i)
+                                
+                                # Clean up empty lists
+                                if not jobs_data[key_variant]:
+                                    jobs_data.pop(key_variant)
+                            
+                            self._write_json_file(self.jobs_file, jobs_data, self._jobs_lock)
+                            logger.debug(f"Updated job progress: {job_id} (brokerage: {normalized_key})")
+                            job_found = True
+                            return
+                    
+                    # If we found the brokerage but not the job, break to avoid duplicate searches
+                    if jobs_data[key_variant]:
+                        break
+            
+            if not job_found:
+                logger.warning(f"Job not found for progress update: {job_id} (brokerage: {normalized_key})")
             
         except Exception as e:
             logger.error(f"Error updating job progress: {e}")
@@ -185,20 +222,24 @@ class SharedStorageBridge:
         try:
             results_data = self._read_json_file(self.results_file, self._results_lock)
             
-            # Initialize brokerage results list if needed
-            if result.brokerage_key not in results_data:
-                results_data[result.brokerage_key] = []
+            # Normalize brokerage key for consistent storage
+            normalized_key = normalize_brokerage_key(result.brokerage_key)
             
-            # Add result
+            # Initialize brokerage results list if needed
+            if normalized_key not in results_data:
+                results_data[normalized_key] = []
+            
+            # Add result with normalized key
             result_dict = asdict(result)
-            results_data[result.brokerage_key].append(result_dict)
+            result_dict['brokerage_key'] = normalized_key
+            results_data[normalized_key].append(result_dict)
             
             # Keep only recent results (last 50 per brokerage)
-            results_data[result.brokerage_key] = results_data[result.brokerage_key][-50:]
+            results_data[normalized_key] = results_data[normalized_key][-50:]
             
             self._write_json_file(self.results_file, results_data, self._results_lock)
             
-            logger.info(f"Added processing result to shared storage: {result.filename}")
+            logger.info(f"Added processing result to shared storage: {result.filename} (brokerage: {normalized_key})")
             
         except Exception as e:
             logger.error(f"Error adding processing result: {e}")
@@ -207,11 +248,16 @@ class SharedStorageBridge:
         """Get active (pending/processing) jobs for a brokerage."""
         try:
             jobs_data = self._read_json_file(self.jobs_file, self._jobs_lock)
-            brokerage_jobs = jobs_data.get(brokerage_key, [])
+            
+            # Collect jobs from all possible key variations
+            all_jobs = []
+            for key_variant in BrokerageKeyManager.get_all_variations(brokerage_key):
+                brokerage_jobs = jobs_data.get(key_variant, [])
+                all_jobs.extend(brokerage_jobs)
             
             # Filter for active jobs and convert back to dataclass
             active_jobs = []
-            for job_dict in brokerage_jobs:
+            for job_dict in all_jobs:
                 if job_dict.get('status') in ['pending', 'processing']:
                     try:
                         job = EmailProcessingJobStatus(**job_dict)
@@ -229,11 +275,16 @@ class SharedStorageBridge:
         """Get recently completed jobs for a brokerage."""
         try:
             jobs_data = self._read_json_file(self.jobs_file, self._jobs_lock)
-            brokerage_jobs = jobs_data.get(brokerage_key, [])
+            
+            # Collect jobs from all possible key variations
+            all_jobs = []
+            for key_variant in BrokerageKeyManager.get_all_variations(brokerage_key):
+                brokerage_jobs = jobs_data.get(key_variant, [])
+                all_jobs.extend(brokerage_jobs)
             
             # Filter for completed jobs and convert back to dataclass
             completed_jobs = []
-            for job_dict in brokerage_jobs:
+            for job_dict in all_jobs:
                 if job_dict.get('status') in ['completed', 'failed']:
                     try:
                         job = EmailProcessingJobStatus(**job_dict)
@@ -253,11 +304,16 @@ class SharedStorageBridge:
         """Get recent processing results for UI display."""
         try:
             results_data = self._read_json_file(self.results_file, self._results_lock)
-            brokerage_results = results_data.get(brokerage_key, [])
+            
+            # Collect results from all possible key variations
+            all_results = []
+            for key_variant in BrokerageKeyManager.get_all_variations(brokerage_key):
+                brokerage_results = results_data.get(key_variant, [])
+                all_results.extend(brokerage_results)
             
             # Convert back to dataclass and sort by processed time
             recent_results = []
-            for result_dict in brokerage_results:
+            for result_dict in all_results:
                 try:
                     result = EmailProcessingResult(**result_dict)
                     recent_results.append(result)
@@ -276,18 +332,23 @@ class SharedStorageBridge:
         """Get processing statistics for a brokerage."""
         try:
             jobs_data = self._read_json_file(self.jobs_file, self._jobs_lock)
-            brokerage_jobs = jobs_data.get(brokerage_key, [])
+            
+            # Collect jobs from all possible key variations
+            all_jobs = []
+            for key_variant in BrokerageKeyManager.get_all_variations(brokerage_key):
+                brokerage_jobs = jobs_data.get(key_variant, [])
+                all_jobs.extend(brokerage_jobs)
             
             # Count jobs by status
             stats = {
-                'total': len(brokerage_jobs),
+                'total': len(all_jobs),
                 'pending': 0,
                 'processing': 0,
                 'completed': 0,
                 'failed': 0
             }
             
-            for job in brokerage_jobs:
+            for job in all_jobs:
                 status = job.get('status', 'unknown')
                 if status in stats:
                     stats[status] += 1
@@ -295,7 +356,7 @@ class SharedStorageBridge:
             # Count completed today
             today = datetime.now().date()
             completed_today = 0
-            for job in brokerage_jobs:
+            for job in all_jobs:
                 if job.get('status') == 'completed' and job.get('completed_at'):
                     try:
                         completed_date = datetime.fromisoformat(job['completed_at']).date()

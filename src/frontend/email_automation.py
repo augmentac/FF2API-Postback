@@ -33,6 +33,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from streamlit_google_sso import streamlit_google_sso
 from credential_manager import credential_manager
 
+logger = logging.getLogger(__name__)
+
 # Import auth state synchronization
 try:
     from auth_state_sync import auth_state_sync, validate_auth_state_for_ui, clear_auth_state_for_ui
@@ -43,8 +45,6 @@ except ImportError:
         return False, None
     def clear_auth_state_for_ui(brokerage_key: str):
         return False
-
-logger = logging.getLogger(__name__)
 
 
 class EmailAutomationManager:
@@ -152,10 +152,10 @@ class EmailAutomationManager:
     def process_email_attachment(self, file_data: bytes, filename: str, email_source: str = "unknown") -> Dict[str, Any]:
         """Process an email attachment using the same workflow as manual processing."""
         try:
-            # Create processing job for dashboard tracking using shared storage
+            # Create processing job for dashboard tracking using unified storage
             job_id = None
             try:
-                from shared_storage_bridge import add_email_job, update_job_status
+                from unified_storage import unified_storage
                 
                 # Load attachment data first to get record count
                 if filename.endswith('.csv'):
@@ -165,8 +165,8 @@ class EmailAutomationManager:
                 else:
                     return {'success': False, 'error': 'Unsupported file format'}
                 
-                # Create dashboard job in shared storage
-                job_id = add_email_job(
+                # Create dashboard job in unified storage (handles failover automatically)
+                job_id = unified_storage.add_email_job(
                     filename=filename,
                     brokerage_key=self.brokerage_key,
                     email_source=email_source,
@@ -174,11 +174,12 @@ class EmailAutomationManager:
                 )
                 
                 # Update progress: parsing email
-                update_job_status(job_id, self.brokerage_key, "processing", 10.0, "parsing_email")
+                if job_id:
+                    unified_storage.update_job_status(job_id, self.brokerage_key, "processing", 10.0, "parsing_email")
                 
             except ImportError:
-                logger.debug("Shared storage bridge not available")
-                # Load attachment data if shared storage wasn't available
+                logger.debug("Unified storage not available")
+                # Load attachment data if unified storage wasn't available
                 if filename.endswith('.csv'):
                     df = pd.read_csv(pd.io.common.StringIO(file_data.decode('utf-8')))
                 elif filename.endswith(('.xlsx', '.xls')):
@@ -189,24 +190,24 @@ class EmailAutomationManager:
             # Update progress: analyzing data
             if job_id:
                 try:
-                    from shared_storage_bridge import update_job_status
-                    update_job_status(job_id, self.brokerage_key, "processing", 20.0, "analyzing_data")
+                    from unified_storage import unified_storage
+                    unified_storage.update_job_status(job_id, self.brokerage_key, "processing", 20.0, "analyzing_data")
                 except ImportError:
                     pass  # Fallback: no progress tracking
             
             # Use the manual workflow bridge to process this file
             result = self._process_via_manual_workflow(df, filename, job_id)
             
-            # Update final job status using shared storage
+            # Update final job status using unified storage
             if job_id:
                 try:
-                    from shared_storage_bridge import update_job_status
+                    from unified_storage import unified_storage
                     if result.get('success'):
-                        update_job_status(job_id, self.brokerage_key, "completed", 100.0, "completed",
+                        unified_storage.update_job_status(job_id, self.brokerage_key, "completed", 100.0, "completed",
                                         success_count=result.get('processed_records', 0),
                                         failure_count=0)
                     else:
-                        update_job_status(job_id, self.brokerage_key, "failed", 0.0, "failed",
+                        unified_storage.update_job_status(job_id, self.brokerage_key, "failed", 0.0, "failed",
                                         error_message=result.get('error', 'Processing failed'))
                 except ImportError:
                     pass  # Fallback: no progress tracking

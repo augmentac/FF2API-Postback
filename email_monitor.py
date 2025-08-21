@@ -1000,51 +1000,54 @@ class EmailMonitorService:
                     'error': f'Could not get Gmail service for {config.brokerage_key}'
                 }
             
-            # Fetch recent emails
-            emails = self._get_recent_emails_for_processing(
-                gmail_headers,
-                config.folder_name,
-                config.brokerage_key
-            )
+            # Create config dict for attachment checking
+            processing_config = {
+                'inbox_filters': getattr(config, 'email_filters', {}),
+                'brokerage_key': config.brokerage_key,
+                'user_email': getattr(config, 'user_email', 'unknown')
+            }
             
-            if not emails:
-                logger.debug(f"No new emails found for {config.brokerage_key}")
+            # Get attachments directly using existing method
+            attachments = self._check_for_attachments(gmail_headers, processing_config, config.brokerage_key)
+            
+            if not attachments:
+                logger.debug(f"No new email attachments found for {config.brokerage_key}")
                 return {
                     'success': True,
                     'processed_count': 0,
-                    'message': 'No new emails to process'
+                    'message': 'No new email attachments to process'
                 }
             
-            # Process each email
-            processed_count = 0
-            total_attachments = 0
+            logger.info(f"Found {len(attachments)} attachments to process for {config.brokerage_key}")
             
-            for email_data in emails:
+            # Process each attachment (jobs are created by EmailAutomationManager)
+            processed_count = 0
+            total_attachments = len(attachments)
+            
+            for attachment in attachments:
                 try:
-                    attachments = self._extract_csv_attachments(email_data, gmail_headers)
-                    total_attachments += len(attachments)
+                    logger.info(f"Background processing attachment: {attachment.filename} from {attachment.sender}")
                     
-                    for attachment in attachments:
-                        # Process attachment using detailed processing
-                        result = self._process_attachment_detailed(attachment, config.brokerage_key, config.__dict__)
-                        
-                        if result.get('success'):
-                            processed_count += 1
-                            logger.info(f"Successfully processed {attachment.filename} from {attachment.sender}")
-                        else:
-                            logger.warning(f"Failed to process {attachment.filename}: {result.get('error')}")
+                    # Process attachment using detailed processing 
+                    # Note: EmailAutomationManager will create and manage the job in shared storage
+                    result = self._process_attachment_detailed(attachment, config.brokerage_key, processing_config)
+                    
+                    if result.get('success'):
+                        processed_count += 1
+                        logger.info(f"Successfully processed {attachment.filename} from {attachment.sender}")
+                    else:
+                        logger.warning(f"Failed to process {attachment.filename}: {result.get('error')}")
                     
                 except Exception as e:
-                    logger.error(f"Error processing email {email_data.get('id', 'unknown')}: {e}")
+                    logger.error(f"Error processing attachment {attachment.filename}: {e}")
             
-            result_message = f"Processed {processed_count}/{total_attachments} attachments from {len(emails)} emails"
+            result_message = f"Processed {processed_count}/{total_attachments} attachments"
             logger.info(f"Automated processing completed for {config.brokerage_key}: {result_message}")
             
             return {
                 'success': True,
                 'processed_count': processed_count,
                 'total_attachments': total_attachments,
-                'total_emails': len(emails),
                 'message': result_message
             }
             

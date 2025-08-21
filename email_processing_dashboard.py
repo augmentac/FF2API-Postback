@@ -72,6 +72,9 @@ class EmailProcessingDashboard:
         """Render the complete email processing dashboard."""
         st.subheader("📧 Email Processing Activity")
         
+        # Display any system errors first
+        self._render_system_errors(brokerage_key)
+        
         # Get current processing jobs
         active_jobs, completed_jobs = self._get_processing_jobs(brokerage_key)
         
@@ -88,6 +91,132 @@ class EmailProcessingDashboard:
             
         # Auto-refresh for real-time updates
         self._setup_auto_refresh()
+        
+        # Show enhanced dashboard controls
+        self._render_dashboard_controls(brokerage_key)
+    
+    def _render_system_errors(self, brokerage_key: str):
+        """Render system errors and issues."""
+        try:
+            import streamlit as st
+            if hasattr(st, 'session_state') and 'dashboard_errors' in st.session_state:
+                # Filter errors for this brokerage
+                brokerage_errors = [
+                    error for error in st.session_state.dashboard_errors 
+                    if error.get('brokerage_key') == brokerage_key
+                ]
+                
+                if brokerage_errors:
+                    # Only show recent errors (last hour)
+                    recent_errors = []
+                    one_hour_ago = datetime.now() - timedelta(hours=1)
+                    
+                    for error in brokerage_errors[-5:]:  # Last 5 errors
+                        try:
+                            error_time = datetime.fromisoformat(error['timestamp'])
+                            if error_time > one_hour_ago:
+                                recent_errors.append(error)
+                        except (ValueError, KeyError):
+                            # Include errors with invalid timestamps
+                            recent_errors.append(error)
+                    
+                    if recent_errors:
+                        with st.expander("⚠️ System Issues", expanded=len(recent_errors) > 0):
+                            for error in recent_errors:
+                                error_type = error.get('error_type', 'unknown')
+                                message = error.get('message', 'Unknown error')
+                                timestamp = error.get('timestamp', 'Unknown time')
+                                
+                                if error_type == 'critical_system_error':
+                                    st.error(f"🚨 **Critical Error** ({timestamp}): {message}")
+                                    st.info("💡 **Suggestion**: Try refreshing the page. If the error persists, contact support.")
+                                elif error_type == 'data_retrieval_failure':
+                                    st.warning(f"⚠️ **Data Issue** ({timestamp}): {message}")
+                                    st.info("💡 **Suggestion**: Check if background processing is running and try refreshing.")
+                                else:
+                                    st.warning(f"⚠️ **System Issue** ({timestamp}): {message}")
+                            
+                            # Add clear errors button
+                            if st.button("🧹 Clear Error History", key=f"clear_errors_{brokerage_key}"):
+                                st.session_state.dashboard_errors = [
+                                    e for e in st.session_state.dashboard_errors 
+                                    if e.get('brokerage_key') != brokerage_key
+                                ]
+                                st.rerun()
+                
+        except Exception as e:
+            logger.error(f"Error rendering system errors: {e}")
+    
+    def _convert_storage_job_to_dashboard_job(self, storage_job) -> Optional[EmailProcessingJob]:
+        """Convert storage job format to dashboard job format."""
+        try:
+            # Handle both dataclass and dict formats
+            if hasattr(storage_job, 'job_id'):
+                # Dataclass format (from shared storage)
+                return EmailProcessingJob(
+                    job_id=storage_job.job_id,
+                    filename=storage_job.filename,
+                    brokerage_key=storage_job.brokerage_key,
+                    email_source=storage_job.email_source,
+                    file_size=0,  # Not stored in unified storage
+                    record_count=storage_job.record_count,
+                    started_at=datetime.fromisoformat(storage_job.started_at) if isinstance(storage_job.started_at, str) else storage_job.started_at,
+                    current_step=storage_job.current_step,
+                    progress_percent=storage_job.progress_percent,
+                    status=storage_job.status,
+                    error_message=storage_job.error_message,
+                    success_count=storage_job.success_count,
+                    failure_count=storage_job.failure_count,
+                    processing_time=storage_job.processing_time,
+                    result_data=getattr(storage_job, 'result_data', None)
+                )
+            else:
+                # Dict format (from session state)
+                return EmailProcessingJob(
+                    job_id=storage_job.get('job_id', ''),
+                    filename=storage_job.get('filename', ''),
+                    brokerage_key=storage_job.get('brokerage_key', ''),
+                    email_source=storage_job.get('email_source', ''),
+                    file_size=storage_job.get('file_size', 0),
+                    record_count=storage_job.get('record_count', 0),
+                    started_at=datetime.fromisoformat(storage_job.get('started_at', datetime.now().isoformat())) if isinstance(storage_job.get('started_at'), str) else storage_job.get('started_at', datetime.now()),
+                    current_step=storage_job.get('current_step', 'queued'),
+                    progress_percent=storage_job.get('progress_percent', 0.0),
+                    status=storage_job.get('status', 'pending'),
+                    error_message=storage_job.get('error_message', ''),
+                    success_count=storage_job.get('success_count', 0),
+                    failure_count=storage_job.get('failure_count', 0),
+                    processing_time=storage_job.get('processing_time', 0.0),
+                    result_data=storage_job.get('result_data')
+                )
+        except Exception as e:
+            logger.error(f"Error converting storage job to dashboard job: {e}")
+            return None
+    
+    def _add_storage_health_error(self, brokerage_key: str, system_name: str, error_message: str):
+        """Add storage health error to UI error tracking."""
+        try:
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'dashboard_errors' not in st.session_state:
+                    st.session_state.dashboard_errors = []
+                st.session_state.dashboard_errors.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'error_type': 'storage_health_issue',
+                    'message': f"{system_name} storage issue: {error_message}",
+                    'brokerage_key': brokerage_key
+                })
+        except Exception as e:
+            logger.error(f"Error tracking storage health error: {e}")
+    
+    def _convert_canonical_job_to_dashboard_job(self, canonical_job) -> Optional[EmailProcessingJob]:
+        """Convert canonical EmailJob to dashboard EmailProcessingJob format."""
+        try:
+            from data_models import DataModelConverter
+            return DataModelConverter.to_dashboard_job(canonical_job)
+        except Exception as e:
+            logger.error(f"Error converting canonical job to dashboard job: {e}")
+            return None
     
     def _render_active_processing_section(self, active_jobs: List[EmailProcessingJob]):
         """Render active processing jobs with same UI as manual upload."""
@@ -123,19 +252,136 @@ class EmailProcessingDashboard:
                 self._render_email_data_preview(job.result_data['preview_data'])
     
     def _render_email_processing_progress(self, job: EmailProcessingJob):
-        """Render processing progress using same UI as manual upload."""
+        """Render enhanced processing progress with detailed visualization."""
         # Determine current step index
         step_index = self._get_step_index_from_status(job.current_step)
         total_steps = len(self.processing_steps)
         progress = (step_index + 1) / total_steps if step_index >= 0 else job.progress_percent / 100
         
-        # Use same format as manual processing
+        # Enhanced progress visualization
         if step_index >= 0 and step_index < total_steps:
+            # Main progress bar
             st.info(f"⚡ Processing: {self.processing_steps[step_index]} ({step_index + 1}/{total_steps})")
             st.progress(progress)
+            
+            # Detailed step-by-step visualization
+            self._render_step_by_step_progress(step_index, job)
+            
         else:
+            # Fallback for unknown steps
             st.info(f"⚡ Processing: {job.current_step}")
             st.progress(job.progress_percent / 100)
+        
+        # Show timing information
+        self._render_progress_timing(job)
+    
+    def _render_step_by_step_progress(self, current_step_index: int, job: EmailProcessingJob):
+        """Render detailed step-by-step progress visualization."""
+        try:
+            # Define step details with icons, descriptions, and typical durations
+            step_details = [
+                {"icon": "📧", "name": "Parsing Email", "desc": "Extracting attachment data", "est_time": "2-5s"},
+                {"icon": "🔍", "name": "Analyzing Data", "desc": "Validating columns and data types", "est_time": "5-10s"},
+                {"icon": "🔗", "name": "Applying Mappings", "desc": "Mapping fields to FF2API format", "est_time": "10-20s"},
+                {"icon": "⚡", "name": "Submitting to API", "desc": "Sending data to FreightForwarder2", "est_time": "30-60s"},
+                {"icon": "🌟", "name": "Enriching Data", "desc": "Adding tracking and analytics", "est_time": "10-30s"},
+                {"icon": "📁", "name": "Generating Results", "desc": "Creating output files", "est_time": "5-15s"}
+            ]
+            
+            # Create columns for each step
+            cols = st.columns(len(step_details))
+            
+            for i, (col, step_detail) in enumerate(zip(cols, step_details)):
+                with col:
+                    if i < current_step_index:
+                        # Completed step
+                        st.success(f"✅ {step_detail['icon']}")
+                        st.caption(f"**{step_detail['name']}**")
+                        st.caption("✅ Completed")
+                    elif i == current_step_index:
+                        # Current step
+                        st.info(f"🔄 {step_detail['icon']}")
+                        st.caption(f"**{step_detail['name']}**")
+                        st.caption(f"🔄 {step_detail['desc']}")
+                        
+                        # Show more detailed progress for current step
+                        if hasattr(job, 'progress_percent'):
+                            step_progress = (job.progress_percent % (100/len(step_details))) / (100/len(step_details))
+                            st.progress(step_progress)
+                            st.caption(f"⏱️ Est: {step_detail['est_time']}")
+                    else:
+                        # Pending step
+                        st.empty()
+                        st.caption(f"⏳ {step_detail['icon']}")
+                        st.caption(f"**{step_detail['name']}**")
+                        st.caption("⏳ Pending")
+            
+            # Overall progress summary
+            st.markdown(f"""
+            <div style="text-align: center; padding: 10px; background-color: #f0f2f6; border-radius: 5px; margin-top: 10px;">
+                <strong>Progress: {current_step_index + 1} of {len(step_details)} steps completed</strong><br/>
+                <small>Currently: {step_details[current_step_index]['desc']}</small>
+            </div>
+            """, unsafe_allow_html=True)
+            
+        except Exception as e:
+            logger.error(f"Error rendering step-by-step progress: {e}")
+            # Fallback to simple progress
+            st.info("🔄 Processing in progress...")
+    
+    def _render_progress_timing(self, job: EmailProcessingJob):
+        """Render timing information for the processing job."""
+        try:
+            # Calculate timing metrics
+            if hasattr(job, 'started_at') and job.started_at:
+                elapsed = (datetime.now() - job.started_at).total_seconds()
+                
+                # Create timing display
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if elapsed < 60:
+                        st.metric("⏱️ Elapsed", f"{elapsed:.0f}s")
+                    else:
+                        st.metric("⏱️ Elapsed", f"{elapsed/60:.1f}m")
+                
+                with col2:
+                    # Estimate remaining time based on current step
+                    step_index = self._get_step_index_from_status(job.current_step)
+                    if step_index >= 0:
+                        # Rough estimates for remaining time per step
+                        remaining_estimates = [120, 90, 60, 30, 15, 5]  # seconds per remaining step
+                        if step_index < len(remaining_estimates):
+                            estimated_remaining = sum(remaining_estimates[step_index:])
+                            if estimated_remaining < 60:
+                                st.metric("⏳ Est. Remaining", f"{estimated_remaining}s")
+                            else:
+                                st.metric("⏳ Est. Remaining", f"{estimated_remaining/60:.1f}m")
+                        else:
+                            st.metric("⏳ Est. Remaining", "Almost done!")
+                    else:
+                        st.metric("⏳ Est. Remaining", "Calculating...")
+                
+                with col3:
+                    # Show records being processed
+                    if hasattr(job, 'record_count') and job.record_count > 0:
+                        st.metric("📊 Records", f"{job.record_count:,}")
+                    else:
+                        st.metric("📊 Records", "Counting...")
+                
+                # Performance indicator
+                if elapsed > 0:
+                    if elapsed < 30:
+                        st.success("🚀 Processing quickly")
+                    elif elapsed < 120:
+                        st.info("⚡ Processing normally") 
+                    elif elapsed < 300:
+                        st.warning("🐌 Processing slowly")
+                    else:
+                        st.error("⚠️ Processing taking longer than expected")
+            
+        except Exception as e:
+            logger.debug(f"Error rendering progress timing: {e}")
     
     def _render_email_data_preview(self, preview_data: Dict[str, Any]):
         """Render data preview using same component as manual upload."""
@@ -259,71 +505,52 @@ class EmailProcessingDashboard:
                 )
     
     def _get_processing_jobs(self, brokerage_key: str) -> Tuple[List[EmailProcessingJob], List[EmailProcessingJob]]:
-        """Get active and completed processing jobs from shared storage."""
+        """Get active and completed processing jobs using unified storage."""
         try:
-            # Try to get jobs from shared storage first
-            from shared_storage_bridge import shared_storage
+            # Use unified storage for automatic failover and health monitoring
+            from unified_storage import unified_storage
             
-            # Convert shared storage jobs to EmailProcessingJob format
+            # Get jobs through unified storage (handles failover automatically)
+            active_storage_jobs = unified_storage.get_active_jobs(brokerage_key)
+            completed_storage_jobs = unified_storage.get_completed_jobs(brokerage_key)
+            
+            # Convert to EmailProcessingJob format
             active_jobs = []
             completed_jobs = []
             
-            # Get active jobs from shared storage
-            shared_active = shared_storage.get_active_jobs(brokerage_key)
-            for shared_job in shared_active:
-                job = EmailProcessingJob(
-                    job_id=shared_job.job_id,
-                    filename=shared_job.filename,
-                    brokerage_key=shared_job.brokerage_key,
-                    email_source=shared_job.email_source,
-                    file_size=0,  # Not stored in shared storage
-                    record_count=shared_job.record_count,
-                    started_at=datetime.fromisoformat(shared_job.started_at),
-                    current_step=shared_job.current_step,
-                    progress_percent=shared_job.progress_percent,
-                    status=shared_job.status,
-                    error_message=shared_job.error_message,
-                    success_count=shared_job.success_count,
-                    failure_count=shared_job.failure_count,
-                    processing_time=shared_job.processing_time,
-                    result_data=shared_job.result_data
-                )
-                active_jobs.append(job)
+            # Process active jobs (already canonical EmailJob objects)
+            for canonical_job in active_storage_jobs:
+                dashboard_job = self._convert_canonical_job_to_dashboard_job(canonical_job)
+                if dashboard_job:
+                    active_jobs.append(dashboard_job)
             
-            # Get completed jobs from shared storage
-            shared_completed = shared_storage.get_completed_jobs(brokerage_key)
-            for shared_job in shared_completed:
-                job = EmailProcessingJob(
-                    job_id=shared_job.job_id,
-                    filename=shared_job.filename,
-                    brokerage_key=shared_job.brokerage_key,
-                    email_source=shared_job.email_source,
-                    file_size=0,  # Not stored in shared storage
-                    record_count=shared_job.record_count,
-                    started_at=datetime.fromisoformat(shared_job.started_at),
-                    current_step=shared_job.current_step,
-                    progress_percent=shared_job.progress_percent,
-                    status=shared_job.status,
-                    error_message=shared_job.error_message,
-                    success_count=shared_job.success_count,
-                    failure_count=shared_job.failure_count,
-                    processing_time=shared_job.processing_time,
-                    result_data=shared_job.result_data
-                )
-                completed_jobs.append(job)
+            # Process completed jobs (already canonical EmailJob objects)
+            for canonical_job in completed_storage_jobs:
+                dashboard_job = self._convert_canonical_job_to_dashboard_job(canonical_job)
+                if dashboard_job:
+                    completed_jobs.append(dashboard_job)
+            
+            # Check storage health and surface any issues
+            health_status = unified_storage.get_storage_health()
+            for system_name, status in health_status.items():
+                if not status.is_available and status.last_error:
+                    self._add_storage_health_error(brokerage_key, system_name, status.last_error)
             
             return active_jobs, completed_jobs
             
-        except ImportError:
-            logger.debug("Shared storage not available, falling back to session state")
-            # Fallback to session state method
-            all_jobs = self._get_jobs_from_storage(brokerage_key)
-            active_jobs = [job for job in all_jobs if job.status in ["pending", "processing"]]
-            completed_jobs = [job for job in all_jobs if job.status in ["completed", "failed"]]
-            return active_jobs, completed_jobs
-        
         except Exception as e:
-            logger.error(f"Error getting processing jobs from shared storage: {e}")
+            logger.critical(f"Unified storage failed completely: {e}")
+            # Surface critical errors to UI
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'dashboard_errors' not in st.session_state:
+                    st.session_state.dashboard_errors = []
+                st.session_state.dashboard_errors.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'error_type': 'storage_system_failure',
+                    'message': f"All storage systems failed: {str(e)}",
+                    'brokerage_key': brokerage_key
+                })
             return [], []
     
     def _get_jobs_from_storage(self, brokerage_key: str) -> List[EmailProcessingJob]:
@@ -350,49 +577,49 @@ class EmailProcessingDashboard:
             return jobs
             
         except Exception as e:
-            logger.error(f"Error getting jobs from storage: {e}")
+            logger.error(f"Error getting jobs from session state storage: {e}")
+            # Surface error to UI
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'dashboard_errors' not in st.session_state:
+                    st.session_state.dashboard_errors = []
+                st.session_state.dashboard_errors.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'error_type': 'session_storage_error',
+                    'message': f"Cannot retrieve jobs from session storage: {str(e)}",
+                    'brokerage_key': brokerage_key
+                })
             return []
     
     def _get_queue_status(self, brokerage_key: str) -> Dict[str, int]:
-        """Get processing queue status from shared storage."""
+        """Get processing queue status using unified storage."""
         try:
-            # Try to get stats from shared storage first
-            from shared_storage_bridge import shared_storage
+            from unified_storage import unified_storage
             
-            stats = shared_storage.get_processing_stats(brokerage_key)
+            # Get stats through unified storage (handles failover automatically)
+            stats = unified_storage.get_processing_stats(brokerage_key)
+            
             return {
                 'total': stats.get('total', 0),
                 'processing': stats.get('processing', 0),
-                'queued': stats.get('pending', 0),  # 'pending' in shared storage = 'queued' in UI
+                'queued': stats.get('pending', 0),  # 'pending' in storage = 'queued' in UI
                 'completed_today': stats.get('completed_today', 0)
             }
             
-        except ImportError:
-            logger.debug("Shared storage not available, falling back to session state")
-            # Fallback to session state method
-            jobs = self._get_jobs_from_storage(brokerage_key)
-            
-            # Count jobs by status
-            total = len(jobs)
-            processing = len([j for j in jobs if j.status == "processing"])
-            queued = len([j for j in jobs if j.status == "pending"]) 
-            
-            # Count completed today
-            today = datetime.now().date()
-            completed_today = len([
-                j for j in jobs 
-                if j.status == "completed" and j.started_at.date() == today
-            ])
-            
-            return {
-                'total': total,
-                'processing': processing,
-                'queued': queued,
-                'completed_today': completed_today
-            }
-            
         except Exception as e:
-            logger.error(f"Error getting queue status from shared storage: {e}")
+            logger.error(f"Error getting queue status from unified storage: {e}")
+            # Surface error to UI
+            import streamlit as st
+            if hasattr(st, 'session_state'):
+                if 'dashboard_errors' not in st.session_state:
+                    st.session_state.dashboard_errors = []
+                st.session_state.dashboard_errors.append({
+                    'timestamp': datetime.now().isoformat(),
+                    'error_type': 'queue_status_error',
+                    'message': f"Cannot retrieve queue status: {str(e)}",
+                    'brokerage_key': brokerage_key
+                })
+            # Return zeros but user will see the error in UI
             return {'total': 0, 'processing': 0, 'queued': 0, 'completed_today': 0}
     
     def _get_step_index_from_status(self, current_step: str) -> int:
@@ -431,26 +658,146 @@ class EmailProcessingDashboard:
                     if st.button("🔄 Refresh", key="email_refresh"):
                         st.rerun()
                 
-                # Auto-refresh every 3 seconds using JavaScript
-                st.markdown("""
-                <script>
-                setTimeout(function(){
-                    window.parent.document.querySelector('[data-testid="stApp"]').dispatchEvent(
-                        new KeyboardEvent('keydown', {key: 'F5', keyCode: 116})
-                    );
-                }, 3000);
-                </script>
-                """, unsafe_allow_html=True)
+                # Use Streamlit-native auto-refresh with proper timing
+                if 'last_email_refresh' not in st.session_state:
+                    st.session_state.last_email_refresh = time.time()
                 
-                # Alternative: Show refresh timer
-                refresh_time = st.session_state.get('email_dashboard_refresh', time.time())
-                elapsed = time.time() - refresh_time
+                current_time = time.time()
+                time_since_refresh = current_time - st.session_state.last_email_refresh
                 
-                if elapsed > 3:  # Auto refresh every 3 seconds
+                # Show refresh countdown
+                refresh_interval = 5  # 5 seconds for active jobs
+                time_until_refresh = max(0, refresh_interval - time_since_refresh)
+                
+                if time_until_refresh > 0:
+                    st.info(f"⏱️ Auto-refreshing in {time_until_refresh:.0f}s")
+                else:
+                    st.success("🔄 Refreshing...")
+                    st.session_state.last_email_refresh = current_time
+                    time.sleep(0.1)  # Small delay to prevent rapid refresh
                     st.rerun()
                     
         except Exception as e:
             logger.debug(f"Error in auto-refresh setup: {e}")
+    
+    def _render_dashboard_controls(self, brokerage_key: str):
+        """Render enhanced dashboard controls and status indicators."""
+        try:
+            st.markdown("---")
+            st.markdown("### 📊 Dashboard Status")
+            
+            # Get system health
+            from unified_storage import unified_storage
+            health_status = unified_storage.get_storage_health()
+            
+            # Create status columns
+            col1, col2, col3, col4 = st.columns(4)
+            
+            # System health indicator
+            with col1:
+                all_systems_healthy = all(status.is_available for status in health_status.values())
+                if all_systems_healthy:
+                    st.metric("System Status", "🟢 Online", delta="All systems operational")
+                else:
+                    failed_systems = [name for name, status in health_status.items() if not status.is_available]
+                    st.metric("System Status", "🔴 Issues", delta=f"{len(failed_systems)} system(s) down", delta_color="inverse")
+            
+            # Data freshness indicator
+            with col2:
+                last_refresh = st.session_state.get('last_email_refresh', 0)
+                if last_refresh > 0:
+                    refresh_age = time.time() - last_refresh
+                    if refresh_age < 10:
+                        st.metric("Data Freshness", "🟢 Fresh", delta=f"{refresh_age:.0f}s ago")
+                    elif refresh_age < 60:
+                        st.metric("Data Freshness", "🟡 Recent", delta=f"{refresh_age:.0f}s ago")
+                    else:
+                        st.metric("Data Freshness", "🔴 Stale", delta=f"{refresh_age/60:.0f}m ago", delta_color="inverse")
+                else:
+                    st.metric("Data Freshness", "❓ Unknown", delta="Never refreshed")
+            
+            # Active jobs count
+            with col3:
+                try:
+                    active_jobs, _ = self._get_processing_jobs(brokerage_key)
+                    active_count = len([job for job in active_jobs if job.status == "processing"])
+                    pending_count = len([job for job in active_jobs if job.status == "pending"])
+                    
+                    if active_count > 0:
+                        st.metric("Active Jobs", f"🔄 {active_count}", delta=f"{pending_count} queued")
+                    elif pending_count > 0:
+                        st.metric("Active Jobs", f"⏸️ {pending_count}", delta="queued")
+                    else:
+                        st.metric("Active Jobs", "✅ 0", delta="idle")
+                except Exception as e:
+                    st.metric("Active Jobs", "❌ Error", delta=str(e)[:20])
+            
+            # Storage performance
+            with col4:
+                if health_status:
+                    avg_performance = sum(status.performance_ms for status in health_status.values() if status.is_available)
+                    healthy_count = sum(1 for status in health_status.values() if status.is_available)
+                    
+                    if healthy_count > 0:
+                        avg_performance = avg_performance / healthy_count
+                        if avg_performance < 100:
+                            st.metric("Storage Speed", f"🚀 {avg_performance:.0f}ms", delta="fast")
+                        elif avg_performance < 500:
+                            st.metric("Storage Speed", f"⚡ {avg_performance:.0f}ms", delta="normal")
+                        else:
+                            st.metric("Storage Speed", f"🐌 {avg_performance:.0f}ms", delta="slow", delta_color="inverse")
+                    else:
+                        st.metric("Storage Speed", "❌ N/A", delta="systems down")
+                else:
+                    st.metric("Storage Speed", "❓ Unknown", delta="no data")
+            
+            # Advanced controls
+            with st.expander("🛠️ Advanced Controls", expanded=False):
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.markdown("**System Actions**")
+                    if st.button("🔄 Force Full Refresh", help="Force a complete data refresh"):
+                        # Clear all cached data
+                        for key in list(st.session_state.keys()):
+                            if 'email' in key or 'refresh' in key:
+                                del st.session_state[key]
+                        st.rerun()
+                    
+                    if st.button("🧹 Clear Error History", help="Clear all error notifications"):
+                        if 'dashboard_errors' in st.session_state:
+                            st.session_state.dashboard_errors = []
+                        st.success("Error history cleared")
+                    
+                    if st.button("💾 Migrate Session Data", help="Migrate session data to shared storage"):
+                        try:
+                            unified_storage.migrate_session_to_shared(brokerage_key)
+                            st.success("Session data migrated successfully")
+                        except Exception as e:
+                            st.error(f"Migration failed: {e}")
+                
+                with col2:
+                    st.markdown("**Debug Information**")
+                    
+                    # Show detailed health status
+                    for system_name, status in health_status.items():
+                        status_color = "🟢" if status.is_available else "🔴"
+                        st.write(f"{status_color} **{system_name}**: {status.performance_ms:.0f}ms")
+                        if not status.is_available and status.last_error:
+                            st.caption(f"❌ {status.last_error}")
+                    
+                    # Show session state size
+                    session_size = len(str(st.session_state))
+                    st.write(f"📊 **Session Size**: {session_size:,} chars")
+                    
+                    # Show brokerage key info
+                    from brokerage_key_utils import BrokerageKeyManager
+                    normalized_key = BrokerageKeyManager.normalize(brokerage_key)
+                    st.write(f"🏢 **Brokerage**: `{normalized_key}`")
+        
+        except Exception as e:
+            logger.error(f"Error rendering dashboard controls: {e}")
+            st.error(f"Dashboard controls error: {e}")
     
     def add_processing_job(self, job: EmailProcessingJob):
         """Add a new processing job to the dashboard."""
