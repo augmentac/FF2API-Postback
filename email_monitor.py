@@ -962,6 +962,87 @@ class EmailMonitorService:
             logger.error(f"Error refreshing OAuth token for {brokerage_key}: {e}")
             return None
 
+    def process_brokerage_emails_automated(self, config) -> Dict[str, Any]:
+        """
+        Process emails for a brokerage in automated background mode.
+        
+        This method is designed to be called by the background automation service
+        without requiring Streamlit session state.
+        
+        Args:
+            config: EmailAutomationConfig with brokerage settings
+            
+        Returns:
+            Dictionary with processing results
+        """
+        try:
+            logger.info(f"Starting automated email processing for {config.brokerage_key}")
+            
+            # Get Gmail service
+            gmail_headers = self._get_gmail_service(config.brokerage_key)
+            if not gmail_headers:
+                return {
+                    'success': False,
+                    'processed_count': 0,
+                    'error': f'Could not get Gmail service for {config.brokerage_key}'
+                }
+            
+            # Fetch recent emails
+            emails = self._get_recent_emails_for_processing(
+                gmail_headers,
+                config.folder_name,
+                config.brokerage_key
+            )
+            
+            if not emails:
+                logger.debug(f"No new emails found for {config.brokerage_key}")
+                return {
+                    'success': True,
+                    'processed_count': 0,
+                    'message': 'No new emails to process'
+                }
+            
+            # Process each email
+            processed_count = 0
+            total_attachments = 0
+            
+            for email_data in emails:
+                try:
+                    attachments = self._extract_csv_attachments(email_data, gmail_headers)
+                    total_attachments += len(attachments)
+                    
+                    for attachment in attachments:
+                        # Process attachment using detailed processing
+                        result = self._process_attachment_detailed(attachment, config.brokerage_key, config.__dict__)
+                        
+                        if result.get('success'):
+                            processed_count += 1
+                            logger.info(f"Successfully processed {attachment.filename} from {attachment.sender}")
+                        else:
+                            logger.warning(f"Failed to process {attachment.filename}: {result.get('error')}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing email {email_data.get('id', 'unknown')}: {e}")
+            
+            result_message = f"Processed {processed_count}/{total_attachments} attachments from {len(emails)} emails"
+            logger.info(f"Automated processing completed for {config.brokerage_key}: {result_message}")
+            
+            return {
+                'success': True,
+                'processed_count': processed_count,
+                'total_attachments': total_attachments,
+                'total_emails': len(emails),
+                'message': result_message
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in automated email processing for {config.brokerage_key}: {e}")
+            return {
+                'success': False,
+                'processed_count': 0,
+                'error': str(e)
+            }
+
 
 # Global instance for application use
 email_monitor = EmailMonitorService(None)  # Will be initialized with credential_manager
