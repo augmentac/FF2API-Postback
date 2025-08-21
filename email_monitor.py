@@ -48,6 +48,9 @@ class ProcessingResult:
     processed_count: int
     error_details: Optional[str] = None
     file_info: Optional[Dict[str, Any]] = None
+    # Legacy fields for backwards compatibility
+    processed_files: Optional[List[Dict[str, Any]]] = None
+    processing_summary: Optional[Dict[str, Any]] = None
 
 @dataclass
 class EmailAutomationConfig:
