@@ -1,0 +1,32 @@
+{
+  "test_pipeline": [
+    {
+      "filename": "pipeline_test.csv",
+      "brokerage_key": "test_pipeline",
+      "email_source": "pipeline@test.com",
+      "subject": "Test Pipeline Email",
+      "processed_time": "2025-08-20T16:45:34.713863",
+      "processing_mode": "email_automation",
+      "was_email_automated": true,
+      "record_count": 25,
+      "success": true,
+      "result_summary": null,
+      "download_links": null
+    }
+  ],
+  "eShipping": [
+    {
+      "filename": "Testing- eShipping (1).xlsx",
+      "brokerage_key": "eShipping",
+      "email_source": "eshippingflatfiles@goaugment.com",
+      "subject": "Testing- eShipping",
+      "processed_time": "2025-08-20T16:54:47.359643",
+      "processing_mode": "email_automation",
+      "was_email_automated": true,
+      "record_count": 45,
+      "success": true,
+      "result_summary": null,
+      "download_links": null
+    }
+  ]
+}
