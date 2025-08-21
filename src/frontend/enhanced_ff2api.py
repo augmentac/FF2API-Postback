@@ -1389,6 +1389,10 @@ def _render_email_results_dashboard():
     # Check for session state results (manual checks)
     session_results = st.session_state.get('email_processing_results') if st.session_state.get('show_email_results_dashboard') else None
     
+    # If email automation is active, also check for results proactively
+    processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
+    email_automation_active = processing_mode == 'full_endtoend'
+    
     # Check for shared storage results (background processing)
     shared_results = None
     brokerage_name = st.session_state.get('brokerage_name', 'default')
@@ -1445,8 +1449,55 @@ def _render_email_results_dashboard():
     except Exception as e:
         logger.debug(f"Could not load shared storage results: {e}")
     
-    # If no results from either source, return
-    if not session_results and not shared_results:
+    # If no results from either source AND email automation is not active, return
+    if not session_results and not shared_results and not email_automation_active:
+        return
+    
+    # If email automation is active but no results found, show a status message
+    if email_automation_active and not session_results and not shared_results:
+        st.markdown("---")
+        st.markdown("### 📧 Email Automation Status")
+        st.info("🤖 **Email automation is active** - Monitoring for incoming emails and processing in background")
+        
+        # Show processing indicator if available
+        try:
+            from shared_storage_bridge import shared_storage
+            # Check if there are any active jobs
+            all_jobs = []
+            for variation in [brokerage_name, brokerage_name.lower(), 'eshipping']:
+                try:
+                    jobs = shared_storage.get_active_jobs(variation)
+                    all_jobs.extend(jobs)
+                except:
+                    continue
+            
+            if all_jobs:
+                st.success(f"🔄 **{len(all_jobs)} active processing job(s)** - Results will appear when complete")
+                for job in all_jobs[:3]:  # Show first 3 active jobs
+                    st.progress(job.progress_percent / 100, text=f"Processing {job.filename}: {job.current_step}")
+        except Exception as e:
+            logger.debug(f"Could not check active jobs: {e}")
+        
+        # Add refresh button for users to manually check
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Check for New Processing Results", use_container_width=True):
+                st.rerun()
+        with col2:
+            with st.expander("📊 Background Activity"):
+                st.caption("Processing activity appears in the application logs (visible in browser console)")
+                st.caption(f"Current brokerage: `{brokerage_name}`")
+                
+                # Show shared storage debug info
+                try:
+                    from shared_storage_bridge import shared_storage
+                    debug_info = []
+                    for variation in [brokerage_name, brokerage_name.lower(), 'eshipping', 'eShipping']:
+                        test_results = shared_storage.get_recent_results(variation, limit=1)
+                        debug_info.append(f"'{variation}': {len(test_results)} results")
+                    st.caption("Debug: " + ", ".join(debug_info))
+                except Exception as e:
+                    st.caption(f"Debug error: {e}")
         return
     
     # Determine which results to display
