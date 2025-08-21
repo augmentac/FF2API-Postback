@@ -1333,18 +1333,116 @@ def _show_processing_preview(processing_mode):
             st.write(step)
 
 def _render_email_results_dashboard():
-    """Render email processing results dashboard similar to manual upload results."""
+    """Render email processing results dashboard with shared storage integration."""
     
-    if not st.session_state.get('show_email_results_dashboard'):
+    # Check for session state results (manual checks)
+    session_results = st.session_state.get('email_processing_results') if st.session_state.get('show_email_results_dashboard') else None
+    
+    # Check for shared storage results (background processing)
+    shared_results = None
+    brokerage_name = st.session_state.get('brokerage_name', 'default')
+    try:
+        from shared_storage_bridge import shared_storage
+        recent_results = shared_storage.get_recent_results(brokerage_name, limit=5)
+        completed_jobs = shared_storage.get_completed_jobs(brokerage_name, limit=5)
+        stats = shared_storage.get_processing_stats(brokerage_name)
+        
+        if recent_results or completed_jobs or stats.get('completed_today', 0) > 0:
+            shared_results = {
+                'recent_results': recent_results,
+                'completed_jobs': completed_jobs,
+                'stats': stats,
+                'source': 'background_processing'
+            }
+    except Exception as e:
+        logger.debug(f"Could not load shared storage results: {e}")
+    
+    # If no results from either source, return
+    if not session_results and not shared_results:
         return
     
-    results = st.session_state.get('email_processing_results')
-    if not results:
-        return
+    # Determine which results to display
+    results = session_results if session_results else shared_results
     
     st.markdown("---")
     st.markdown("### 📧 Email Processing Results")
     
+    # Handle different result formats
+    if results.get('source') == 'background_processing':
+        # Display shared storage results
+        _render_shared_storage_results(results)
+    else:
+        # Display session state results (existing format)
+        _render_session_state_results(results)
+
+
+def _render_shared_storage_results(results):
+    """Render results from shared storage (background processing)."""
+    recent_results = results.get('recent_results', [])
+    completed_jobs = results.get('completed_jobs', [])
+    stats = results.get('stats', {})
+    
+    # Summary metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Files Processed Today", stats.get('completed_today', 0))
+    with col2:
+        total_records = sum(result.record_count for result in recent_results)
+        st.metric("Total Records", total_records)
+    with col3:
+        success_rate = ((stats.get('completed', 0) / max(stats.get('total', 1), 1)) * 100)
+        st.metric("Success Rate", f"{success_rate:.1f}%")
+    with col4:
+        st.metric("Source", "🤖 Background")
+    
+    # Recent processing activity
+    if recent_results:
+        st.markdown("#### 📁 Recent File Processing")
+        
+        for result in recent_results:
+            status_icon = "✅" if result.success else "❌"
+            
+            with st.expander(f"{status_icon} {result.filename} - {result.record_count} records"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Email Source:** {result.email_source}")
+                    st.write(f"**Subject:** {result.subject}")
+                    st.write(f"**Processed:** {result.processed_time}")
+                with col2:
+                    st.write(f"**Records:** {result.record_count}")
+                    st.write(f"**Status:** {status_icon} {'Success' if result.success else 'Failed'}")
+                    st.write(f"**Mode:** {result.processing_mode}")
+                
+                # Show download links if available
+                if result.download_links:
+                    st.markdown("**📥 Download Links:**")
+                    for link_type, link_url in result.download_links.items():
+                        st.markdown(f"[Download {link_type}]({link_url})")
+    
+    # Active jobs
+    if completed_jobs:
+        st.markdown("#### 🔄 Recent Job Status")
+        for job in completed_jobs[:3]:  # Show last 3 jobs
+            status_color = "🟢" if job.status == 'completed' else "🔴" if job.status == 'failed' else "🟡"
+            st.caption(f"{status_color} {job.filename} - {job.status} ({job.progress_percent:.0f}%)")
+    
+    # Action buttons
+    st.markdown("---")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if st.button("🔄 Refresh Activity", use_container_width=True):
+            st.rerun()
+    
+    with col2:
+        if st.button("❌ Close Results", use_container_width=True):
+            st.session_state.show_email_results_dashboard = False
+            st.rerun()
+
+
+def _render_session_state_results(results):
+    """Render results from session state (manual checks)."""
     # Summary metrics (same as manual upload)
     col1, col2, col3, col4 = st.columns(4)
     summary = results.get('processing_summary', {})
@@ -1357,7 +1455,7 @@ def _render_email_results_dashboard():
         success_rate = summary.get('success_rate', 0)
         st.metric("Success Rate", f"{success_rate:.1f}%")
     with col4:
-        st.metric("Source", "📧 Email")
+        st.metric("Source", "📧 Manual Check")
     
     # Processing timestamp
     processing_time = results.get('timestamp', datetime.now())
