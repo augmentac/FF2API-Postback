@@ -1832,6 +1832,16 @@ def _render_enhanced_results_section():
         
         logger.info(f"🔍 Checking brokerage variations: {brokerage_variations}")
         
+        # Log shared storage directory status
+        import os
+        storage_dir = ".streamlit_shared"
+        if os.path.exists(storage_dir):
+            logger.info(f"🔍 Shared storage directory exists: {storage_dir}")
+            files = os.listdir(storage_dir)
+            logger.info(f"🔍 Shared storage files: {files}")
+        else:
+            logger.warning(f"🔍 Shared storage directory does not exist: {storage_dir}")
+        
         for variation in brokerage_variations:
             recent_results = shared_storage.get_recent_results(variation, limit=1)
             logger.info(f"🔍 Checked '{variation}': found {len(recent_results) if recent_results else 0} results")
@@ -1869,14 +1879,34 @@ def _render_enhanced_results_section():
             if st.button("🧪 Test Shared Storage Access"):
                 try:
                     from shared_storage_bridge import shared_storage
-                    test_results = shared_storage.get_recent_results('eShipping', limit=1)
-                    if test_results:
-                        st.success(f"✅ Found {len(test_results)} results in shared storage")
-                        st.write(f"Latest result: {test_results[0].filename}")
+                    import os
+                    
+                    # Check if shared storage directory exists
+                    storage_dir = ".streamlit_shared"
+                    if os.path.exists(storage_dir):
+                        st.success(f"✅ Shared storage directory exists: {storage_dir}")
+                        files = os.listdir(storage_dir)
+                        st.write(f"📁 Files: {files}")
                     else:
-                        st.error("❌ No results found in shared storage")
+                        st.error(f"❌ Shared storage directory missing: {storage_dir}")
+                    
+                    # Test all variations
+                    test_variations = ['eShipping', 'eshipping', 'ESHIPPING', 'Eshipping', brokerage_name]
+                    for variation in test_variations:
+                        test_results = shared_storage.get_recent_results(variation, limit=1)
+                        if test_results:
+                            st.success(f"✅ Found {len(test_results)} results for '{variation}'")
+                            result = test_results[0]
+                            st.write(f"  📄 Latest: {result.filename}")
+                            st.write(f"  ✅ Success: {result.success}, Records: {result.record_count}")
+                            break
+                    else:
+                        st.error("❌ No results found for any brokerage variation")
+                        
                 except Exception as e:
                     st.error(f"❌ Shared storage error: {e}")
+                    import traceback
+                    st.code(traceback.format_exc())
         return
     
     # Prioritize email results if no session results, or if user wants to see email results
