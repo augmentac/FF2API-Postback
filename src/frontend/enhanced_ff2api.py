@@ -1604,8 +1604,94 @@ def _render_session_state_results(results):
             st.rerun()
 
 
+def _render_diagnostic_information(ff2api_results, result):
+    """Render diagnostic information for failed processing"""
+    
+    st.markdown("#### 🔍 Diagnostic Information")
+    
+    # Processing pipeline status
+    st.markdown("**Processing Pipeline Status:**")
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        # File reading always works if we got here
+        st.markdown("✅ **File Reading**")
+        st.caption("CSV/Excel parsing successful")
+    
+    with col2:
+        # Field mapping always works if we got here
+        st.markdown("✅ **Field Mapping**")
+        st.caption("Column mapping completed")
+    
+    with col3:
+        # FF2API status
+        success_count = len([r for r in ff2api_results if r.get('success', False)])
+        if success_count > 0:
+            st.markdown("⚠️ **FF2API Processing**")
+            st.caption(f"Partial success: {success_count}/{len(ff2api_results)}")
+        else:
+            st.markdown("❌ **FF2API Processing**")
+            st.caption("All API calls failed")
+    
+    with col4:
+        # Enrichment/Export status
+        has_exports = 'enriched_exports' in st.session_state and st.session_state.enriched_exports
+        if has_exports:
+            st.markdown("✅ **Data Export**")
+            st.caption("Files generated successfully")
+        else:
+            st.markdown("⚠️ **Data Export**")
+            st.caption("Limited exports available")
+    
+    # Detailed error information
+    failed_results = [r for r in ff2api_results if not r.get('success', False)]
+    
+    if failed_results:
+        with st.expander("❌ FF2API Error Details", expanded=True):
+            st.markdown("**Common Issues & Solutions:**")
+            
+            # Analyze error patterns
+            error_messages = [r.get('error', 'Unknown error') for r in failed_results]
+            unique_errors = list(set(error_messages))
+            
+            for error in unique_errors:
+                count = error_messages.count(error)
+                st.markdown(f"**• {error}** (affects {count} record{'s' if count > 1 else ''})")
+                
+                # Provide specific guidance based on error type
+                if "0% success rate" in error:
+                    st.info("""
+                    **Possible causes:**
+                    - API authentication issues (check API key/bearer token)
+                    - Network connectivity problems
+                    - API endpoint unavailable
+                    - Invalid request format
+                    """)
+                elif "authentication" in error.lower() or "unauthorized" in error.lower():
+                    st.info("""
+                    **Authentication issue:**
+                    - Verify API credentials in brokerage configuration
+                    - Check if bearer token is valid and not expired
+                    - Ensure correct authentication method is selected
+                    """)
+            
+            # Show sample failed records
+            if len(failed_results) > 0:
+                st.markdown("**Sample Failed Records:**")
+                for i, failed in enumerate(failed_results[:3]):  # Show first 3 failures
+                    row_index = failed.get('row_index', i)
+                    load_number = failed.get('load_number', 'UNKNOWN')
+                    error = failed.get('error', 'No error message')
+                    
+                    st.markdown(f"- **Row {row_index}:** Load #{load_number} - {error}")
+                
+                if len(failed_results) > 3:
+                    st.caption(f"... and {len(failed_results) - 3} more failed records")
+
+
 def _render_simplified_results():
-    """Simplified results display - clean and focused UI"""
+    """Simplified results display - clean and focused UI with diagnostic information"""
     if 'enhanced_processing_results' not in st.session_state:
         return
     
@@ -1614,17 +1700,39 @@ def _render_simplified_results():
     st.markdown("---")
     st.subheader("📊 Processing Complete")
     
-    # Simple success message with record count
+    # Always show processing summary
     total_records = result.get('total_rows', 0)
     success_rate = result.get('success_rate', 0)
+    ff2api_results = result.get('ff2api_results', [])
     
+    # Show status with detailed metrics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Records", total_records)
+    
+    with col2:
+        successful_count = len([r for r in ff2api_results if r.get('success', False)])
+        st.metric("FF2API Success", f"{successful_count}/{len(ff2api_results)}")
+    
+    with col3:
+        st.metric("Success Rate", f"{success_rate * 100:.1f}%")
+    
+    with col4:
+        processing_mode = result.get('processing_mode', 'standard')
+        st.metric("Mode", processing_mode)
+    
+    # Show status message
     if success_rate > 0:
-        st.success(f"✅ {total_records} record(s) processed successfully")
+        st.success(f"✅ {successful_count} of {total_records} record(s) processed successfully")
     else:
-        st.error(f"❌ Processing failed for {total_records} record(s)")
-        return
+        st.error(f"❌ All {total_records} record(s) failed processing - see details below")
     
-    # Direct download buttons - only show if exports are available
+    # Always show diagnostic information for failed results
+    if success_rate < 1.0:  # Show if any failures occurred
+        _render_diagnostic_information(ff2api_results, result)
+    
+    # Direct download buttons - always show, even if some failed
     if 'enriched_exports' in st.session_state and st.session_state.enriched_exports:
         st.subheader("📥 Download Results")
         
@@ -1830,6 +1938,11 @@ def process_enhanced_data_workflow(df, field_mappings, api_credentials, brokerag
             st.session_state.processing_in_progress = False
             status_text.text(f"❌ Processing failed: {str(e)}")
             logger.error(f"Enhanced processing error: {e}")
+            
+            # Still store whatever results we have for diagnostic purposes
+            if 'result' in locals():
+                st.session_state.enhanced_processing_results = result
+            
             raise
 
 def _process_through_ff2api(df, field_mappings, api_credentials, data_processor):
