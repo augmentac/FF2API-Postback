@@ -48,6 +48,14 @@ class ProcessingResult:
     processed_count: int
     error_details: Optional[str] = None
     file_info: Optional[Dict[str, Any]] = None
+
+@dataclass
+class EmailAutomationConfig:
+    """Configuration for automated email processing."""
+    brokerage_key: str
+    folder_name: str = 'INBOX'
+    service_account_oauth: Optional[Dict[str, Any]] = None
+    check_interval_minutes: int = 5
     processed_files: Optional[List[Dict[str, Any]]] = None
     processing_summary: Optional[Dict[str, Any]] = None
 

@@ -496,6 +496,12 @@ def render_email_automation_setup(brokerage_key: str):
         if st.button("🛠️ Setup Email Automation", type="primary", use_container_width=True):
             st.session_state.setup_email_config = True
     
+    # Background monitoring controls - add after existing automation controls
+    if config:  # Only show if email automation is configured
+        st.divider()
+        from background_service_manager import background_service_manager
+        background_service_manager.render_configuration_toggle(brokerage_key, config.get('configuration_name', 'default'))
+    
     # Setup/Edit configuration interface
     if st.session_state.get('setup_email_config') or st.session_state.get('edit_email_config'):
         render_email_config_form(brokerage_key, automation_manager, config)

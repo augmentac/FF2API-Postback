@@ -42,6 +42,11 @@ class DatabaseManager:
                 postback_config TEXT,
                 email_automation_config TEXT,
                 workflow_preferences TEXT,
+                auto_monitor_enabled BOOLEAN DEFAULT 0,
+                check_interval_minutes INTEGER DEFAULT 5,
+                last_background_check TIMESTAMP,
+                background_service_status TEXT DEFAULT 'inactive',
+                service_account_oauth TEXT,
                 UNIQUE(brokerage_name, configuration_name)
             )
         ''')
@@ -905,7 +910,7 @@ class DatabaseManager:
             raise
         return key 
 
-    def save_brokerage_configuration(self, brokerage_name, configuration_name, field_mappings, api_credentials, file_headers=None, description=None, auth_type='api_key', bearer_token=None, processing_mode='manual', enrichment_config=None, postback_config=None, email_automation_config=None, workflow_preferences=None):
+    def save_brokerage_configuration(self, brokerage_name, configuration_name, field_mappings, api_credentials, file_headers=None, description=None, auth_type='api_key', bearer_token=None, processing_mode='manual', enrichment_config=None, postback_config=None, email_automation_config=None, workflow_preferences=None, auto_monitor_enabled=False, check_interval_minutes=5, service_account_oauth=None):
         """Save or update brokerage configuration with versioning"""
         # Input validation
         if not brokerage_name or not isinstance(brokerage_name, str):
@@ -965,12 +970,18 @@ class DatabaseManager:
                 # Update existing configuration (no version increment - update in place)
                 config_id, old_mappings, current_version = existing
                 
+                # Encrypt service account OAuth if provided
+                encrypted_service_oauth = None
+                if service_account_oauth:
+                    encrypted_service_oauth = f.encrypt(json.dumps(service_account_oauth).encode())
+                
                 cursor.execute('''
                     UPDATE brokerage_configurations 
                     SET field_mappings = ?, api_credentials = ?, auth_type = ?, bearer_token = ?, 
                         file_headers = ?, updated_at = ?, last_used_at = ?, description = ?,
                         processing_mode = ?, enrichment_config = ?, postback_config = ?, 
-                        email_automation_config = ?, workflow_preferences = ?
+                        email_automation_config = ?, workflow_preferences = ?, auto_monitor_enabled = ?,
+                        check_interval_minutes = ?, service_account_oauth = ?
                     WHERE id = ?
                 ''', (
                     json.dumps(field_mappings), encrypted_credentials, auth_type, encrypted_bearer_token,
@@ -981,6 +992,7 @@ class DatabaseManager:
                     json.dumps(postback_config) if postback_config else None,
                     json.dumps(email_automation_config) if email_automation_config else None,
                     json.dumps(workflow_preferences) if workflow_preferences else None,
+                    auto_monitor_enabled, check_interval_minutes, encrypted_service_oauth,
                     config_id
                 ))
                 
@@ -993,12 +1005,18 @@ class DatabaseManager:
                 
             else:
                 # Create new configuration
+                # Encrypt service account OAuth if provided
+                encrypted_service_oauth = None
+                if service_account_oauth:
+                    encrypted_service_oauth = f.encrypt(json.dumps(service_account_oauth).encode())
+                
                 cursor.execute('''
                     INSERT INTO brokerage_configurations 
                     (brokerage_name, configuration_name, field_mappings, api_credentials, 
                      auth_type, bearer_token, file_headers, last_used_at, description,
-                     processing_mode, enrichment_config, postback_config, email_automation_config, workflow_preferences)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     processing_mode, enrichment_config, postback_config, email_automation_config, 
+                     workflow_preferences, auto_monitor_enabled, check_interval_minutes, service_account_oauth)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     safe_brokerage_name, safe_configuration_name, 
                     json.dumps(field_mappings), encrypted_credentials, auth_type, encrypted_bearer_token,
@@ -1008,7 +1026,8 @@ class DatabaseManager:
                     json.dumps(enrichment_config) if enrichment_config else None,
                     json.dumps(postback_config) if postback_config else None,
                     json.dumps(email_automation_config) if email_automation_config else None,
-                    json.dumps(workflow_preferences) if workflow_preferences else None
+                    json.dumps(workflow_preferences) if workflow_preferences else None,
+                    auto_monitor_enabled, check_interval_minutes, encrypted_service_oauth
                 ))
                 
                 config_id = cursor.lastrowid
@@ -2047,6 +2066,129 @@ class DatabaseManager:
                     carrier_data.get('carrier.contacts.0.phone', carrier_data.get('carrier_contact_phone', '')),
                     True
                 ))
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+
+    # =============================================================================
+    # Background Email Monitoring Methods
+    # =============================================================================
+    
+    def update_background_monitoring(self, brokerage_name, configuration_name, enabled, check_interval_minutes=5):
+        """Update background monitoring settings for a configuration"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                UPDATE brokerage_configurations 
+                SET auto_monitor_enabled = ?, check_interval_minutes = ?, updated_at = ?
+                WHERE brokerage_name = ? AND configuration_name = ?
+            ''', (enabled, check_interval_minutes, datetime.now(), brokerage_name, configuration_name))
+            
+            if cursor.rowcount == 0:
+                raise ValueError(f"Configuration not found: {brokerage_name}/{configuration_name}")
+            
+            conn.commit()
+            
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            conn.close()
+    
+    def get_background_monitoring_configs(self):
+        """Get all configurations with background monitoring enabled"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                SELECT brokerage_name, configuration_name, check_interval_minutes, 
+                       last_background_check, background_service_status, email_automation_config,
+                       service_account_oauth
+                FROM brokerage_configurations 
+                WHERE auto_monitor_enabled = 1 AND is_active = 1
+                ORDER BY brokerage_name, configuration_name
+            ''')
+            
+            configs = []
+            for row in cursor.fetchall():
+                brokerage_name, config_name, interval, last_check, status, email_config, service_oauth = row
+                
+                # Decrypt service account OAuth if present
+                decrypted_service_oauth = None
+                if service_oauth:
+                    try:
+                        key = self._get_encryption_key()
+                        if key:
+                            f = Fernet(key)
+                            decrypted_service_oauth = json.loads(f.decrypt(service_oauth).decode())
+                    except Exception as e:
+                        logging.error(f"Failed to decrypt service OAuth for {brokerage_name}/{config_name}: {e}")
+                
+                configs.append({
+                    'brokerage_name': brokerage_name,
+                    'configuration_name': config_name,
+                    'check_interval_minutes': interval,
+                    'last_background_check': last_check,
+                    'background_service_status': status or 'inactive',
+                    'email_automation_config': json.loads(email_config) if email_config else {},
+                    'service_account_oauth': decrypted_service_oauth
+                })
+            
+            return configs
+            
+        except Exception as e:
+            logging.error(f"Error getting background monitoring configs: {e}")
+            return []
+        finally:
+            conn.close()
+    
+    def update_background_check_timestamp(self, brokerage_name, configuration_name, status='active'):
+        """Update the last background check timestamp and status"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                UPDATE brokerage_configurations 
+                SET last_background_check = ?, background_service_status = ?
+                WHERE brokerage_name = ? AND configuration_name = ?
+            ''', (datetime.now(), status, brokerage_name, configuration_name))
+            
+            conn.commit()
+            
+        except Exception as e:
+            logging.error(f"Error updating background check timestamp: {e}")
+            conn.rollback()
+        finally:
+            conn.close()
+    
+    def save_service_account_oauth(self, brokerage_name, configuration_name, oauth_credentials):
+        """Save encrypted service account OAuth credentials"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Encrypt the OAuth credentials
+            key = self._get_encryption_key()
+            f = Fernet(key)
+            encrypted_oauth = f.encrypt(json.dumps(oauth_credentials).encode())
+            
+            cursor.execute('''
+                UPDATE brokerage_configurations 
+                SET service_account_oauth = ?, updated_at = ?
+                WHERE brokerage_name = ? AND configuration_name = ?
+            ''', (encrypted_oauth, datetime.now(), brokerage_name, configuration_name))
+            
+            if cursor.rowcount == 0:
+                raise ValueError(f"Configuration not found: {brokerage_name}/{configuration_name}")
             
             conn.commit()
             

@@ -1097,6 +1097,31 @@ def main():
             if result.errors:
                 st.error(f"{len(result.errors)} errors occurred")
         
+        # Background Email Service Controls
+        st.markdown("---")
+        st.subheader("🔄 Background Service")
+        try:
+            from background_service_manager import background_service_manager
+            # Show compact service status
+            status = background_service_manager.get_service_status()
+            if status['service_running']:
+                st.success(f"🟢 Service Running ({status['active_configurations_count']} configs)")
+            else:
+                st.warning("🟡 Service Stopped")
+            
+            # Quick service controls
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("▶️ Start", disabled=status['service_running'], use_container_width=True):
+                    background_service_manager.start_service()
+                    st.rerun()
+            with col2:
+                if st.button("⏹️ Stop", disabled=not status['service_running'], use_container_width=True):
+                    background_service_manager.stop_service()
+                    st.rerun()
+        except ImportError:
+            st.info("🔄 Background Service Not Available")
+        
         # Email automation processing history (additional display)
         if 'email_processing_metadata' in st.session_state:
             email_files = st.session_state.email_processing_metadata
