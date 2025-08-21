@@ -365,6 +365,8 @@ def enhanced_main_workflow(db_manager, data_processor):
     if not has_uploaded_file:
         # === ORIGINAL FF2API LANDING PAGE ===
         _render_enhanced_landing_page()
+        # Always show email results even without uploaded file (background processing can happen independently)
+        _render_email_results_dashboard()
     else:
         # === ENHANCED WORKFLOW WITH END-TO-END OPTIONS ===
         _render_enhanced_workflow_with_progress(db_manager, data_processor)
@@ -1385,6 +1387,9 @@ def _show_processing_preview(processing_mode):
 
 def _render_email_results_dashboard():
     """Render email processing results dashboard with shared storage integration."""
+    
+    # DEBUG: Always log that this function is being called
+    logger.error("🔍 EMAIL DEBUG: _render_email_results_dashboard() function called")
     
     # Check for session state results (manual checks)
     session_results = st.session_state.get('email_processing_results') if st.session_state.get('show_email_results_dashboard') else None
