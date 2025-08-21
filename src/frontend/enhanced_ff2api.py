@@ -365,6 +365,33 @@ def enhanced_main_workflow(db_manager, data_processor):
     if not has_uploaded_file:
         # === ORIGINAL FF2API LANDING PAGE ===
         _render_enhanced_landing_page()
+        
+        # FORCE SHOW EMAIL RESULTS SECTION - ALWAYS VISIBLE
+        st.markdown("---")
+        st.markdown("### 🔍 DEPLOYMENT TEST - EMAIL RESULTS")
+        st.success("✅ THIS SECTION CONFIRMS DEPLOYMENT IS WORKING")
+        
+        processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
+        st.info(f"Processing mode: {processing_mode}")
+        
+        if processing_mode == 'full_endtoend':
+            st.success("🤖 Email automation mode is ACTIVE - checking for results...")
+            
+            # Check email processing metadata
+            email_metadata = st.session_state.get('email_processing_metadata', [])
+            st.info(f"Found {len(email_metadata)} items in email_processing_metadata")
+            
+            if email_metadata:
+                with st.expander("📧 Email Processing Results", expanded=True):
+                    for i, meta in enumerate(email_metadata[-3:]):
+                        st.write(f"**File {i+1}:** {meta.get('filename', 'Unknown')}")
+                        st.write(f"**Time:** {meta.get('processed_time', 'Unknown')}")
+                        st.write("---")
+            else:
+                st.warning("No email processing metadata found in session state")
+        else:
+            st.warning("Email automation not active - switch to Full End-to-End Processing")
+            
         # Always show email results even without uploaded file (background processing can happen independently)
         _render_email_results_dashboard()
     else:
@@ -1391,6 +1418,14 @@ def _render_email_results_dashboard():
     # DEBUG: Always log that this function is being called
     logger.error("🔍 EMAIL DEBUG: _render_email_results_dashboard() function called")
     
+    # DEBUG: Show a visible test message to confirm function is running
+    st.markdown("---")
+    st.markdown("### 🔍 EMAIL PROCESSING DEBUG")
+    st.info("✅ Email results dashboard function is now running!")
+    
+    processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
+    st.info(f"Current processing mode: {processing_mode}")
+    
     # Check for session state results (manual checks)
     session_results = st.session_state.get('email_processing_results') if st.session_state.get('show_email_results_dashboard') else None
     
@@ -1479,11 +1514,32 @@ def _render_email_results_dashboard():
         _render_session_state_results(session_results)
         return
     
-    # If email automation mode is active, show status even without results
+    # If email automation mode is active, show status and check for results directly
     if email_automation_active:
         st.markdown("---")
         st.markdown("### 📧 Email Automation Status")
         st.info("🤖 **Email automation is active** - Monitoring for incoming emails and processing in background")
+        
+        # Force check for email processing metadata in session state
+        email_metadata = st.session_state.get('email_processing_metadata', [])
+        if email_metadata:
+            st.success(f"✅ **Found {len(email_metadata)} recent automated processing results!**")
+            
+            with st.expander(f"📧 Recent Email Processing Results ({len(email_metadata)} files)", expanded=True):
+                for meta in email_metadata[-5:]:  # Show last 5
+                    filename = meta.get('filename', 'Unknown')
+                    processed_time = meta.get('processed_time', 'Unknown')
+                    processing_mode = meta.get('processing_mode', 'Unknown')
+                    result = meta.get('result', {})
+                    
+                    st.write(f"**📄 {filename}**")
+                    st.write(f"⏰ Processed: {processed_time}")
+                    st.write(f"🔧 Mode: {processing_mode}")
+                    if result:
+                        st.write(f"✅ Result: Successfully processed")
+                    st.write("---")
+        else:
+            st.info("⏳ No recent automated processing results found - waiting for incoming emails")
         
         # Show processing indicator if available
         try:
