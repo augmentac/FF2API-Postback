@@ -67,6 +67,14 @@ def main():
         elif page == "Postback & Enrichment System":
             st.info("Enrich existing load data without creating new loads")
     
+    # ========== EMAIL PROCESSING RESULTS DISPLAY ==========
+    try:
+        from email_results_display import show_email_processing_results
+        show_email_processing_results()
+    except Exception as e:
+        st.info(f"Email results display not available: {e}")
+    # =======================================================
+    
     # Route to appropriate application
     if page == "Unified Load Processing":
         # Load enhanced FF2API system (original FF2API + end-to-end capabilities)
