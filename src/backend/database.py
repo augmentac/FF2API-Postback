@@ -1471,6 +1471,42 @@ class DatabaseManager:
                 ''')
                 
                 logging.info("Successfully added auth columns to brokerage_configurations table")
+            
+            # Check if brokerage_configurations table needs background monitoring columns migration
+            cursor.execute("PRAGMA table_info(brokerage_configurations)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            
+            if 'check_interval_minutes' not in column_names:
+                logging.info("Adding background monitoring columns to brokerage_configurations table...")
+                
+                # Add background monitoring columns
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN auto_monitor_enabled BOOLEAN DEFAULT 0
+                ''')
+                
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN check_interval_minutes INTEGER DEFAULT 5
+                ''')
+                
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN last_background_check TIMESTAMP
+                ''')
+                
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN background_service_status TEXT DEFAULT 'inactive'
+                ''')
+                
+                cursor.execute('''
+                    ALTER TABLE brokerage_configurations 
+                    ADD COLUMN service_account_oauth TEXT
+                ''')
+                
+                logging.info("Successfully added background monitoring columns to brokerage_configurations table")
                 
         except Exception as e:
             logging.error(f"Error during database migration: {e}")
