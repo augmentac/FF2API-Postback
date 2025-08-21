@@ -152,6 +152,16 @@ class EmailAutomationManager:
     def process_email_attachment(self, file_data: bytes, filename: str, email_source: str = "unknown") -> Dict[str, Any]:
         """Process an email attachment using the same workflow as manual processing."""
         try:
+            # Pre-check credentials to provide specific error messages
+            credential_check = self._validate_processing_credentials()
+            if not credential_check['valid']:
+                return {
+                    'success': False,
+                    'error': f"Credential validation failed: {credential_check['error']}",
+                    'error_type': 'credential_error',
+                    'suggestions': credential_check.get('suggestions', [])
+                }
+            
             # Create processing job for dashboard tracking using unified storage
             job_id = None
             try:
@@ -163,7 +173,11 @@ class EmailAutomationManager:
                 elif filename.endswith(('.xlsx', '.xls')):
                     df = pd.read_excel(pd.io.common.BytesIO(file_data))
                 else:
-                    return {'success': False, 'error': 'Unsupported file format'}
+                    return {
+                        'success': False, 
+                        'error': f'Unsupported file format: {filename}. Supported formats: CSV, Excel (.xlsx, .xls)',
+                        'error_type': 'file_format_error'
+                    }
                 
                 # Create dashboard job in unified storage (handles failover automatically)
                 job_id = unified_storage.add_email_job(
@@ -383,6 +397,72 @@ class EmailAutomationManager:
         except Exception as e:
             logger.error(f"Error retrieving saved field mappings for {self.brokerage_key}: {e}")
             return {}
+    
+    def _validate_processing_credentials(self) -> Dict[str, Any]:
+        """Validate that all required credentials are available for processing."""
+        try:
+            from credential_manager import CredentialManager
+            
+            credential_manager = CredentialManager()
+            issues = []
+            suggestions = []
+            
+            # Check FF2API credentials
+            api_key = credential_manager.get_brokerage_api_key(self.brokerage_key)
+            if not api_key:
+                issues.append(f"No FF2API credentials found for brokerage '{self.brokerage_key}'")
+                suggestions.extend([
+                    f"Add '{self.brokerage_key}' API key to .streamlit/secrets.toml under [api] section",
+                    "Or configure brokerage-specific credentials in the database",
+                    "Verify the brokerage name is spelled correctly"
+                ])
+            elif api_key == "dummy_key_for_local_testing":
+                issues.append(f"Dummy/test API key configured for '{self.brokerage_key}' - not suitable for production")
+                suggestions.extend([
+                    f"Replace dummy key with real FF2API credentials for '{self.brokerage_key}'",
+                    "Contact FF2API support to obtain production API key"
+                ])
+            
+            # Check field mappings
+            field_mappings = self._get_saved_field_mappings()
+            if not field_mappings:
+                issues.append(f"No field mappings configured for brokerage '{self.brokerage_key}'")
+                suggestions.extend([
+                    f"Configure field mappings for '{self.brokerage_key}' in the main application",
+                    "Process at least one file manually to create field mapping template"
+                ])
+            
+            # Check API configuration
+            api_config = credential_manager.get_api_configuration(self.brokerage_key)
+            if api_config and not api_config.get('success'):
+                issues.append(f"API configuration issues for '{self.brokerage_key}': {api_config.get('message', 'Unknown error')}")
+                suggestions.extend([
+                    "Check API endpoint configuration",
+                    "Verify network connectivity to FF2API"
+                ])
+            
+            if issues:
+                return {
+                    'valid': False,
+                    'error': '; '.join(issues),
+                    'suggestions': suggestions,
+                    'error_details': {
+                        'missing_api_key': not api_key,
+                        'dummy_api_key': api_key == "dummy_key_for_local_testing" if api_key else False,
+                        'missing_field_mappings': not field_mappings,
+                        'api_config_issues': api_config and not api_config.get('success')
+                    }
+                }
+            
+            return {'valid': True}
+            
+        except Exception as e:
+            logger.error(f"Error validating credentials: {e}")
+            return {
+                'valid': False,
+                'error': f"Credential validation error: {str(e)}",
+                'suggestions': ["Check system configuration and try again"]
+            }
 
 
 def render_email_automation_setup(brokerage_key: str):

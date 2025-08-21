@@ -58,9 +58,24 @@ class CredentialManager:
             secret_key = self._normalize_brokerage_key(brokerage_key)
             api_secrets = st.secrets.get("api", {})
             
+            # Check for specific brokerage key first
             if secret_key in api_secrets:
-                logger.info(f"Found API credentials in secrets for brokerage: {brokerage_key}")
-                return api_secrets[secret_key]
+                api_key = api_secrets[secret_key]
+                # Don't accept dummy/test keys for production use
+                if api_key and api_key != "dummy_key_for_local_testing":
+                    logger.info(f"Found API credentials in secrets for brokerage: {brokerage_key}")
+                    return api_key
+                else:
+                    logger.warning(f"Dummy/test API key found for {brokerage_key} - not suitable for production")
+            
+            # Check for generic api_key as fallback, but warn about it
+            elif "api_key" in api_secrets:
+                api_key = api_secrets["api_key"]
+                if api_key and api_key != "dummy_key_for_local_testing":
+                    logger.warning(f"Using generic API key for brokerage {brokerage_key} - consider adding brokerage-specific key")
+                    return api_key
+                else:
+                    logger.error(f"Only dummy/test API key available - cannot process {brokerage_key} loads")
                 
         except Exception as e:
             logger.error(f"Error checking secrets for {brokerage_key}: {e}")

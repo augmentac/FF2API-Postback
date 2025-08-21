@@ -774,8 +774,26 @@ class EmailMonitorService:
         Returns:
             Dictionary with detailed processing results
         """
+        job_id = None
         try:
             logger.info(f"Processing attachment with detailed results: {attachment.filename} from {attachment.sender}")
+            
+            # Create job in shared storage for UI tracking
+            try:
+                from shared_storage_bridge import add_email_job, update_job_status
+                job_id = add_email_job(
+                    filename=attachment.filename,
+                    brokerage_key=brokerage_key,
+                    email_source=attachment.sender,
+                    record_count=0  # Will update after parsing
+                )
+                logger.info(f"Created job in shared storage: {job_id}")
+            except Exception as e:
+                logger.warning(f"Failed to create job in shared storage: {e}")
+            
+            # Update job: parsing email
+            if job_id:
+                update_job_status(job_id, brokerage_key, 'processing', progress=10, step='parsing_email')
             
             # Parse file content
             df = None
@@ -787,29 +805,46 @@ class EmailMonitorService:
             elif attachment.mime_type in ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'] or attachment.filename.lower().endswith(('.xlsx', '.xls')):
                 df = pd.read_excel(io.BytesIO(attachment.content), engine='openpyxl' if attachment.filename.lower().endswith('.xlsx') else None)
             else:
+                error_msg = f"Unsupported file type: {attachment.mime_type}"
+                if job_id:
+                    update_job_status(job_id, brokerage_key, 'failed', error_message=error_msg)
                 return {
                     'success': False,
-                    'error': f"Unsupported file type: {attachment.mime_type}",
+                    'error': error_msg,
                     'filename': attachment.filename,
                     'sender': attachment.sender,
                     'received_time': attachment.received_time.isoformat()
                 }
             
             if df is None or df.empty:
+                error_msg = "Failed to parse file or file is empty"
+                if job_id:
+                    update_job_status(job_id, brokerage_key, 'failed', error_message=error_msg)
                 return {
                     'success': False,
-                    'error': "Failed to parse file or file is empty",
+                    'error': error_msg,
                     'filename': attachment.filename,
                     'sender': attachment.sender,
                     'received_time': attachment.received_time.isoformat()
                 }
             
+            # Update job with record count and analyzing step
+            record_count = len(df)
+            if job_id:
+                update_job_status(job_id, brokerage_key, 'processing', progress=30, step='analyzing_data', record_count=record_count)
+            
             # Use the email automation bridge to process via manual workflow
             try:
                 from src.frontend.email_automation import EmailAutomationManager
                 
+                if job_id:
+                    update_job_status(job_id, brokerage_key, 'processing', progress=50, step='applying_mappings')
+                
                 # Initialize email automation manager for this brokerage
                 automation_manager = EmailAutomationManager(brokerage_key)
+                
+                if job_id:
+                    update_job_status(job_id, brokerage_key, 'processing', progress=70, step='submitting_api')
                 
                 # Process the attachment using the manual workflow bridge with email source
                 processing_result = automation_manager.process_email_attachment(
@@ -817,8 +852,21 @@ class EmailMonitorService:
                 )
                 
                 if processing_result['success']:
+                    if job_id:
+                        update_job_status(job_id, brokerage_key, 'processing', progress=90, step='generating_results')
+                    
                     # Store in session state for UI pickup (email_processing_metadata)
                     self._store_email_processing_result(attachment, processing_result, brokerage_key)
+                    
+                    # Final job completion
+                    if job_id:
+                        success_count = processing_result.get('processed_records', record_count)
+                        failure_count = record_count - success_count
+                        update_job_status(
+                            job_id, brokerage_key, 'completed', progress=100, 
+                            success_count=success_count, failure_count=failure_count,
+                            result_data={'enriched_data': processing_result.get('result_object')}
+                        )
                     
                     # Convert the result to the format expected by email monitor
                     result = {
@@ -838,9 +886,20 @@ class EmailMonitorService:
                     logger.info(f"Successfully processed {attachment.filename} via manual workflow bridge - {result['record_count']} records")
                     return result
                 else:
+                    # Processing failed - update job with detailed error
+                    error_msg = processing_result.get('error', 'Unknown processing error')
+                    if job_id:
+                        update_job_status(
+                            job_id, brokerage_key, 'failed', 
+                            error_message=error_msg,
+                            failure_count=record_count,
+                            success_count=0
+                        )
+                    
+                    logger.error(f"Processing failed for {attachment.filename}: {error_msg}")
                     return {
                         'success': False,
-                        'error': processing_result.get('error', 'Unknown processing error'),
+                        'error': error_msg,
                         'filename': attachment.filename,
                         'sender': attachment.sender,
                         'received_time': attachment.received_time.isoformat(),
@@ -848,10 +907,20 @@ class EmailMonitorService:
                     }
                 
             except Exception as e:
+                error_msg = f"Manual workflow bridge error: {str(e)}"
                 logger.error(f"Error processing via manual workflow bridge: {e}")
+                
+                if job_id:
+                    update_job_status(
+                        job_id, brokerage_key, 'failed', 
+                        error_message=error_msg,
+                        failure_count=record_count if 'record_count' in locals() else 0,
+                        success_count=0
+                    )
+                
                 return {
                     'success': False,
-                    'error': f"Manual workflow bridge error: {str(e)}",
+                    'error': error_msg,
                     'filename': attachment.filename,
                     'sender': attachment.sender,
                     'received_time': attachment.received_time.isoformat(),
@@ -859,7 +928,15 @@ class EmailMonitorService:
                 }
             
         except Exception as e:
+            error_msg = f"Processing error: {str(e)}"
             logger.error(f"Error in detailed processing for {attachment.filename}: {e}")
+            
+            if job_id:
+                update_job_status(
+                    job_id, brokerage_key, 'failed', 
+                    error_message=error_msg
+                )
+            
             return {
                 'success': False,
                 'error': str(e),

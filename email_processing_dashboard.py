@@ -72,11 +72,14 @@ class EmailProcessingDashboard:
         """Render the complete email processing dashboard."""
         st.subheader("📧 Email Processing Activity")
         
-        # Display any system errors first
-        self._render_system_errors(brokerage_key)
-        
-        # Get current processing jobs
+        # Get current processing jobs first to check for immediate alerts
         active_jobs, completed_jobs = self._get_processing_jobs(brokerage_key)
+        
+        # Display real-time error alerts first (most prominent)
+        self._render_real_time_error_alerts(brokerage_key, active_jobs, completed_jobs)
+        
+        # Display any system errors
+        self._render_system_errors(brokerage_key)
         
         # Render active processing section
         if active_jobs:
@@ -94,6 +97,78 @@ class EmailProcessingDashboard:
         
         # Show enhanced dashboard controls
         self._render_dashboard_controls(brokerage_key)
+    
+    def _render_real_time_error_alerts(self, brokerage_key: str, active_jobs: List[EmailProcessingJob], completed_jobs: List[EmailProcessingJob]):
+        """Render real-time error alerts for immediate attention."""
+        alerts = []
+        
+        # Check for recent failures (last 10 minutes)
+        recent_failures = []
+        ten_minutes_ago = datetime.now() - timedelta(minutes=10)
+        
+        for job in completed_jobs:
+            if (job.status == "failed" and 
+                hasattr(job, 'started_at') and 
+                job.started_at > ten_minutes_ago):
+                recent_failures.append(job)
+        
+        # Check for stuck processing jobs (running > 5 minutes)
+        stuck_jobs = []
+        five_minutes_ago = datetime.now() - timedelta(minutes=5)
+        
+        for job in active_jobs:
+            if (job.status == "processing" and 
+                hasattr(job, 'started_at') and 
+                job.started_at < five_minutes_ago):
+                stuck_jobs.append(job)
+        
+        # Generate alerts
+        if recent_failures:
+            alerts.append({
+                'type': 'error',
+                'title': f'🚨 {len(recent_failures)} Recent Processing Failure(s)',
+                'message': f'Email processing failed for files: {", ".join([job.filename for job in recent_failures[:3]])}',
+                'action': 'Check error details below and verify brokerage settings'
+            })
+        
+        if stuck_jobs:
+            alerts.append({
+                'type': 'warning', 
+                'title': f'⏱️ {len(stuck_jobs)} Job(s) Taking Too Long',
+                'message': f'Processing has been running for over 5 minutes: {", ".join([job.filename for job in stuck_jobs[:2]])}',
+                'action': 'Check system resources or restart processing if needed'
+            })
+        
+        # Check for high failure rate
+        if completed_jobs:
+            recent_completed = [job for job in completed_jobs if hasattr(job, 'started_at') and job.started_at > ten_minutes_ago]
+            if recent_completed:
+                failed_count = len([job for job in recent_completed if job.status == "failed"])
+                failure_rate = (failed_count / len(recent_completed)) * 100
+                
+                if failure_rate > 50 and len(recent_completed) >= 3:
+                    alerts.append({
+                        'type': 'error',
+                        'title': f'📊 High Failure Rate Detected ({failure_rate:.0f}%)',
+                        'message': f'{failed_count} out of {len(recent_completed)} recent jobs failed',
+                        'action': 'Check FF2API credentials and field mappings immediately'
+                    })
+        
+        # Render alerts
+        if alerts:
+            for alert in alerts:
+                if alert['type'] == 'error':
+                    st.error(f"**{alert['title']}**\n\n{alert['message']}\n\n💡 **Action Required:** {alert['action']}")
+                elif alert['type'] == 'warning':
+                    st.warning(f"**{alert['title']}**\n\n{alert['message']}\n\n💡 **Suggestion:** {alert['action']}")
+                
+                # Add dismiss button for each alert
+                if st.button(f"✖️ Dismiss Alert", key=f"dismiss_{hash(alert['title'])}"):
+                    # Store dismissed alerts in session state
+                    if 'dismissed_alerts' not in st.session_state:
+                        st.session_state.dismissed_alerts = set()
+                    st.session_state.dismissed_alerts.add(alert['title'])
+                    st.rerun()
     
     def _render_system_errors(self, brokerage_key: str):
         """Render system errors and issues."""
@@ -430,11 +505,26 @@ class EmailProcessingDashboard:
         """Render recent processing results using same format as manual upload."""
         st.markdown("### 📈 Recent Email Processing Results")
         
-        # Show last 5 completed jobs
-        recent_jobs = sorted(completed_jobs, key=lambda x: x.started_at, reverse=True)[:5]
+        # Separate failed and successful jobs
+        recent_jobs = sorted(completed_jobs, key=lambda x: x.started_at, reverse=True)[:10]
+        failed_jobs = [job for job in recent_jobs if job.status == "failed"]
+        successful_jobs = [job for job in recent_jobs if job.status == "completed"]
         
-        for job in recent_jobs:
-            self._render_completed_job_card(job)
+        # Show failed jobs prominently first
+        if failed_jobs:
+            st.markdown("#### 🚨 Failed Processing Jobs")
+            st.error(f"⚠️ **{len(failed_jobs)} job(s) failed processing** - Check details below for troubleshooting")
+            
+            for job in failed_jobs[:3]:  # Show up to 3 most recent failures
+                self._render_failed_job_card(job)
+        
+        # Show successful jobs
+        if successful_jobs:
+            if failed_jobs:
+                st.markdown("#### ✅ Successful Processing Jobs")
+            
+            for job in successful_jobs[:5]:  # Show up to 5 successful jobs
+                self._render_completed_job_card(job)
     
     def _render_completed_job_card(self, job: EmailProcessingJob):
         """Render completed job card matching manual upload results display."""
@@ -473,6 +563,73 @@ class EmailProcessingDashboard:
             # Download results (same as manual upload)
             if job.result_data and job.result_data.get('enriched_data'):
                 self._render_download_buttons(job)
+    
+    def _render_failed_job_card(self, job: EmailProcessingJob):
+        """Render failed job card with detailed error information."""
+        with st.expander(f"❌ {job.filename} - FAILED", expanded=True):
+            
+            # Prominent error display
+            st.error(f"**Processing Failed:** {job.error_message}")
+            
+            # Job details
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write(f"**Source:** 📧 {job.email_source}")
+                st.write(f"**Started:** {job.started_at.strftime('%H:%M:%S')}")
+                st.write(f"**Duration:** {job.processing_time:.1f}s")
+                
+            with col2:
+                st.write(f"**Records:** {job.record_count}")
+                st.write(f"**Success:** {job.success_count}")
+                st.write(f"**Errors:** {job.failure_count}")
+            
+            # Detailed error analysis
+            st.markdown("**🔍 Error Analysis:**")
+            error_msg = job.error_message.lower()
+            
+            if "ff2api" in error_msg or "401" in error_msg:
+                st.warning("""
+                **FF2API Authentication Issue:**
+                - Check FF2API credentials for this brokerage
+                - Verify API endpoint configuration
+                - Ensure brokerage has proper API access permissions
+                """)
+            elif "mapping" in error_msg or "field" in error_msg:
+                st.info("""
+                **Field Mapping Issue:**
+                - Check field mappings for this brokerage
+                - Verify column names in uploaded file
+                - Update field mappings if data structure changed
+                """)
+            elif "unsupported file type" in error_msg:
+                st.info("""
+                **File Type Issue:**
+                - Supported formats: CSV, Excel (.xlsx, .xls), JSON
+                - Check if file is corrupted or in unsupported format
+                """)
+            else:
+                st.warning("""
+                **General Processing Error:**
+                - Check logs for detailed error information
+                - Contact support if issue persists
+                """)
+            
+            # Suggested actions
+            st.markdown("**🛠️ Suggested Actions:**")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button(f"🔄 Retry Processing", key=f"retry_{job.job_id}"):
+                    st.info("Manual retry functionality - reprocess this file through manual upload")
+            
+            with col2:
+                if st.button(f"📋 Copy Error Details", key=f"copy_{job.job_id}"):
+                    st.code(f"File: {job.filename}\nError: {job.error_message}\nTime: {job.started_at}")
+            
+            with col3:
+                if st.button(f"🔧 Check Settings", key=f"settings_{job.job_id}"):
+                    st.info("Check brokerage field mappings and API credentials in main settings")
     
     def _render_download_buttons(self, job: EmailProcessingJob):
         """Render download buttons matching manual upload interface."""
