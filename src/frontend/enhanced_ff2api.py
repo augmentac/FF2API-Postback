@@ -1405,8 +1405,10 @@ def _render_email_results_dashboard():
     # Check for shared storage results (background processing)
     shared_results = None
     brokerage_name = st.session_state.get('brokerage_name', 'default')
+    logger.error(f"🔍 EMAIL DEBUG: About to check shared storage for brokerage: {brokerage_name}")
     try:
         from shared_storage_bridge import shared_storage
+        logger.error("🔍 EMAIL DEBUG: Successfully imported shared_storage_bridge")
         
         # Try multiple case variations to handle inconsistent brokerage naming
         brokerage_variations = [
