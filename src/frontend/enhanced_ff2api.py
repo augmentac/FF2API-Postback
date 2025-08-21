@@ -447,8 +447,14 @@ def enhanced_main_workflow(db_manager, data_processor):
         else:
             st.warning("Email automation not active - switch to Full End-to-End Processing")
             
+        # ========== EMERGENCY EMAIL RESULTS SECTION ==========
+        st.error("🚨 CHECKING FOR AUTOMATED EMAIL PROCESSING RESULTS 🚨")
+        st.info("📧 The logs show email processing is working - results should appear below:")
+        
         # Always show email results even without uploaded file (background processing can happen independently)
         _render_email_results_dashboard()
+        
+        # ======================================================
     else:
         # === ENHANCED WORKFLOW WITH END-TO-END OPTIONS ===
         _render_enhanced_workflow_with_progress(db_manager, data_processor)
@@ -1488,12 +1494,12 @@ def _render_email_results_dashboard():
     processing_mode = st.session_state.get('enhanced_processing_mode', 'standard')
     email_automation_active = processing_mode == 'full_endtoend'
     
+    # Check for shared storage results (background processing)
+    shared_results = None
+    
     # Debug what we're actually seeing
     logger.info(f"🔍 EMAIL DEBUG: processing_mode = '{processing_mode}', email_automation_active = {email_automation_active}")
     logger.info(f"🔍 EMAIL DEBUG: session_results exists = {session_results is not None}, shared_results exists = {shared_results is not None}")
-    
-    # Check for shared storage results (background processing)
-    shared_results = None
     brokerage_name = st.session_state.get('brokerage_name', 'default')
     logger.error(f"🔍 EMAIL DEBUG: About to check shared storage for brokerage: {brokerage_name}")
     try:
