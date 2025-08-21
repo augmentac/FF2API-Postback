@@ -27,6 +27,9 @@ from pathlib import Path
 import requests
 from email.mime.multipart import MIMEMultipart
 
+# Import canonical data models
+from data_models import EmailJob, ProcessingResult, JobStatus, ProcessingStep, create_email_job
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -41,26 +44,12 @@ class EmailAttachment:
     received_time: datetime
 
 @dataclass
-class ProcessingResult:
-    """Result of automatic email processing."""
-    success: bool
-    message: str
-    processed_count: int
-    error_details: Optional[str] = None
-    file_info: Optional[Dict[str, Any]] = None
-    # Legacy fields for backwards compatibility
-    processed_files: Optional[List[Dict[str, Any]]] = None
-    processing_summary: Optional[Dict[str, Any]] = None
-
-@dataclass
 class EmailAutomationConfig:
     """Configuration for automated email processing."""
     brokerage_key: str
     folder_name: str = 'INBOX'
     service_account_oauth: Optional[Dict[str, Any]] = None
     check_interval_minutes: int = 5
-    processed_files: Optional[List[Dict[str, Any]]] = None
-    processing_summary: Optional[Dict[str, Any]] = None
 
 class EmailMonitorService:
     """Gmail monitoring service for automatic load processing."""
@@ -242,9 +231,17 @@ class EmailMonitorService:
             oauth_creds = self.oauth_credentials.get(brokerage_key)
             if not oauth_creds:
                 return ProcessingResult(
-                    success=False,
-                    message=f"No OAuth credentials configured for {brokerage_key}",
-                    processed_count=0
+                    result_id=f"no_oauth_{int(datetime.now().timestamp())}",
+                    job_id="oauth_check",
+                    brokerage_key=brokerage_key,
+                    filename="oauth_check",
+                    records_processed=0,
+                    records_successful=0,
+                    records_failed=0,
+                    overall_status=JobStatus.FAILED,
+                    output_files=[],
+                    summary_data={"message": f"No OAuth credentials configured for {brokerage_key}"},
+                    error_summary=f"No OAuth credentials configured for {brokerage_key}"
                 )
             
             # Get Gmail API headers using OAuth
@@ -268,9 +265,16 @@ class EmailMonitorService:
             
             if not attachments:
                 return ProcessingResult(
-                    success=True,
-                    message="No new files found",
-                    processed_count=0
+                    result_id=f"no_files_{int(datetime.now().timestamp())}",
+                    job_id="monitoring_check",
+                    brokerage_key=brokerage_key,
+                    filename="monitoring_check",
+                    records_processed=0,
+                    records_successful=0,
+                    records_failed=0,
+                    overall_status=JobStatus.COMPLETED,
+                    output_files=[],
+                    summary_data={"message": "No new files found", "total_attachments": 0}
                 )
             
             # Process attachments with detailed results
@@ -302,14 +306,25 @@ class EmailMonitorService:
             }
             
             return ProcessingResult(
-                success=True,
-                message=f"Processed {processed_count} files from {oauth_creds.get('user_email')}",
-                processed_count=processed_count,
-                file_info={
+                result_id=f"batch_{int(datetime.now().timestamp())}",
+                job_id="email_monitoring_batch",
+                brokerage_key=brokerage_key,
+                filename=f"email_batch_{len(attachments)}_files",
+                records_processed=total_records,
+                records_successful=total_records,
+                records_failed=0,
+                processing_time_seconds=0.0,
+                overall_status=JobStatus.COMPLETED if processed_count > 0 else JobStatus.FAILED,
+                output_files=[],
+                summary_data={
+                    'message': f"Processed {processed_count} files from {oauth_creds.get('user_email')}",
                     'processed_files': processed_files,
-                    'processing_summary': processing_summary
+                    'processing_summary': processing_summary,
+                    'total_attachments': len(attachments),
+                    'successful_files': processed_count,
+                    'failed_files': len(attachments) - processed_count
                 },
-                error_details='; '.join(processing_errors) if processing_errors else None
+                error_summary='; '.join(processing_errors) if processing_errors else ""
             )
             
         except Exception as e:
