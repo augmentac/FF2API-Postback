@@ -1803,16 +1803,22 @@ def _render_simplified_results():
 
 def _render_enhanced_results_section():
     """Enhanced results section with end-to-end capabilities"""
-    # Check for session state results first
-    has_session_results = 'enhanced_processing_results' in st.session_state
+    # Check for VALID session state results (not just existence of key)
+    session_results = st.session_state.get('enhanced_processing_results')
+    has_valid_session_results = (
+        session_results is not None and 
+        isinstance(session_results, dict) and 
+        session_results.get('total_rows', 0) > 0 and
+        session_results.get('ff2api_results', [])
+    )
     
     # Always check for email automation results from shared storage
     has_email_results = False
     email_results = None
     
-    # Debug logging
+    # Debug logging  
     brokerage_name = st.session_state.get('brokerage_name', 'default')
-    logger.info(f"🔍 _render_enhanced_results_section: has_session_results={has_session_results}, brokerage_name='{brokerage_name}'")
+    logger.info(f"🔍 _render_enhanced_results_section: has_valid_session_results={has_valid_session_results}, session_results={session_results}, brokerage_name='{brokerage_name}'")
     
     try:
         from shared_storage_bridge import shared_storage
@@ -1842,10 +1848,10 @@ def _render_enhanced_results_section():
         import traceback
         logger.error(traceback.format_exc())
     
-    logger.info(f"🔍 Result summary: has_session_results={has_session_results}, has_email_results={has_email_results}")
+    logger.info(f"🔍 Result summary: has_valid_session_results={has_valid_session_results}, has_email_results={has_email_results}")
     
     # If no results from either source, show debug info and return
-    if not has_session_results and not has_email_results:
+    if not has_valid_session_results and not has_email_results:
         logger.info("❌ No results from either source - not rendering results section")
         
         # Always show some debug info to help troubleshoot
@@ -1856,7 +1862,7 @@ def _render_enhanced_results_section():
         with st.expander("🔍 Debug Details", expanded=False):
             st.write(f"**Session State Keys**: {list(st.session_state.keys())}")
             st.write(f"**Brokerage Name**: '{brokerage_name}'")
-            st.write(f"**Has Session Results**: {has_session_results}")
+            st.write(f"**Has Session Results**: {has_valid_session_results}")
             st.write(f"**Has Email Results**: {has_email_results}")
             
             # Test shared storage access directly in UI
@@ -1874,7 +1880,7 @@ def _render_enhanced_results_section():
         return
     
     # Prioritize email results if no session results, or if user wants to see email results
-    if has_email_results and (not has_session_results or st.session_state.get('prefer_email_results', True)):
+    if has_email_results and (not has_valid_session_results or st.session_state.get('prefer_email_results', True)):
         st.session_state.enhanced_processing_results = email_results
         logger.info("✅ Set email results as enhanced_processing_results in session state")
     
