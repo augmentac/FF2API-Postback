@@ -13,7 +13,6 @@ import streamlit as st
 
 # ========== ABSOLUTE EMERGENCY TEST - UNIFIED_APP.PY ==========
 st.error("🚨🚨🚨 THIS IS UNIFIED_APP.PY RUNNING 🚨🚨🚨")
-st.balloons()
 # ==============================================================
 
 import pandas as pd

@@ -25,7 +25,7 @@ class XLSXPostbackHandler(PostbackHandler):
         return True
         
     def post(self, rows: List[Dict[str, Any]]) -> bool:
-        """Write enriched rows to Excel file.
+        """Write enriched rows to Excel file using pandas to avoid Bad CRC-32 errors.
         
         Args:
             rows: List of enriched data dictionaries
@@ -43,6 +43,34 @@ class XLSXPostbackHandler(PostbackHandler):
         if not valid_rows:
             logger.warning("No valid data rows to write to XLSX (all rows were empty or invalid)")
             return True
+            
+        # HOTFIX: Use pandas ExcelWriter exclusively to eliminate Bad CRC-32 errors
+        try:
+            import pandas as pd
+            
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(self.output_path), exist_ok=True)
+            
+            # Remove any existing file to prevent corruption
+            if os.path.exists(self.output_path):
+                try:
+                    os.remove(self.output_path)
+                    logger.info(f"Removed existing Excel file to prevent Bad CRC-32: {self.output_path}")
+                except Exception as e:
+                    logger.warning(f"Could not remove existing file: {e}")
+            
+            # Convert to DataFrame and export directly
+            df = pd.DataFrame(valid_rows)
+            
+            with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+                df.to_excel(writer, sheet_name=self.sheet_name, index=False)
+            
+            logger.info(f"Successfully wrote {len(valid_rows)} rows to {self.output_path} using pandas hotfix")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Pandas Excel hotfix failed: {e}")
+            return False
             
         try:
             # Ensure output directory exists

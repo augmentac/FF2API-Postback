@@ -29,7 +29,6 @@ def main():
     
     # ========== ABSOLUTE DEPLOYMENT TEST - STREAMLIT_APP.PY ==========
     st.error("🚨 EMERGENCY: IF YOU SEE THIS, streamlit_app.py IS WORKING 🚨")
-    st.balloons()
     # ==================================================================
     
     # Set up page config (only call once)
@@ -110,12 +109,10 @@ if __name__ == "__main__":
     # EMERGENCY OVERRIDE - TEST DEPLOYMENT
     import streamlit as st
     st.error("🚨🚨🚨 DIRECT EXECUTION TEST - __name__ == __main__ 🚨🚨🚨")
-    st.balloons()
     main()
 else:
     # For Streamlit Cloud (when imported as module)
     # EMERGENCY OVERRIDE - TEST DEPLOYMENT  
     import streamlit as st
     st.error("🚨🚨🚨 MODULE IMPORT TEST - STREAMLIT CLOUD PATH 🚨🚨🚨")
-    st.balloons()
     main() 
